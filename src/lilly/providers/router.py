@@ -226,11 +226,12 @@ class ModelRouter:
         so a broken model is routed around like any other failing one."""
         try:
             return await self._providers[entry.name].complete(req)
-        except (asyncio.CancelledError, ProviderError):
+        except ProviderError as pe:
+            log.error("model %s raised ProviderError: %s (status=%s, retryable=%s)", entry.name, pe, pe.status, pe.retryable)
             raise
         except Exception as exc:
             # only the type is logged: the message of an adapter error may quote the key
-            log.error("model %s raised %s", entry.name, type(exc).__name__)
+            log.error("model %s raised %s: %s", entry.name, type(exc).__name__, exc)
             raise ProviderError(retryable=True) from None
 
     def _record_failure(self, entry: ModelEntry, exc: ProviderError) -> None:

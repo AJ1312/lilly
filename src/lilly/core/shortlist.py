@@ -7,8 +7,9 @@ from lilly.domain.decisions import Option
 from lilly.domain.plan import FINAL_TOOL
 from lilly.domain.tools_registry import ToolSpec
 
-SHOW_ALL_UP_TO = 12
+SHOW_ALL_UP_TO = 20
 DEFAULT_K = 10
+CONTROL_TOOLS = frozenset({"agent.plan", "agent.ask", "result.read"})
 
 
 def tool_options(specs: Mapping[str, ToolSpec]) -> tuple[Option, ...]:
@@ -21,12 +22,13 @@ def shortlist(specs: Mapping[str, ToolSpec], ranking: Sequence[str] = (), k: int
 
     A small catalog, or no advice, shows everything: advice never hides tools from a catalog that is cheap
     to show. Otherwise the top `k` by ranking, padded in catalog order when the advice named fewer, and
-    always the final-answer tool, which a plan cannot end without. Names the catalog lacks are ignored.
+    always the final-answer tool and control tools, which are always included.
     """
     names = list(specs)
-    ranked = [n for n in dict.fromkeys(ranking) if n in specs and n != FINAL_TOOL]
+    always = [n for n in (FINAL_TOOL, *sorted(CONTROL_TOOLS)) if n in specs]
+    ranked = [n for n in dict.fromkeys(ranking) if n in specs and n not in always]
     if len(names) <= SHOW_ALL_UP_TO or not ranked:
         return names
-    rest = [n for n in names if n not in ranked and n != FINAL_TOOL]
+    rest = [n for n in names if n not in ranked and n not in always]
     chosen = (ranked + rest)[:k]
-    return chosen + [FINAL_TOOL] if FINAL_TOOL in specs else chosen
+    return chosen + always

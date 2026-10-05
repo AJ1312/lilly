@@ -44,7 +44,10 @@ def _parse_google_retry_delay(data: Any) -> float | None:
     """Extract retryDelay from Google-style error details."""
     if not isinstance(data, dict):
         return None
-    details = data.get("error", {}).get("details", [])
+    err = data.get("error")
+    if not isinstance(err, dict):
+        return None
+    details = err.get("details", [])
     if not isinstance(details, list):
         return None
     for item in details:

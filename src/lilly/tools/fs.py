@@ -3,6 +3,8 @@ directory descriptor with O_NOFOLLOW so a symlink swapped in after the check can
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import fnmatch
 import json
 import os
 import secrets
@@ -15,9 +17,10 @@ from typing import Any
 from urllib.parse import quote
 
 from lilly.domain.errors import PolicyDenied, ToolError, ValidationFailed
-from lilly.domain.labels import Label
+from lilly.domain.labels import Label, Verdict
 from lilly.domain.policy import PathScope
 from lilly.domain.ports import ToolContext, ToolResult
+from lilly.domain.prompts import PROTECTED_PATH_REASON
 from lilly.domain.text import extract_json
 from lilly.tools.base import Tool, bool_arg, int_arg, resolve_in_scope, str_arg
 
@@ -44,8 +47,34 @@ def _out(payload: object, label: Label) -> ToolResult:
 
 
 class _FsTool(Tool):
-    def __init__(self, scope: PathScope) -> None:
+    def __init__(self, scope: PathScope,
+                 protected_globs: tuple[str, ...] | Callable[[], tuple[str, ...]] = ()) -> None:
         self._scope = scope
+        self._protected_globs = protected_globs
+
+    def _is_protected(self, target: Path | str) -> bool:
+        globs = self._protected_globs() if callable(self._protected_globs) else self._protected_globs
+        if not globs:
+            return False
+        p = Path(target)
+        rel_p: Path | None = None
+        for root in self._scope.roots:
+            try:
+                rel_p = p.relative_to(root)
+                break
+            except ValueError:
+                pass
+
+        target_p = rel_p if rel_p is not None else p
+        name = target_p.name
+        str_path = str(target_p)
+        for pattern in globs:
+            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(str_path, pattern):
+                return True
+            for part in target_p.parts:
+                if fnmatch.fnmatch(part, pattern):
+                    return True
+        return False
 
     def _path(self, args: Mapping[str, object], key: str = "path") -> Path:
         return resolve_in_scope(str_arg(args, key), self._scope)
@@ -180,6 +209,12 @@ class FsSearchTool(_FsTool):
 class FsWriteTool(_FsTool):
     name = "fs.write"
 
+    def review(self, args: Mapping[str, object], task_id: str) -> tuple[Verdict, str]:
+        path_str = str(args.get("path", ""))
+        if self._is_protected(path_str):
+            return Verdict.NEEDS_APPROVAL, PROTECTED_PATH_REASON
+        return Verdict.ALLOW, "ok"
+
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         path = self._path(args)
         content = args.get("content", "")
@@ -228,6 +263,20 @@ class FsWriteTool(_FsTool):
 
 class FsApplyMovesTool(_FsTool):
     name = "fs.apply_moves"
+
+    def review(self, args: Mapping[str, object], task_id: str) -> tuple[Verdict, str]:
+        raw = args.get("moves")
+        if isinstance(raw, str):
+            with contextlib.suppress(Exception):
+                raw = extract_json(raw)
+        if isinstance(raw, dict) and isinstance(raw.get("moves"), list):
+            raw = raw["moves"]
+        if isinstance(raw, list):
+            for m in raw:
+                if isinstance(m, dict):
+                    if self._is_protected(str(m.get("from", ""))) or self._is_protected(str(m.get("to", ""))):
+                        return Verdict.NEEDS_APPROVAL, PROTECTED_PATH_REASON
+        return Verdict.ALLOW, "ok"
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         root = self._path(args, "root")
@@ -299,6 +348,12 @@ class FsApplyMovesTool(_FsTool):
 
 class FsTrashTool(_FsTool):
     name = "fs.trash"
+
+    def review(self, args: Mapping[str, object], task_id: str) -> tuple[Verdict, str]:
+        path_str = str(args.get("path", ""))
+        if self._is_protected(path_str):
+            return Verdict.NEEDS_APPROVAL, PROTECTED_PATH_REASON
+        return Verdict.ALLOW, "ok"
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         path = self._path(args)

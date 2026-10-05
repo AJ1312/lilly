@@ -13,6 +13,7 @@ from lilly.domain.ports import Completer, KeyStore
 from lilly.domain.settings import Settings
 from lilly.domain.tools_registry import DEFAULT_TOOLS
 from lilly.store.db import Database
+from lilly.tools.agent import AgentAskTool, AgentPlanTool
 from lilly.tools.base import Tool
 from lilly.tools.browser.actions import browser_tools
 from lilly.tools.browser.manager import BrowserManager
@@ -31,6 +32,7 @@ from lilly.tools.fs import FsApplyMovesTool, FsListTool, FsReadTool, FsSearchToo
 from lilly.tools.llm import LlmWorkTool
 from lilly.tools.memory import MemorySearchTool, MemoryWriteTool
 from lilly.tools.notes import NotesReadTool, NotesSearchTool, NotesWriteTool
+from lilly.tools.result import ResultReadTool
 from lilly.tools.system import SystemStatsTool
 from lilly.tools.web import WebFetchTool, WebSearchTool
 
@@ -43,14 +45,17 @@ def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: C
                 devbox: DevboxManager | None = None) -> dict[str, Tool]:
     """Every tool the enabled modules provide, keyed by name. Nothing is registered that does not exist,
     and every tool's name must be in DEFAULT_TOOLS, where its risk is pinned."""
+    globs = settings.grounding.protected_globs
     every: list[Tool] = [
-        FsListTool(scope), FsReadTool(scope), FsSearchTool(scope), FsWriteTool(scope), FsApplyMovesTool(scope),
-        FsTrashTool(scope), DataProfileTool(scope),
+        FsListTool(scope), FsReadTool(scope), FsSearchTool(scope),
+        FsWriteTool(scope, globs), FsApplyMovesTool(scope, globs), FsTrashTool(scope, globs),
+        DataProfileTool(scope),
         WebSearchTool(client, keys, settings.search), WebFetchTool(),
         MemorySearchTool(db), MemoryWriteTool(db, clock),
         NotesSearchTool(db), NotesReadTool(db), NotesWriteTool(db, clock),
         OpenUrlTool(), OpenAppTool(), ProcessesTool(), StopProcessTool(), NotifyTool(), RunCommandTool(scope),
         SystemStatsTool(), LlmWorkTool(router),
+        ResultReadTool(db), AgentPlanTool(db, clock), AgentAskTool(),
         *(browser_tools(*browser) if browser else []),
         *([DevboxRunTool(devbox)] if devbox else []),
     ]

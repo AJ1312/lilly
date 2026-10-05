@@ -343,6 +343,8 @@ async def test_a_finished_task_carries_its_plan_with_dependencies_and_verdicts(a
                                  step("s2", "llm.work", task="summarise", input="$s1.output")), "All fine."]
     r = await api.send("POST", "/api/tasks", {"goal": "how is my computer doing?"})
     done = await api.finished(r.json()["task"]["id"])
+    for i, req in enumerate(api.provider.requests):
+        print(f"\n--- REQ {i} ---:\n", req.get("messages", [])[-1]["content"])
     steps = done["plan_steps"]
     assert [s["id"] for s in steps] == ["s1", "s2"]
     assert steps[1]["deps"] == ["s1"] and steps[0]["deps"] == []

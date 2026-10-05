@@ -179,3 +179,9 @@ def update_step(con: sqlite3.Connection, task_id: str, step_id: str, status: str
 def list_steps(con: sqlite3.Connection, task_id: str) -> list[StepRow]:
     rows = con.execute(f"SELECT {_STEP_COLS} FROM steps WHERE task_id=? ORDER BY position", (task_id,)).fetchall()
     return [_step(r) for r in rows]
+
+
+def get_step(con: sqlite3.Connection, task_id: str, step_id: str) -> StepRow | None:
+    row = con.execute(f"SELECT {_STEP_COLS} FROM steps WHERE task_id=? AND step_id=?", (task_id, step_id)).fetchone()
+    return _step(row) if row else None
+

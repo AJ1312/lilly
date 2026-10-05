@@ -41,7 +41,7 @@ from lilly.domain.plan import FINAL_TOOL, tool_call
 from lilly.domain.policy import PathScope, decide
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.domain.reasoning import Layer, redact
-from lilly.domain.settings import LimitSettings
+from lilly.domain.settings import EngineSettings, LimitSettings
 from lilly.domain.tasks import TaskState
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.approvals import ApprovalService
@@ -50,6 +50,7 @@ from lilly.engine.outcome import StepDeclined, StepFailed, Stop, clip, describe_
 from lilly.engine.record import TaskRecord
 from lilly.engine.stream import TextStream
 from lilly.engine.verify import check_output
+from lilly.store.readcache import ReadCache
 from lilly.tools.base import Tool
 
 log = logging.getLogger("lilly.steps")
@@ -74,13 +75,17 @@ class StepExecutor:
     def __init__(self, rec: TaskRecord, approvals: ApprovalService, grants: GrantStore,
                  scope: Callable[[], PathScope], limits: Callable[[], LimitSettings], pin_model: str | None,
                  decisions: DecisionPipeline | None = None, brief: Brief | None = None,
-                 loop_mode: bool = False) -> None:
+                 loop_mode: bool = False,
+                 engine_settings: Callable[[], EngineSettings] | None = None,
+                 read_cache: ReadCache | None = None) -> None:
         self._rec, self._approvals, self._grants = rec, approvals, grants
         self._scope, self._limits, self._pin, self._decisions = scope, limits, pin_model, decisions
         self._brief = brief or Brief("")      # what the user asked and the agent's standing instructions, for the plan check
         self._finished: list[StepSig] = []   # what finished steps looked like, across replans, for loop detection
         self._loop_mode = loop_mode
         self._seen_looping = 0
+        self._engine_settings = engine_settings
+        self._read_cache = read_cache
 
     @property
     def seen_looping(self) -> int:
@@ -129,27 +134,40 @@ class StepExecutor:
         await rec.thought(Layer.ACT, f"Running {name}" + (f" to get {st['expect']}" if st.get("expect") else ""),
                           step=row_id)
         began = time.monotonic()
-        try:
-            result = await self._invoke(tool, args, row_id, digest)
-        except Stop:
-            raise
-        except Exception as exc:
-            if not isinstance(exc, (ToolError, ValidationFailed, PolicyDenied)):
-                log.exception("step %s of task %s crashed in %s", row_id, rec.task_id, name)
-            reason = describe_error(exc)    # an unexpected error is only named in the log, never shown
-            if spec.untrusted:   # the message may be text from outside: the task is tainted even though the call failed
-                rec.absorb(Label.PUBLIC, True)
-                await rec.remember_ctx()
-            await rec.step_status(row_id, "failed", error=reason)
-            await rec.event("step", {"step": row_id, "tool": name, "status": "failed", "error": reason}, "tool")
-            await rec.thought(Layer.VERIFY, f"{name} failed: {reason}", step=row_id)
-            raise StepFailed(f"{name} failed: {reason}") from None
+        is_cached = False
+        ttl_s = self._engine_settings().read_cache_ttl_s if self._engine_settings else 0
+        if self._read_cache is not None and ttl_s > 0:
+            cached = self._read_cache.get(name, args, began, ttl_s)
+            if cached is not None:
+                is_cached = True
+                result = ToolResult(output=cached.output, label=cached.label, untrusted=cached.untrusted)
+
+        if not is_cached:
+            try:
+                result = await self._invoke(tool, args, row_id, digest)
+            except Stop:
+                raise
+            except Exception as exc:
+                if not isinstance(exc, (ToolError, ValidationFailed, PolicyDenied)):
+                    log.exception("step %s of task %s crashed in %s", row_id, rec.task_id, name)
+                reason = describe_error(exc)    # an unexpected error is only named in the log, never shown
+                if spec.untrusted:   # the message may be text from outside: the task is tainted even though the call failed
+                    rec.absorb(Label.PUBLIC, True)
+                    await rec.remember_ctx()
+                await rec.step_status(row_id, "failed", error=reason)
+                await rec.event("step", {"step": row_id, "tool": name, "status": "failed", "error": reason}, "tool")
+                await rec.thought(Layer.VERIFY, f"{name} failed: {reason}", step=row_id)
+                raise StepFailed(f"{name} failed: {reason}") from None
+
+            if self._read_cache is not None and ttl_s > 0:
+                self._read_cache.put(name, args, result.output, result.label, result.untrusted, began, ttl_s)
+
         if result.model:
             rec.models.append(result.model)
         untrusted = result.untrusted or spec.untrusted
         rec.absorb(max(result.label, spec.reads_label), untrusted)
         await rec.remember_ctx()
-        output = await self._conclude(name, row_id, result, untrusted, began)
+        output = await self._conclude(name, row_id, result, untrusted, began, cached=is_cached)
         await self._advise(name, args, row_id, output, untrusted)
         return output
 
@@ -163,22 +181,26 @@ class StepExecutor:
                                       Context(text=plan_state(self._brief, name, args)))
         return add_doubt(verdict, why, asked.choice)
 
-    async def _conclude(self, name: str, row_id: str, result: ToolResult, untrusted: bool, began: float) -> str:
+    async def _conclude(self, name: str, row_id: str, result: ToolResult, untrusted: bool, began: float,
+                        cached: bool = False) -> str:
         """Check and record a finished step."""
         rec = self._rec
         problem = check_output(name, result.output)
         status = "failed" if problem else "done"
+        err = problem or ("cached" if cached else None)
         await rec.step_status(row_id, status, output=result.output, label=result.label, untrusted=untrusted,
-                              error=problem)
+                              error=err)
         await rec.event("step", {"step": row_id, "tool": name, "status": status,
                                  "preview": redact(result.output[:PREVIEW_CHARS]), "chars": len(result.output),
                                  "label": result.label.name, "untrusted": untrusted, "model": result.model,
+                                 "cached": cached,
                                  "ms": round((time.monotonic() - began) * 1000)}, "tool")
-        await rec.thought(Layer.VERIFY, f"{name}: " + (f"{problem}." if problem else f"{len(result.output)} characters, checked."),
-                          step=row_id)
+        thought_msg = f"{name}: cached." if cached else (f"{name}: " + (f"{problem}." if problem else f"{len(result.output)} characters, checked."))
+        await rec.thought(Layer.VERIFY, thought_msg, step=row_id)
         if problem:
             raise StepFailed(f"{name}: {problem}")
         return result.output
+
 
     async def _advise(self, name: str, args: Mapping[str, Any], row_id: str, output: str, untrusted: bool) -> None:
         """Ask the cheap deciders about a finished step. Both answers can only add caution: output that reads as
@@ -233,12 +255,24 @@ class StepExecutor:
     async def _invoke(self, tool: Tool, args: Mapping[str, Any], row_id: str, digest: str) -> ToolResult:
         rec = self._rec
 
+        async def _ask_user(question: str, choices: list[str] | None = None) -> str:
+            payload: dict[str, Any] = {"question": question}
+            if choices:
+                payload["choices"] = choices
+            decision, _ = await self._approvals.request(
+                rec.task_id, row_id, "question", question, payload
+            )
+            if not decision.approved:
+                raise StepDeclined(decision.choice or "declined by the user")
+            return decision.choice or ""
+
         async def call() -> ToolResult:
             step_s = float(self._limits().step_timeout_s)
             ended = False    # a tool in a worker thread cannot be interrupted: it sees this at its next check
             ctx = ToolContext(rec.task_id, row_id, step_s, lambda: ended or rec.cancelled, rec.ctx.label,
                               rec.ctx.tainted, rec.ctx.mode, self._pin, digest,
-                              TextStream(rec.bus, rec.task_id, row_id, rec.clock))
+                              TextStream(rec.bus, rec.task_id, row_id, rec.clock),
+                              ask=_ask_user)
             try:
                 async with asyncio.timeout(step_s):
                     return await tool.run(args, ctx)

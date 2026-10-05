@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -121,6 +121,7 @@ class ToolContext:
     pin_model: str | None = None
     payload_hash: str | None = None   # hash of this exact step; a model permission is bound to it
     on_text: Callable[[str], None] | None = None   # a step that writes text may report it as it goes
+    ask: Callable[[str, list[str] | None], Awaitable[str]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

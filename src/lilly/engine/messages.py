@@ -10,6 +10,9 @@ from lilly.domain.prompts import (
 from lilly.domain.prompts import (
     ACTION_PROTOCOL_REPAIR as ACTION_PROTOCOL_REPAIR,
 )
+from lilly.domain.prompts import (
+    PROTECTED_PATH_REASON as PROTECTED_PATH_REASON,
+)
 
 # ---- Phase 1: Capacity messages ---------------------------------------------
 WAIT_THOUGHT = "All models are busy. Waiting {seconds} s for {model} ({reason})."
@@ -95,9 +98,6 @@ FALLBACK_FINAL = "I stopped because the budget for this task ran out ({reason}).
 # Grounding
 GROUNDING_REPAIR = "These references in your answer did not come from any tool result or from the user: {list}. Remove them, or fetch or read them first, then answer again."
 GROUNDING_REMOVED_NOTE = "Lilly removed {n} link(s) or path(s) from this answer because no step had returned them."
-
-# Protected-path reason
-PROTECTED_PATH_REASON = "This file looks like a test. Changing tests can hide a bug instead of fixing it."
 
 # Delegation observation
 DELEGATION_OBS = (

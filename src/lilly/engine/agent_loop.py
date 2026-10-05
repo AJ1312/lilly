@@ -9,7 +9,6 @@ from __future__ import annotations
 import datetime
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from lilly.domain.caps import Cap
@@ -27,9 +26,11 @@ from lilly.domain.ports import (
 )
 from lilly.domain.reasoning import Layer
 from lilly.domain.schema import validate_schema
-from lilly.domain.settings import EngineSettings, LimitSettings
+from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
 from lilly.domain.tasks import TaskState
+from lilly.engine.context import ContextManager
 from lilly.engine.decisions import DecisionPipeline
+from lilly.engine.grounding import GroundingVerifier
 from lilly.engine.lanes import LaneScheduler, parallel_eligible
 from lilly.engine.messages import (
     AGENT_SYSTEM,
@@ -78,6 +79,7 @@ class AgentLoop:
         stop_reason: Callable[[], str] | str = "stopped",
         role_models: Mapping[str, str] | None = None,
         tool_allowlist: frozenset[str] | None = None,
+        grounding_settings: Callable[[], GroundingSettings] | GroundingSettings | None = None,
     ) -> None:
         self._rec = rec
         self._completer = completer
@@ -99,6 +101,9 @@ class AgentLoop:
         self._tool_allowlist = tool_allowlist
         self._outputs: dict[str, str] = {}
         self._steps.loop_mode = True
+        gs = grounding_settings() if callable(grounding_settings) else (grounding_settings or GroundingSettings())
+        self._grounding = GroundingVerifier(file_roots=self._file_roots(), enabled=gs.enabled)
+        self._context_mgr = ContextManager(self._engine_settings, self._completer)
 
     @property
     def current_stop_reason(self) -> str:
@@ -182,6 +187,7 @@ class AgentLoop:
                 decline_continues=True,
             )
             self._outputs[step_id] = output
+            self._grounding.record_step(name, args, output)
 
             # Format successful observation
             untrusted = spec.untrusted or self._rec.ctx.tainted
@@ -234,6 +240,8 @@ class AgentLoop:
         escalated = False
         escalation_triggered = False
         seen_looping_notice = False
+        grounding_repaired = False
+        self._grounding.record_user_message(self._goal)
 
         candidate_answer: str | None = None
 
@@ -284,6 +292,8 @@ class AgentLoop:
             if role_pin and role_pin.startswith("tag:"):
                 tag = role_pin.split(":", 1)[1]
                 role_pin = None
+
+            messages = await self._context_mgr.prepare(messages)
 
             req = CompletionRequest(
                 messages=tuple(messages),
@@ -336,12 +346,27 @@ class AgentLoop:
                     n_done = len(self._outputs)
                     one_line = f"{n_done} step(s) finished"
                     candidate_answer = FALLBACK_FINAL.format(reason=budget_reason, receipt_one_line=one_line)
+            # Case B: Model returned direct answer without tool calls
+            elif not done.result.tool_calls:
+                candidate_answer = done.result.text.strip()
+
+            if candidate_answer is not None:
+                if self._grounding.enabled:
+                    is_grounded, unseen = self._grounding.verify(candidate_answer)
+                    if not is_grounded:
+                        if not grounding_repaired and tool_choice != "none" and remaining_calls > 1:
+                            grounding_repaired = True
+                            repair_prompt = self._grounding.repair_prompt(unseen)
+                            messages.append(Message(role="assistant", content=candidate_answer))
+                            messages.append(Message(role="user", content=repair_prompt))
+                            turn += 1
+                            candidate_answer = None
+                            continue
+                        else:
+                            candidate_answer = self._grounding.remove_unseen(candidate_answer, unseen)
+                            await self._rec.event("ground", {"unseen": list(unseen), "action": "removed"})
                 break
 
-            # Case B: Model returned direct answer without tool calls
-            if not done.result.tool_calls:
-                candidate_answer = done.result.text.strip()
-                break
 
             if done.result.text.strip():
                 await self._rec.thought(

@@ -18,3 +18,6 @@ ACTION_PROTOCOL_REPAIR = (
     "That reply was not a single valid JSON object in one of the two shapes. "
     "Reply again with only the JSON object."
 )
+
+PROTECTED_PATH_REASON = "This file looks like a test. Changing tests can hide a bug instead of fixing it."
+

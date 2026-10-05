@@ -15,6 +15,7 @@ from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import TaskState
 from lilly.engine.bus import EventBus
 from lilly.engine.orchestrator import SubmitRequest
+from lilly.engine.receipt import ReceiptBuilder
 from lilly.store import approvals as approval_store
 from lilly.store import conversations, routines, tasks
 from lilly.store.events import latest, list_events, verify_chain
@@ -145,6 +146,16 @@ async def verify_task(request: Request) -> Response:
 async def cancel_task(request: Request) -> Response:
     await runtime(request).orchestrator.cancel(request.path_params["task_id"])
     return ok()
+
+
+async def get_receipt(request: Request) -> Response:
+    rt = runtime(request)
+    task_id = request.path_params.get("task_id") or request.path_params.get("id") or ""
+    if tasks.get_task(rt.db.reader, task_id) is None:
+        raise NotFound(task_id)
+    globs = rt.settings.grounding.protected_globs
+    receipt = ReceiptBuilder.build(rt.db, task_id, protected_globs=globs)
+    return JSONResponse({"receipt": receipt.to_dict()})
 
 
 async def stop_everything(request: Request) -> Response:

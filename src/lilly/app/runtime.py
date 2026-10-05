@@ -43,6 +43,7 @@ from lilly.store import agents, conversations, memory, retention, routines, snap
 from lilly.store import mcp as mcp_store
 from lilly.store.connection import open_reader
 from lilly.store.db import Database
+from lilly.store.readcache import ReadCache
 from lilly.tools import Tool, build_tools
 from lilly.tools.browser.manager import BrowserManager
 from lilly.tools.devbox.engines import CliEngine, find_engine
@@ -102,11 +103,14 @@ class Runtime:
         self._static_deciders: dict[str, Decider] = {"search": SearchRanker(), "loop": LoopRule(),
                                                      "rules": InstructionRules(), "match": MatchRule()}
         self._small: tuple[str, SmallModelDecider] | None = None
+        self.read_cache = ReadCache()
         self.decisions = DecisionPipeline(lambda: self.settings.decisions, self._deciders, DatabaseSink(db), clock)
         self.orchestrator = Orchestrator(EngineDeps(
             db, self.router, lambda: self.tools, lambda: self.scope, lambda: self.settings.file_roots, self.bus,
             self.approvals, self.grants, clock, lambda: self.settings.limits, self.decisions,
-            engine_settings=lambda: self.settings.engine))
+            engine_settings=lambda: self.settings.engine,
+            grounding_settings=lambda: self.settings.grounding,
+            read_cache=self.read_cache))
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()

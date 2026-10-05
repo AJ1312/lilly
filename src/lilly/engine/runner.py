@@ -27,7 +27,7 @@ from lilly.domain.plan import preflight
 from lilly.domain.policy import PathScope
 from lilly.domain.ports import Completed, Completer, CompletionRequest
 from lilly.domain.reasoning import Layer
-from lilly.domain.settings import EngineSettings, LimitSettings
+from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
 from lilly.domain.skills import BUILTIN_SKILLS, check_skill, instantiate
 from lilly.domain.tasks import TERMINAL, TaskState
 from lilly.domain.tools_registry import ToolSpec
@@ -38,11 +38,13 @@ from lilly.engine.decisions import DecisionPipeline
 from lilly.engine.lanes import LaneScheduler, dependencies
 from lilly.engine.outcome import StepFailed, Stop, clip, describe_error
 from lilly.engine.planner import HistoryItem, PlanInputs, direct_plan, generate_plan, replan
+from lilly.engine.receipt import ReceiptBuilder
 from lilly.engine.record import TaskRecord
 from lilly.engine.replycheck import ReplyChecker
 from lilly.engine.steps import StepExecutor
 from lilly.store import conversations, decisions, tasks
 from lilly.store.db import Database
+from lilly.store.readcache import ReadCache
 from lilly.tools.base import Tool
 
 log = logging.getLogger("lilly.runner")
@@ -74,6 +76,8 @@ class EngineDeps:
     limits: Callable[[], LimitSettings] = LimitSettings
     decisions: DecisionPipeline | None = None   # cheap advisers; None means every question gets no decision
     engine_settings: Callable[[], EngineSettings] = EngineSettings
+    grounding_settings: Callable[[], GroundingSettings] = GroundingSettings
+    read_cache: ReadCache | None = None
 
 
 class TaskRunner:
@@ -83,9 +87,10 @@ class TaskRunner:
         self._brief = Brief(spec.goal, spec.agent_instructions)
         self._route: Outcome | None = None     # the route question of this task, until it is labelled
         self._rec = TaskRecord(deps.db, deps.bus, deps.clock, task.id, TaskCtx(task.label, task.tainted, Mode(task.mode)),
-                               TaskState(task.state))
+                                TaskState(task.state))
         self._steps = StepExecutor(self._rec, deps.approvals, deps.grants, deps.scope, deps.limits, spec.pin_model,
-                                   deps.decisions, self._brief)
+                                   deps.decisions, self._brief, engine_settings=deps.engine_settings,
+                                   read_cache=deps.read_cache)
 
     @property
     def agent_id(self) -> str | None:
@@ -160,6 +165,7 @@ class TaskRunner:
             pet_name="Lilly",
             decisions=self._d.decisions,
             stop_reason=lambda: self.stop_reason,
+            grounding_settings=self._d.grounding_settings,
         )
         answer = await loop.run()
         await self._answer(answer)
@@ -344,6 +350,9 @@ class TaskRunner:
         elapsed = round(time.monotonic() - self._rec.started, 1)
         models = ", ".join(dict.fromkeys(self._rec.models)) or "no model"
         await self._rec.thought(Layer.REFLECT, f"Done in {elapsed}s using {models}.")
+        globs = self._d.grounding_settings().protected_globs
+        receipt = ReceiptBuilder.build_from_con(self._d.db.reader, self._task.id, protected_globs=globs)
+        await self._rec.event("receipt", receipt.to_dict())
         await self._finish(TaskState.DONE, answer=text)
         if self._replies is not None and self._rec.state_now is TaskState.DONE:   # saved and finished: now it may be judged
             self._replies.start(self._task.id, self._brief, text, self._rec.event)

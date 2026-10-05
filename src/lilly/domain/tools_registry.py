@@ -511,7 +511,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     # Control tools
     "result.read": ToolSpec(
         Risk.R0,
-        doc="Read truncated output of an earlier step with pagination.",
+        doc="Read more of an earlier result that was cut short. Give the step id and an offset in characters.",
         args='{"step": "step id", "offset": "optional character offset"}',
         schema={
             "type": "object",
@@ -525,15 +525,29 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     ),
     "agent.plan": ToolSpec(
         Risk.R0,
-        doc="Update the task to-do list.",
-        args='{"todos": ["item 1", "item 2"]}',
+        doc="Write or update your to-do list. Send the whole list each time. Each item has text and a status: todo, doing, done or blocked.",
+        args='{"todos": [{"text": "item description", "status": "todo"}]}',
         schema={
             "type": "object",
             "properties": {
                 "todos": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of to-do items",
+                    "items": {
+                        "anyOf": [
+                            {"type": "string", "maxLength": 120},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "text": {"type": "string", "maxLength": 120},
+                                    "status": {"type": "string", "enum": ["todo", "doing", "done", "blocked"]},
+                                },
+                                "required": ["text"],
+                                "additionalProperties": False,
+                            },
+                        ],
+                    },
+                    "maxItems": 12,
+                    "description": "List of to-do items (at most 12 items of at most 120 characters)",
                 },
             },
             "required": ["todos"],
@@ -541,13 +555,19 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "agent.ask": ToolSpec(
-        Risk.R1, confirm=True,
-        doc="Ask the user one short question when only they have the information.",
-        args='{"question": "the question"}',
+        Risk.R0,
+        doc="Ask the user one short question and wait for the answer. Use it only for information you cannot look up.",
+        args='{"question": "the question", "choices": ["optional", "choices"]}',
         schema={
             "type": "object",
             "properties": {
                 "question": {"type": "string", "description": "Short question for the user"},
+                "choices": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 5,
+                    "description": "Optional choices for the user (at most 5)",
+                },
             },
             "required": ["question"],
             "additionalProperties": False,
