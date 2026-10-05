@@ -7,7 +7,7 @@ from lilly.domain.decisions import Option
 from lilly.domain.plan import FINAL_TOOL
 from lilly.domain.tools_registry import ToolSpec
 
-SHOW_ALL_UP_TO = 20
+SHOW_ALL_UP_TO = 25
 DEFAULT_K = 10
 CONTROL_TOOLS = frozenset({"agent.plan", "agent.ask", "agent.delegate", "result.read"})
 

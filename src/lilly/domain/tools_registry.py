@@ -79,15 +79,33 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     ),
     "fs.read": ToolSpec(
         Risk.R0, reads_label=_P, module="files",
-        doc="Read a text file.",
-        args='{"path": "file", "max_bytes": "optional number"}',
+        doc="Read a text file. Use offset and limit (lines) to read part of a large file. Lines are numbered.",
+        args='{"path": "file", "offset": "optional line number", "limit": "optional line count", "max_bytes": "optional number"}',
         schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File path to read"},
+                "offset": {"type": "integer", "description": "1-based line number to start reading from", "minimum": 1},
+                "limit": {"type": "integer", "description": "Maximum number of lines to read", "minimum": 1},
                 "max_bytes": {"type": "integer", "description": "Optional maximum bytes to read", "minimum": 1},
             },
             "required": ["path"],
+            "additionalProperties": False,
+        },
+    ),
+    "fs.edit": ToolSpec(
+        Risk.R1, module="files",
+        doc="Replace exact text in an existing file. old must match the file exactly and appear once, unless replace_all is true. Read the file first.",
+        args='{"path": "file", "old": "exact text to replace", "new": "substitute text", "replace_all": "optional boolean"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file to edit"},
+                "old": {"type": "string", "description": "Exact text to replace (must match uniquely unless replace_all is true)"},
+                "new": {"type": "string", "description": "New text to substitute in place of old"},
+                "replace_all": {"type": "boolean", "description": "Whether to replace all occurrences instead of requiring a unique match"},
+            },
+            "required": ["path", "old", "new"],
             "additionalProperties": False,
         },
     ),
@@ -201,6 +219,20 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
                 },
             },
             "required": ["urls"],
+            "additionalProperties": False,
+        },
+    ),
+    "web.research": ToolSpec(
+        Risk.R0, egress=True, untrusted=True, module="web",
+        doc="Search the web and read the top results in one step. Returns title, URL and an excerpt for each. Use this instead of web.search followed by web.fetch.",
+        args='{"query": "search query", "max_sources": "optional number 1..5"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Web search query"},
+                "max_sources": {"type": "integer", "description": "Number of top sources to read (1 to 5)", "minimum": 1, "maximum": 5},
+            },
+            "required": ["query"],
             "additionalProperties": False,
         },
     ),
@@ -584,6 +616,19 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
                 "task": {"type": "string", "description": "Self-contained task instructions for the agent"},
             },
             "required": ["agent", "task"],
+            "additionalProperties": False,
+        },
+    ),
+    "skill.load": ToolSpec(
+        Risk.R0,
+        doc="Load the full text of one of your named skills.",
+        args='{"name": "skill name"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name of the skill to load from the pet sheet"},
+            },
+            "required": ["name"],
             "additionalProperties": False,
         },
     ),

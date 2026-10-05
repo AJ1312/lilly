@@ -236,8 +236,19 @@ class StepExecutor:
         await rec.step_status(row_id, "waiting")
         await rec.state(TaskState.WAITING_APPROVAL)
         summary = f"{name} — {why}"
-        display = {"tool": name, "args": clip(args, APPROVAL_CHARS), "why": why}
-        await rec.event("approval", {"step": row_id, "tool": name, "why": why, "kind": "step"})
+        display: dict[str, Any] = {"tool": name, "args": clip(args, APPROVAL_CHARS), "why": why}
+        if name == "fs.edit":
+            old_str = str(args.get("old", ""))
+            new_str = str(args.get("new", ""))
+            path_str = str(args.get("path", ""))
+            import difflib
+            display["diff"] = "".join(difflib.unified_diff(
+                old_str.splitlines(keepends=True),
+                new_str.splitlines(keepends=True),
+                fromfile=f"a/{path_str}",
+                tofile=f"b/{path_str}",
+            ))
+        await rec.event("approval", {"step": row_id, "tool": name, "why": why, "kind": "step", "diff": display.get("diff")})
         try:
             decision, _ = await self._approvals.request(rec.task_id, row_id, "step", summary, payload, display)
         except ApprovalExpired:

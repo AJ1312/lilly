@@ -7,6 +7,9 @@ from lilly.domain.clock import Clock
 from lilly.domain.errors import ToolError, ValidationFailed
 from lilly.domain.labels import Label
 from lilly.domain.ports import ToolContext, ToolResult
+from lilly.domain.sheet import PetSheet
+from lilly.store import agents as agent_store
+from lilly.store import tasks
 from lilly.store.db import Database
 from lilly.store.events import append_event
 from lilly.tools.base import Tool, str_arg
@@ -99,4 +102,36 @@ class AgentDelegateTool(Tool):
         if self._delegate_fn is None:
             raise ToolError("delegation is not available in this context")
         return await self._delegate_fn(agent_name, task_instruction, ctx)
+
+
+class SkillLoadTool(Tool):
+    """Load the full text of one of your named skills."""
+
+    name = "skill.load"
+
+    def __init__(self, db: Database | None = None) -> None:
+        self._db = db
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        skill_name = str_arg(args, "name").strip()
+        if not skill_name:
+            raise ValidationFailed("skill name cannot be empty")
+        sheet: PetSheet | None = None
+        if self._db is not None:
+            task = tasks.get_task(self._db.reader, ctx.task_id)
+            if task and task.agent_id:
+                agent = agent_store.get_agent(self._db.reader, task.agent_id)
+                if agent:
+                    sheet = agent_store.parsed_sheet_for(agent)
+
+        if sheet is None or not sheet.skills:
+            raise ToolError(f"skill '{skill_name}' not found: this agent has no sheet skills")
+
+        for s_name, s_content in sheet.skills.items():
+            if s_name.lower() == skill_name.lower():
+                return ToolResult(output=s_content, label=Label.PUBLIC, untrusted=False)
+
+        available = ", ".join(repr(k) for k in sheet.skills.keys())
+        raise ToolError(f"skill '{skill_name}' not found. Available skills: {available}")
+
 

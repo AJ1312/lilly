@@ -7,8 +7,6 @@ from typing import Any
 
 import httpx
 import pytest
-from tests.fake_llm import FakeLLMServer, ScriptedReply
-from tests.helpers import MemoryKeyStore
 
 from lilly.domain.ports import CompletionRequest, Message, ModelToolCall, ToolSchema
 from lilly.domain.tools_registry import (
@@ -27,6 +25,8 @@ from lilly.providers.action_protocol import (
 from lilly.providers.gemini import GeminiProvider, to_gemini_schema
 from lilly.providers.ollama import OllamaProvider
 from lilly.providers.openai_compat import OpenAICompatProvider
+from tests.fake_llm import FakeLLMServer, ScriptedReply
+from tests.helpers import MemoryKeyStore
 
 
 @pytest.fixture

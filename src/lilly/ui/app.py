@@ -75,6 +75,8 @@ def api_routes() -> list[Route]:
         _route("/api/tasks/{task_id}/cancel", chat.cancel_task, ["POST"]),
         _route("/api/tasks/{task_id}/receipt", chat.get_receipt, ["GET"]),
         _route("/api/tasks/{id}/receipt", chat.get_receipt, ["GET"]),
+        _route("/api/tasks/{task_id}/undo/{step_id}", data.undo_step, ["POST"]),
+        _route("/api/tasks/{id}/undo/{step}", data.undo_step, ["POST"]),
         _route("/api/stop", chat.stop_everything, ["POST"]),
         _route("/api/skills", chat.list_skills, ["GET"]),
         _route("/api/approvals", chat.list_approvals, ["GET"]),

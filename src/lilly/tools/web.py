@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import re
 import socket
 from collections.abc import Callable, Mapping
@@ -19,6 +20,8 @@ from lilly.domain.ports import KeyStore, ToolContext, ToolResult
 from lilly.domain.settings import SearchSettings
 from lilly.domain.text import html_to_text
 from lilly.tools.base import Tool, int_arg, str_arg
+
+log = logging.getLogger("lilly.tools.web")
 
 MAX_PAGE_BYTES = 1_500_000
 MAX_REDIRECTS = 4
@@ -301,3 +304,51 @@ class WebSearchTool(Tool):
         rows = web.get("results", []) if isinstance(web, dict) else []
         return [{"title": str(r.get("title", "")), "url": str(r.get("url", "")), "snippet": str(r.get("description", ""))}
                 for r in rows if isinstance(r, dict) and r.get("url")][:limit]
+
+
+class WebResearchTool(Tool):
+    """Search the web and read the top results in one step."""
+
+    name = "web.research"
+
+    def __init__(self, search_tool: WebSearchTool, fetch_tool: WebFetchTool) -> None:
+        self._search = search_tool
+        self._fetch = fetch_tool
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        query = str_arg(args, "query", max_len=300).strip()
+        max_sources = int_arg(args, "max_sources", 3, lo=1, hi=5)
+
+        # 1. Search web
+        search_res = await self._search.run({"query": query, "max_results": max_sources}, ctx)
+        try:
+            items = json.loads(search_res.output)
+            if not isinstance(items, list):
+                items = []
+        except Exception:
+            items = []
+
+        if not items:
+            return ToolResult("No research results found for query.", Label.PUBLIC, True)
+
+        sources_to_fetch = items[:max_sources]
+        out_sections: list[str] = []
+        for item in sources_to_fetch:
+            title = item.get("title", "Untitled")
+            url = item.get("url", "")
+            snippet = item.get("snippet", "")
+            excerpt = snippet
+            if url:
+                try:
+                    fetch_res = await self._fetch.run({"urls": [url]}, ctx)
+                    fetched_text = fetch_res.output
+                    if fetched_text.startswith(f"## {url}\n"):
+                        fetched_text = fetched_text[len(f"## {url}\n"):].strip()
+                    if fetched_text and not fetched_text.startswith("[could not fetch"):
+                        excerpt = fetched_text[:1200]
+                except (ToolError, httpx.HTTPError, TimeoutError) as exc:
+                    log.debug("could not fetch research source %s: %s", url, exc)
+            out_sections.append(f"### {title}\nURL: {url}\nExcerpt:\n{excerpt}")
+
+        body = "\n\n---\n\n".join(out_sections)
+        return ToolResult(body, Label.PUBLIC, True)

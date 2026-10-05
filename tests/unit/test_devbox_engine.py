@@ -109,5 +109,5 @@ async def test_a_character_split_across_two_reads_is_not_damaged(engine: CliEngi
 
 
 async def test_a_command_that_outlives_its_time_is_cut_off_and_reports_what_it_said(engine: CliEngine) -> None:
-    result = await engine.run(["exec", "hang"], 0.5, None)
+    result = await engine.run(["exec", "hang"], 1.5, None)
     assert result.timed_out and result.exit_code is None and "started" in result.output

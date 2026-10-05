@@ -1,13 +1,17 @@
 """What Lilly remembers and what the user writes: memory, spaces and notes, agents."""
 from __future__ import annotations
 
+import contextlib
+import os
+import secrets
+from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from lilly.app.runtime import Runtime
-from lilly.domain.errors import NotFound, ValidationFailed
+from lilly.domain.errors import ConflictError, NotFound, ValidationFailed
 from lilly.domain.ids import new_id
 from lilly.domain.labels import Label
 from lilly.domain.pets import DEFAULT_LOOK, Look, look_to_dict, parse_look
@@ -15,6 +19,8 @@ from lilly.domain.sheet import parse_sheet
 from lilly.engine.crew import choose_pet
 from lilly.engine.orchestrator import AGENT_CHANGED, AGENT_DELETED
 from lilly.store import agents, memory, spaces
+from lilly.store import undo as undo_store
+from lilly.store.undo import hash_content
 from lilly.ui.support import (
     flag,
     json_body,
@@ -355,3 +361,38 @@ async def crew_route(request: Request) -> Response:
     all_pets = agents.list_agents(rt.db.reader)
     route_res = await choose_pet(goal, all_pets, rt.decisions)
     return JSONResponse(route_res.to_dict())
+
+
+async def undo_step(request: Request) -> Response:
+    rt = runtime(request)
+    task_id = request.path_params.get("task_id") or request.path_params.get("id") or ""
+    step_id = request.path_params.get("step_id") or request.path_params.get("step") or ""
+    record = undo_store.get_undo(rt.db.reader, task_id, step_id)
+    if record is None:
+        raise NotFound(f"undo record for task {task_id} step {step_id}")
+
+    target_path = Path(record.path)
+    if not target_path.exists():
+        raise ConflictError("The file changed after Lilly edited it, so it was not restored.")
+
+    try:
+        current_content = target_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        raise ConflictError("The file changed after Lilly edited it, so it was not restored.") from exc
+
+    current_hash = hash_content(current_content)
+    if current_hash != record.after_hash:
+        raise ConflictError("The file changed after Lilly edited it, so it was not restored.")
+
+    temp_name = f".tmp_undo_{secrets.token_hex(8)}"
+    temp_path = target_path.parent / temp_name
+    try:
+        temp_path.write_text(record.original_content, encoding="utf-8")
+        os.replace(temp_path, target_path)
+    finally:
+        if temp_path.exists():
+            with contextlib.suppress(OSError):
+                temp_path.unlink()
+
+    return JSONResponse({"restored": record.path})
+

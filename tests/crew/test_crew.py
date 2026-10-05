@@ -22,7 +22,6 @@ import json
 
 import pytest
 from starlette.requests import Request
-from tests.conftest import Engine
 
 from lilly.domain.errors import ToolError, ValidationFailed
 from lilly.domain.labels import Label, Mode
@@ -47,6 +46,7 @@ from lilly.engine.orchestrator import SubmitRequest
 from lilly.store import agents as agent_store
 from lilly.store import tasks
 from lilly.ui import api_data
+from tests.conftest import Engine
 
 
 # ---- CREW-01: Starter sheets parse cleanly ----------------------------------------------------

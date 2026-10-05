@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import difflib
 import fnmatch
 import json
 import os
 import secrets
 import shutil
 import stat
+import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +24,9 @@ from lilly.domain.policy import PathScope
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.domain.prompts import PROTECTED_PATH_REASON
 from lilly.domain.text import extract_json
+from lilly.store import undo as undo_store
+from lilly.store.db import Database
+from lilly.store.undo import hash_content
 from lilly.tools.base import Tool, bool_arg, int_arg, resolve_in_scope, str_arg
 
 DEFAULT_READ_BYTES = 256 * 1024
@@ -85,11 +90,14 @@ class FsReadTool(_FsTool):
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         path = self._path(args)
-        limit = int_arg(args, "max_bytes", DEFAULT_READ_BYTES, lo=1, hi=MAX_READ_BYTES)
-        return await asyncio.to_thread(self._read, path, limit)
+        has_range = "offset" in args or "limit" in args
+        offset_val = int_arg(args, "offset", 1, lo=1, hi=10_000_000) if "offset" in args else (1 if has_range else None)
+        limit_val = int_arg(args, "limit", 1000, lo=1, hi=10_000_000) if "limit" in args else None
+        max_bytes = int_arg(args, "max_bytes", DEFAULT_READ_BYTES, lo=1, hi=MAX_READ_BYTES)
+        return await asyncio.to_thread(self._read, path, max_bytes, offset_val, limit_val)
 
     @staticmethod
-    def _read(path: Path, limit: int) -> ToolResult:
+    def _read(path: Path, max_bytes: int, offset: int | None = None, limit: int | None = None) -> ToolResult:
         try:
             dir_fd = os.open(path.parent, _DIR_FLAGS)
         except OSError as exc:
@@ -106,7 +114,7 @@ class FsReadTool(_FsTool):
             if not stat.S_ISREG(info.st_mode):
                 raise ToolError("not a regular file")
             chunks: list[bytes] = []
-            remaining = limit
+            remaining = MAX_READ_BYTES if (offset is not None or limit is not None) else max_bytes
             while remaining > 0:
                 chunk = os.read(fd, min(remaining, 65536))
                 if not chunk:
@@ -119,9 +127,143 @@ class FsReadTool(_FsTool):
         if _is_binary(data[:8192]):
             raise ToolError("this looks like a binary file, not text")
         text = data.decode("utf-8", errors="replace")
-        if info.st_size > limit:
-            text += f"\n[truncated: showing the first {limit} of {info.st_size} bytes]"
+
+        if offset is not None or limit is not None:
+            lines = text.splitlines()
+            start = offset or 1
+            if start > len(lines):
+                return ToolResult(f"[file has {len(lines)} lines; offset {start} is beyond end]", Label.PERSONAL, False)
+            end = (start - 1 + limit) if limit is not None else None
+            selected = lines[start - 1 : end]
+            numbered = "\n".join(f"{start + i}: {line}" for i, line in enumerate(selected))
+            return ToolResult(numbered, Label.PERSONAL, False)
+
+        if info.st_size > max_bytes:
+            text += f"\n[truncated: showing the first {max_bytes} of {info.st_size} bytes]"
         return ToolResult(text, Label.PERSONAL, False)
+
+
+class FsEditTool(_FsTool):
+    name = "fs.edit"
+
+    def __init__(
+        self,
+        scope: PathScope,
+        db: Database | None = None,
+        protected_globs: tuple[str, ...] | Callable[[], tuple[str, ...]] = (),
+    ) -> None:
+        super().__init__(scope, protected_globs)
+        self._db = db
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        path = self._path(args)
+        if self._is_protected(path):
+            raise PolicyDenied(PROTECTED_PATH_REASON)
+        old_text = str_arg(args, "old")
+        new_text = str_arg(args, "new")
+        replace_all = bool_arg(args, "replace_all")
+
+        res, undo_tuple = await asyncio.to_thread(self._edit, path, old_text, new_text, replace_all)
+        if self._db is not None and undo_tuple is not None:
+            orig_content, before_h, after_h = undo_tuple
+            now = time.time()
+            await self._db.write(
+                lambda con: undo_store.record_undo(
+                    con,
+                    task_id=ctx.task_id,
+                    step_id=ctx.step_id,
+                    path=str(path),
+                    original_content=orig_content,
+                    before_hash=before_h,
+                    after_hash=after_h,
+                    now=now,
+                )
+            )
+        return res
+
+    def _edit(
+        self,
+        path: Path,
+        old_text: str,
+        new_text: str,
+        replace_all: bool,
+    ) -> tuple[ToolResult, tuple[str, str, str] | None]:
+        if not path.exists():
+            raise ToolError(f"file not found: {path}")
+        try:
+            dir_fd = os.open(path.parent, _DIR_FLAGS)
+        except OSError as exc:
+            raise ToolError(f"cannot open folder: {exc.strerror}") from exc
+        try:
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+        except OSError as exc:
+            raise ToolError(f"cannot open file: {exc.strerror}") from exc
+        finally:
+            os.close(dir_fd)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise ToolError("not a regular file")
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if sum(len(c) for c in chunks) > MAX_WRITE_BYTES:
+                    raise ToolError("file exceeds maximum editable size")
+            raw_bytes = b"".join(chunks)
+        finally:
+            os.close(fd)
+
+        if _is_binary(raw_bytes[:8192]):
+            raise ToolError("this looks like a binary file, not text")
+        original_text = raw_bytes.decode("utf-8", errors="replace")
+
+        count = original_text.count(old_text)
+        if count == 0:
+            raise ToolError(f"old text not found in {path}")
+        if count > 1 and not replace_all:
+            raise ToolError(
+                f"old text appears {count} times in {path}; add surrounding lines to make it unique or set replace_all"
+            )
+
+        if replace_all:
+            edited_text = original_text.replace(old_text, new_text)
+        else:
+            edited_text = original_text.replace(old_text, new_text, 1)
+
+        # Preserve CRLF newline style if present
+        if "\r\n" in original_text and "\r\n" not in edited_text:
+            edited_text = edited_text.replace("\n", "\r\n")
+
+        mode = stat.S_IMODE(info.st_mode)
+
+        temp_name = f".tmp_edit_{secrets.token_hex(8)}"
+        temp_path = path.parent / temp_name
+        try:
+            with open(temp_path, "w", encoding="utf-8", newline="") as f:
+                f.write(edited_text)
+            os.chmod(temp_path, mode)
+            os.replace(temp_path, path)
+        finally:
+            if temp_path.exists():
+                with contextlib.suppress(OSError):
+                    temp_path.unlink()
+
+        before_h = hash_content(original_text)
+        after_h = hash_content(edited_text)
+
+        diff = "".join(
+            difflib.unified_diff(
+                original_text.splitlines(keepends=True),
+                edited_text.splitlines(keepends=True),
+                fromfile=f"a/{path.name}",
+                tofile=f"b/{path.name}",
+            )
+        )
+        msg = f"Successfully edited {path}.\n{diff}" if diff else f"Successfully edited {path}."
+        return ToolResult(msg, Label.PERSONAL, False), (original_text, before_h, after_h)
 
 
 class FsListTool(_FsTool):
