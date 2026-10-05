@@ -2,13 +2,43 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
 from lilly.domain.errors import ProviderError
-from lilly.domain.ports import CompletionRequest, CompletionResult, KeyStore, Provider
+from lilly.domain.ports import CompletionRequest, CompletionResult, KeyStore, ModelToolCall, Provider
+from lilly.domain.tools_registry import unwire_name, wire_name
 from lilly.providers.base import post_json, post_sse
+
+
+def _parse_tool_call(tc_raw: dict[str, Any]) -> ModelToolCall:
+    tc_id = str(tc_raw.get("id", ""))
+    fn = tc_raw.get("function") or {}
+    name = unwire_name(str(fn.get("name", "")))
+    raw_args = fn.get("arguments", "")
+    if isinstance(raw_args, dict):
+        # some non-standard mocks/servers return parsed object
+        return ModelToolCall(id=tc_id, name=name, arguments=raw_args, raw=json.dumps(raw_args), error=None)
+
+    raw_str = str(raw_args) if raw_args is not None else ""
+    parsed_args: Mapping[str, Any] | None = None
+    err: str | None = None
+    if raw_str.strip():
+        try:
+            val = json.loads(raw_str)
+            if isinstance(val, dict):
+                parsed_args = val
+            else:
+                err = "arguments must be a JSON object"
+        except Exception as exc:
+            err = f"invalid JSON: {exc}"
+    else:
+        parsed_args = {}
+
+    return ModelToolCall(id=tc_id, name=name, arguments=parsed_args, raw=raw_str, error=err)
 
 
 class OpenAICompatProvider(Provider):
@@ -28,15 +58,59 @@ class OpenAICompatProvider(Provider):
         secret = await asyncio.to_thread(self._keys.get, self._key_ref)
         if secret is None:
             raise ProviderError(retryable=False, status=401)
+
+        formatted_messages: list[dict[str, Any]] = []
+        for m in req.messages:
+            if m.role == "tool":
+                formatted_messages.append({
+                    "role": "tool",
+                    "content": m.content,
+                    "tool_call_id": m.tool_call_id or "",
+                })
+            elif m.role == "assistant" and m.tool_calls:
+                tc_list = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": wire_name(tc.name),
+                            "arguments": tc.raw if tc.raw else json.dumps(dict(tc.arguments or {})),
+                        },
+                    }
+                    for tc in m.tool_calls
+                ]
+                msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": m.content if m.content else None,
+                    "tool_calls": tc_list,
+                }
+                formatted_messages.append(msg)
+            else:
+                formatted_messages.append({"role": m.role, "content": m.content})
+
         body: dict[str, object] = {
             "model": self._model_id,
-            "messages": [{"role": m.role, "content": m.content} for m in req.messages],
+            "messages": formatted_messages,
             self._limit_field: req.max_tokens * self._limit_factor,
         }
         if self._send_temperature:
             body["temperature"] = req.temperature
         if req.json_mode and self._supports_json:
             body["response_format"] = {"type": "json_object"}
+        if req.tools:
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": wire_name(t.name),
+                        "description": t.description,
+                        "parameters": dict(t.parameters),
+                    },
+                }
+                for t in req.tools
+            ]
+            body["tool_choice"] = req.tool_choice
+
         url = f"{self._base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {secret.reveal()}", "Content-Type": "application/json", **self._extra}
         if req.on_text is not None:
@@ -44,10 +118,20 @@ class OpenAICompatProvider(Provider):
         data = await post_json(self._client, url, headers=headers, body=body, deadline_s=req.deadline_s)
         try:
             choice = data["choices"][0]
-            content = choice["message"].get("content") or ""
+            msg = choice.get("message") or {}
+            content = msg.get("content") or ""
             usage = data.get("usage") or {}
-            return CompletionResult(content, int(usage.get("prompt_tokens", 0)),
-                                    int(usage.get("completion_tokens", 0)), choice.get("finish_reason") or "stop")
+            tool_calls: list[ModelToolCall] = []
+            for tc in msg.get("tool_calls") or ():
+                tool_calls.append(_parse_tool_call(tc))
+
+            return CompletionResult(
+                content,
+                int(usage.get("prompt_tokens", 0)),
+                int(usage.get("completion_tokens", 0)),
+                choice.get("finish_reason") or "stop",
+                tool_calls=tuple(tool_calls),
+            )
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             raise ProviderError(retryable=False) from exc
 
@@ -55,6 +139,7 @@ class OpenAICompatProvider(Provider):
                       req: CompletionRequest) -> CompletionResult:
         body = {**body, "stream": True, **({"stream_options": {"include_usage": True}} if self._stream_usage else {})}
         tokens, finish, text, on_text = [0, 0], "stop", "", req.on_text
+        accumulated_tc: dict[int, dict[str, Any]] = {}
         assert on_text is not None
 
         def take(event: dict[str, Any]) -> None:
@@ -64,14 +149,38 @@ class OpenAICompatProvider(Provider):
                 if isinstance(usage, dict):
                     tokens[:] = [int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))]
                 for choice in event.get("choices") or ():
-                    piece = (choice.get("delta") or {}).get("content")
+                    delta = choice.get("delta") or {}
+                    piece = delta.get("content")
                     if isinstance(piece, str) and piece:
                         text += piece
                         on_text(text)
+
+                    for raw_tc in delta.get("tool_calls") or ():
+                        idx = int(raw_tc.get("index", 0))
+                        if idx not in accumulated_tc:
+                            accumulated_tc[idx] = {
+                                "id": "",
+                                "function": {
+                                    "name": "",
+                                    "arguments": "",
+                                },
+                            }
+                        if raw_tc.get("id"):
+                            accumulated_tc[idx]["id"] += raw_tc["id"]
+                        fn = raw_tc.get("function") or {}
+                        if fn.get("name"):
+                            accumulated_tc[idx]["function"]["name"] += fn["name"]
+                        if fn.get("arguments"):
+                            accumulated_tc[idx]["function"]["arguments"] += fn["arguments"]
+
                     if choice.get("finish_reason"):
                         finish = str(choice["finish_reason"])
             except (TypeError, ValueError, AttributeError) as exc:
                 raise ProviderError(retryable=False) from exc
 
         await post_sse(self._client, url, headers=headers, body=body, deadline_s=req.deadline_s, on_event=take)
-        return CompletionResult(text, tokens[0], tokens[1], finish)
+        parsed_calls = [
+            _parse_tool_call(accumulated_tc[idx])
+            for idx in sorted(accumulated_tc)
+        ]
+        return CompletionResult(text, tokens[0], tokens[1], finish, tool_calls=tuple(parsed_calls))

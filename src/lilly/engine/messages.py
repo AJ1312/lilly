@@ -4,6 +4,13 @@ All strings are centralized here so assertions in tests and UI rendering agree.
 """
 from __future__ import annotations
 
+from lilly.domain.prompts import (
+    ACTION_PROTOCOL as ACTION_PROTOCOL,
+)
+from lilly.domain.prompts import (
+    ACTION_PROTOCOL_REPAIR as ACTION_PROTOCOL_REPAIR,
+)
+
 # ---- Phase 1: Capacity messages ---------------------------------------------
 WAIT_THOUGHT = "All models are busy. Waiting {seconds} s for {model} ({reason})."
 REASONS = {
@@ -55,23 +62,6 @@ Rules that never change
 
 Today is {date}. Folders you may use: {folders_or_none}."""
 
-ACTION_PROTOCOL = """Reply with exactly one JSON object and nothing else, in one of these two shapes.
-
-To use tools:
-{{"thought": "<one sentence: why this action>", "calls": [{{"tool": "<name>", "args": {{ }} }}]}}
-
-To finish:
-{{"thought": "<one sentence>", "final": "<the answer the user will read>"}}
-
-Use several entries in "calls" only for independent reads. After the tools run you will receive their results in the next message, and you reply again in the same format.
-
-Tools:
-{rendered_tool_list}"""
-
-ACTION_PROTOCOL_REPAIR = (
-    "That reply was not a single valid JSON object in one of the two shapes. "
-    "Reply again with only the JSON object."
-)
 
 # Observation formats
 OBS_OK = "RESULT {step_id} {tool} ok ({chars} characters{shown_suffix})\n{body}{truncated_suffix}"

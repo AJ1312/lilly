@@ -29,21 +29,28 @@ def build_provider(spec: ModelSpec, client: httpx.AsyncClient, keys: KeyStore,
     use `local_client`, which never goes through a proxy."""
     ref = spec.key_ref or spec.provider
     json_ok = bool(spec.caps & Cap.JSON)
+    p: Provider
     if spec.provider == "mistral":
-        return OpenAICompatProvider("mistral", client, keys, ref, spec.model_id, spec.base_url or _MISTRAL_URL,
-                                    json_mode=json_ok)
-    if spec.provider == "openai":
+        p = OpenAICompatProvider("mistral", client, keys, ref, spec.model_id, spec.base_url or _MISTRAL_URL,
+                                 json_mode=json_ok)
+    elif spec.provider == "openai":
         reasoning = bool(_REASONING.match(spec.model_id))   # these models take no temperature and think before answering
-        return OpenAICompatProvider("openai", client, keys, ref, spec.model_id, spec.base_url or _OPENAI_URL,
-                                    json_mode=json_ok, limit_field="max_completion_tokens",
-                                    send_temperature=not reasoning, limit_factor=REASONING_TOKEN_FACTOR if reasoning else 1,
-                                    stream_usage=True)
-    if spec.provider == "openrouter":
-        return OpenAICompatProvider("openrouter", client, keys, ref, spec.model_id, spec.base_url or _OPENROUTER_URL,
-                                    {"X-Title": "Lilly"}, json_mode=json_ok)
-    if spec.provider == "gemini":
-        return GeminiProvider(client, keys, ref, spec.model_id, spec.base_url or "https://generativelanguage.googleapis.com/v1beta")
-    if spec.provider == "ollama":
-        return OllamaProvider(local_client or client, spec.model_id, spec.base_url, gate,
-                              keep_alive_s or (lambda: DEFAULT_KEEP_ALIVE_S))
-    raise ConfigurationError(f"unknown provider {spec.provider!r}")
+        p = OpenAICompatProvider("openai", client, keys, ref, spec.model_id, spec.base_url or _OPENAI_URL,
+                                 json_mode=json_ok, limit_field="max_completion_tokens",
+                                 send_temperature=not reasoning, limit_factor=REASONING_TOKEN_FACTOR if reasoning else 1,
+                                 stream_usage=True)
+    elif spec.provider == "openrouter":
+        p = OpenAICompatProvider("openrouter", client, keys, ref, spec.model_id, spec.base_url or _OPENROUTER_URL,
+                                 {"X-Title": "Lilly"}, json_mode=json_ok)
+    elif spec.provider == "gemini":
+        p = GeminiProvider(client, keys, ref, spec.model_id, spec.base_url or "https://generativelanguage.googleapis.com/v1beta")
+    elif spec.provider == "ollama":
+        p = OllamaProvider(local_client or client, spec.model_id, spec.base_url, gate,
+                           keep_alive_s or (lambda: DEFAULT_KEEP_ALIVE_S))
+    else:
+        raise ConfigurationError(f"unknown provider {spec.provider!r}")
+
+    if spec.tools == "protocol":
+        from lilly.providers.action_protocol import ActionProtocolAdapter
+        return ActionProtocolAdapter(p, spec.name)
+    return p

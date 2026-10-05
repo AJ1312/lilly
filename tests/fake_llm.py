@@ -52,11 +52,11 @@ class FakeLLMServer:
 
     def __init__(self, replies: list[ScriptedReply | str | dict[str, Any]] | None = None) -> None:
         self.replies: list[ScriptedReply] = []
+        self.requests: list[RecordedRequest] = []
+        self._lock = threading.Lock()
         if replies:
             for r in replies:
                 self.enqueue(r)
-        self.requests: list[RecordedRequest] = []
-        self._lock = threading.Lock()
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -78,6 +78,14 @@ class FakeLLMServer:
                 length = int(self.headers.get("Content-Length", 0))
                 raw_body = self.rfile.read(length)
                 body: dict[str, Any] | None = None
+                parsed = urlparse(self.path)
+                if parsed.path == "/api/generate":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"status":"ok"}')
+                    return
+
                 try:
                     body = json.loads(raw_body.decode("utf-8")) if raw_body else None
                 except Exception:
@@ -388,7 +396,7 @@ class FakeLLMServer:
                     "prompt_eval_count": 10,
                     "eval_count": 5,
                 }
-                self.wfile.write(json.dumps(resp).encode("utf-8"))
+                self.wfile.write((json.dumps(resp) + "\n").encode("utf-8"))
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.port = self._server.server_address[1]
