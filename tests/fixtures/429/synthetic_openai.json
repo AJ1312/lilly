@@ -1,0 +1,19 @@
+{
+  "provider": "openai",
+  "status": 429,
+  "headers": {
+    "retry-after": "2.5",
+    "x-ratelimit-reset-tokens": "2.5"
+  },
+  "body": {
+    "error": {
+      "message": "Rate limit reached for gpt-4o-mini on tokens per min (TPM): Limit 200000, Used 198000, Requested 2500.",
+      "type": "tokens",
+      "code": "rate_limit_exceeded"
+    }
+  },
+  "expected": {
+    "retry_after": 2.5,
+    "scope": "tokens"
+  }
+}

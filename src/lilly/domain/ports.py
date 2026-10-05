@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from lilly.domain.caps import Cap
 from lilly.domain.labels import Label, Mode
@@ -12,9 +12,28 @@ from lilly.domain.labels import Label, Mode
 
 # ---- providers --------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
+class ToolSchema:
+    name: str
+    description: str
+    parameters: Mapping[str, Any]  # JSON Schema
+
+
+@dataclass(frozen=True, slots=True)
+class ModelToolCall:
+    id: str
+    name: str
+    arguments: Mapping[str, Any] | None
+    raw: str
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
-    role: str  # "system" | "user" | "assistant"
-    content: str
+    role: str  # "system" | "user" | "assistant" | "tool"
+    content: str = ""
+    tool_calls: tuple[ModelToolCall, ...] = ()
+    tool_call_id: str | None = None
+    provider_state: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +45,11 @@ class CompletionRequest:
     deadline_s: float = 60.0
     quick: bool = False             # a small, simple job: models the owner marked "quick" are tried first
     on_text: Callable[[str], None] | None = field(default=None, compare=False)  # told the whole text so far
+    tools: tuple[ToolSchema, ...] = ()
+    tool_choice: str = "auto"       # "auto" | "none"
+    role: str = "act"
+    tag: str | None = None
+    priority: int = 0               # 0 interactive, 1 background
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +58,8 @@ class CompletionResult:
     input_tokens: int
     output_tokens: int
     finish_reason: str
+    tool_calls: tuple[ModelToolCall, ...] = ()
+    provider_state: Mapping[str, Any] | None = None
 
 
 class Provider(ABC):
@@ -55,7 +81,8 @@ class Completer(Protocol):
 
     async def complete(self, req: CompletionRequest, *, need: Cap = Cap.NONE, label: Label = Label.PUBLIC,
                        task_id: str | None = None, payload_hash: str | None = None, mode: Mode = Mode.ASK,
-                       pin: str | None = None) -> Completed: ...
+                       pin: str | None = None, role: str = "act", tag: str | None = None,
+                       priority: int = 0) -> Completed: ...
 
 
 class Secret:

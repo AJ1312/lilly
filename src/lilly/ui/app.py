@@ -146,6 +146,8 @@ def api_routes() -> list[Route]:
         _route("/api/data/backup", admin.backup_now, ["POST"]),
         _route("/api/data/prune", admin.prune_now, ["POST"]),
         _route("/api/data/export", admin.export_data, ["GET"]),
+        _route("/api/capacity", admin.get_capacity, ["GET"]),
+        _route("/api/providers/catalog", admin.get_catalog, ["GET"]),
     ]
 
 

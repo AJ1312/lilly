@@ -40,7 +40,8 @@ class ScriptedCompleter:
 
     async def complete(self, req: CompletionRequest, *, need: Cap = Cap.NONE, label: Label = Label.PUBLIC,
                        task_id: str | None = None, payload_hash: str | None = None, mode: Mode = Mode.ASK,
-                       pin: str | None = None) -> Completed:
+                       pin: str | None = None, role: str = "act", tag: str | None = None,
+                       priority: int = 0) -> Completed:
         self.calls.append(req)
         self.labels.append(label)
         self.pins.append(pin)

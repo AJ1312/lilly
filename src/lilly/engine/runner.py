@@ -165,6 +165,8 @@ class TaskRunner:
             try:
                 answer = await self._run_steps(plan["steps"], specs, attempt, outputs)
             except StepFailed as failed:
+                if failed.kind == "capacity":
+                    raise Stop(TaskState.FAILED, failed.reason) from None
                 if attempt == MAX_ATTEMPTS:
                     raise Stop(TaskState.FAILED, failed.reason) from None
                 await self._rec.thought(Layer.REFLECT, f"A step failed ({failed.reason}). Planning another way.")

@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from lilly.core.limits import CircuitBreaker, DailyQuota, LimitWatch, SlidingWindowLimiter
+from lilly.core.limits import CircuitBreaker, DailyQuota, DailyTokens, LimitWatch, SlidingWindowLimiter, TokenWindow
 from lilly.domain.caps import Cap
 from lilly.domain.clock import Clock
 from lilly.domain.grants import GrantStore, label_access
@@ -26,6 +26,10 @@ class ModelEntry:
     last_error: str | None = field(default=None)
     tokens: list[int] = field(default_factory=lambda: [0, 0, 0])      # [calls, tokens in, tokens out] since Lilly started
     watch: LimitWatch = field(default_factory=LimitWatch)             # what the provider's rejections taught us
+    minute_tokens: TokenWindow | None = None
+    daily_tokens: DailyTokens | None = None
+    inflight: int = 0
+    token_ratio: float = 1.0
 
     # label_access() reads these
     @property
@@ -57,13 +61,22 @@ class ModelEntry:
         self.tokens[1] += tokens_in
         self.tokens[2] += tokens_out
 
-    def try_begin(self) -> bool:
+    def try_begin(self, tokens_in: int = 0, tokens_out: int = 0) -> bool:
         """Reserve one call against every limit and the breaker, or change nothing."""
         limiters = [lim for lim in (self.minute, self.daily) if lim is not None]
         if not self.breaker.ready() or not all(lim.would_allow() for lim in limiters):
             return False
+        total_tokens = tokens_in + tokens_out
+        if self.minute_tokens and not self.minute_tokens.would_allow(total_tokens):
+            return False
+        if self.daily_tokens and not self.daily_tokens.would_allow(total_tokens):
+            return False
         for lim in limiters:
             lim.commit()
+        if self.minute_tokens:
+            self.minute_tokens.commit(total_tokens)
+        if self.daily_tokens:
+            self.daily_tokens.commit(total_tokens)
         return self.breaker.begin()
 
 
@@ -122,12 +135,16 @@ class ProviderPool:
         for e in self.entries:
             out.append({
                 "name": e.name, "enabled": e.spec.enabled, "breaker": e.breaker.state,
+                "lane": e.spec.lane, "tags": list(e.spec.tags),
                 "minute_used": e.minute.used if e.minute else None, "rpm": e.spec.rpm,
                 "day_used": e.daily.used if e.daily else None, "rpd": e.spec.rpd,
+                "tpm_used": e.minute_tokens.used if e.minute_tokens else None, "tpm": e.spec.tpm,
+                "tpd_used": e.daily_tokens.used if e.daily_tokens else None, "tpd": e.spec.tpd,
                 "resets_in_s": round(e.daily.seconds_to_reset()) if e.daily else None,
                 "last_error": e.last_error, "calls": e.tokens[0], "tokens_in": e.tokens[1],
                 "tokens_out": e.tokens[2],
                 "suggested_rpm": _lower(e.watch.rpm, e.spec.rpm), "suggested_rpd": _lower(e.watch.rpd, e.spec.rpd),
+                "inflight": e.inflight,
             })
         return out
 
@@ -140,14 +157,25 @@ def _lower(learned: int | None, set_by_owner: int | None) -> int | None:
 def _entry(spec: ModelSpec, kept: ModelEntry | None, clock: Clock) -> ModelEntry:
     """The entry for `spec`, reusing from `kept` each counter whose own limit is unchanged and the breaker while
     it is still the same endpoint."""
+    minute_tokens = (
+        kept.minute_tokens if kept and kept.spec.tpm == spec.tpm else (TokenWindow(spec.tpm, 60.0, clock) if spec.tpm else None)
+    )
+    daily_tokens = (
+        kept.daily_tokens if kept and (kept.spec.tpd, kept.spec.tz) == (spec.tpd, spec.tz) else (
+            DailyTokens(spec.tpd, spec.tz) if spec.tpd else None
+        )
+    )
     if kept is None or (kept.spec.provider, kept.spec.model_id, kept.spec.base_url, kept.spec.key_ref) != (
             spec.provider, spec.model_id, spec.base_url, spec.key_ref):
         return ModelEntry(spec, SlidingWindowLimiter(spec.rpm, 60.0, clock) if spec.rpm else None,
-                          DailyQuota(spec.rpd, spec.tz) if spec.rpd else None, CircuitBreaker(clock=clock))
+                          DailyQuota(spec.rpd, spec.tz) if spec.rpd else None, CircuitBreaker(clock=clock),
+                          minute_tokens=minute_tokens, daily_tokens=daily_tokens)
     minute = kept.minute if kept.spec.rpm == spec.rpm else SlidingWindowLimiter(spec.rpm, 60.0, clock) if spec.rpm else None
     daily = kept.daily if (kept.spec.rpd, kept.spec.tz) == (spec.rpd, spec.tz) else \
         DailyQuota(spec.rpd, spec.tz) if spec.rpd else None
-    return ModelEntry(spec, minute, daily, kept.breaker, kept.last_error, kept.tokens, kept.watch)
+    return ModelEntry(spec, minute, daily, kept.breaker, kept.last_error, kept.tokens, kept.watch,
+                      minute_tokens=minute_tokens, daily_tokens=daily_tokens,
+                      inflight=kept.inflight, token_ratio=kept.token_ratio)
 
 
 def build_pool(settings: Settings, previous: ProviderPool | None = None, clock: Clock = time.monotonic) -> ProviderPool:

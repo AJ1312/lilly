@@ -4,6 +4,8 @@ Details (paths, payloads, provider messages) go only to the redacted log, never 
 """
 from __future__ import annotations
 
+from typing import Literal
+
 
 class LillyError(Exception):
     """Base class. `public` is safe to show; never put a secret or a payload in it."""
@@ -43,8 +45,26 @@ class ProviderError(LillyError):
         self.retryable, self.retry_after, self.status = retryable, retry_after, status
 
 
+RateLimitScope = Literal["minute", "day", "tokens", "unknown"]
+
+
 class QuotaExhausted(ProviderError):
     public = "Model quota used up for now"
+
+
+class RateLimited(QuotaExhausted):
+    public = "Model rate limited"
+
+    def __init__(
+        self,
+        scope: RateLimitScope = "unknown",
+        retry_after: float | None = None,
+        status: int = 429,
+        model: str | None = None,
+    ) -> None:
+        super().__init__(retryable=True, retry_after=retry_after, status=status)
+        self.scope: RateLimitScope = scope
+        self.model: str | None = model
 
 
 class WriterBusy(LillyError):
@@ -76,6 +96,7 @@ class NoModelAvailable(LillyError):
 
     public = "No model is available right now"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, soonest: tuple[tuple[str, float], ...] = ()) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.soonest = soonest

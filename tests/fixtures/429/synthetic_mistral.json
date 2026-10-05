@@ -1,0 +1,14 @@
+{
+  "provider": "mistral",
+  "status": 429,
+  "headers": {
+    "retry-after": "5"
+  },
+  "body": {
+    "message": "Rate limit exceeded. Too many requests per minute."
+  },
+  "expected": {
+    "retry_after": 5.0,
+    "scope": "minute"
+  }
+}

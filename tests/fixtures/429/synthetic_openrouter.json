@@ -1,0 +1,17 @@
+{
+  "provider": "openrouter",
+  "status": 429,
+  "headers": {
+    "retry-after": "60"
+  },
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "Free models per-day rate limit exceeded. Resets at midnight UTC."
+    }
+  },
+  "expected": {
+    "retry_after": 60.0,
+    "scope": "day"
+  }
+}

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 from lilly.domain.errors import (
     ApprovalExpired,
@@ -15,11 +15,13 @@ from lilly.domain.errors import (
     PolicyDenied,
     ProviderError,
     QuotaExhausted,
+    RateLimited,
     ToolError,
     ValidationFailed,
 )
 from lilly.domain.plan import REF
 from lilly.domain.tasks import TaskState
+from lilly.engine.messages import RATE_LIMITED_PROVIDER_ERROR
 
 
 class Stop(Exception):
@@ -30,16 +32,24 @@ class Stop(Exception):
         self.state, self.message = state, message
 
 
+StepFailureKind = Literal["tool", "policy", "capacity"]
+
+
 class StepFailed(Exception):
     """One step could not finish. The task may still recover by planning another way."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, kind: StepFailureKind = "tool") -> None:
         super().__init__(reason)
         self.reason = reason
+        self.kind: StepFailureKind = kind
 
 
 def describe_provider_error(exc: ProviderError) -> str:
     """Say what happened and what to do about it, in plain words."""
+    if isinstance(exc, RateLimited):
+        model = exc.model or "The model"
+        seconds = int(round(exc.retry_after or 0.0))
+        return RATE_LIMITED_PROVIDER_ERROR.format(model=model, scope=exc.scope, seconds=seconds)
     status = f" (HTTP {exc.status})" if exc.status else ""
     if exc.status in (401, 403):
         return f"The model provider rejected the API key{status}. Check it in Settings → Models & keys."

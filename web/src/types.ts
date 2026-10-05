@@ -139,13 +139,47 @@ export interface Settings {
   bridges: BridgeSettings
   devbox: DevboxSettings
   browser: BrowserSettings
+  capacity: CapacitySettings
+  engine: EngineSettings
+  grounding: GroundingSettings
+  crew: CrewSettings
   models: ModelSpec[]
+}
+
+export interface CapacitySettings {
+  max_wait_interactive_s: number
+  max_wait_background_s: number
+  inline_retry_max_s: number
+  max_inflight_per_model: number
+  learn_limits: boolean
+  spread: string
+  chars_per_token: number
+}
+
+export interface EngineSettings {
+  mode: string
+  observation_chars: number
+  soft_context_tokens: number
+  read_cache_ttl_s: number
+  self_check: boolean
+}
+
+export interface GroundingSettings {
+  enabled: boolean
+  protected_globs: string[]
+}
+
+export interface CrewSettings {
+  max_depth: number
+  max_children: number
+  child_budget_share: number
+  min_confidence: number
 }
 
 export type BrowserMode = 'ask_every' | 'ask_risky' | 'allowlist'
 export interface BrowserSettings { mode: BrowserMode; allow_hosts: string[]; max_actions: number; idle_quit_s: number; headless: boolean; chrome_path: string }
 
-export interface Limits { max_running: number; lanes: number; step_timeout_s: number; task_minutes: number; local_unload_s: number }
+export interface Limits { max_running: number; lanes: number; step_timeout_s: number; task_minutes: number; local_unload_s: number; max_agent_steps: number; max_model_calls: number; max_task_tokens: number }
 
 export interface ModelStatus {
   name: string

@@ -269,3 +269,71 @@ async def export_data(request: Request) -> Response:
 async def health(request: Request) -> Response:
     """Public and tiny: lets `lilly status`, launchd and the installer ask whether Lilly is up."""
     return JSONResponse({"ok": True, "app": "lilly", "version": __version__})
+
+
+async def get_capacity(request: Request) -> Response:
+    """Live capacity status across models and queue."""
+    rt = runtime(request)
+    rows = rt.router.capacity.snapshot()
+    q_len = len(rt.router.capacity._waiters)
+    models = [
+        {
+            "name": r.name,
+            "lane": r.lane,
+            "tags": list(r.tags),
+            "rpm": r.rpm,
+            "rpm_used": r.rpm_used,
+            "rpd": r.rpd,
+            "rpd_used": r.rpd_used,
+            "tpm": r.tpm,
+            "tpm_used": r.tpm_used,
+            "tpd": r.tpd,
+            "tpd_used": r.tpd_used,
+            "breaker": r.breaker,
+            "ready_in_s": r.ready_in_s,
+            "resets_in_s": r.resets_in_s,
+        }
+        for r in rows
+    ]
+    est_tasks = min((r.estimated_tasks_left for r in rows if r.estimated_tasks_left is not None), default=None)
+    return JSONResponse({
+        "models": models,
+        "queue_length": q_len,
+        "estimated_tasks_left_today": est_tasks,
+    })
+
+
+async def get_catalog(request: Request) -> Response:
+    """Serve provider catalog entries."""
+    from lilly.providers.catalog import load_catalog
+    entries = load_catalog()
+    return JSONResponse([
+        {
+            "id": e.id,
+            "name": e.name,
+            "provider": e.provider,
+            "model_id": e.model_id,
+            "base_url": e.base_url,
+            "openai_compatible": e.openai_compatible,
+            "starter": e.starter,
+            "enabled": e.enabled,
+            "local": e.local,
+            "lane": e.lane,
+            "tags": list(e.tags),
+            "caps": list(e.caps),
+            "key_ref": e.key_ref,
+            "free_tier": {
+                "rpm": e.free_tier.rpm,
+                "rpd": e.free_tier.rpd,
+                "tpm": e.free_tier.tpm,
+                "tpd": e.free_tier.tpd,
+                "notes": e.free_tier.notes,
+            },
+            "tools": e.tools,
+            "max_context_tokens": e.max_context_tokens,
+            "source_url": e.source_url,
+            "verified_on": e.verified_on,
+            "confidence": e.confidence,
+        }
+        for e in entries
+    ])

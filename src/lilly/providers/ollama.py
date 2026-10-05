@@ -84,7 +84,8 @@ class OllamaProvider(Provider):
             if resp.status_code == 404:            # the model is not installed: fixable, so not a long cool-down
                 raise ProviderError(retryable=True, status=404)
             if resp.status_code != 200:
-                raise map_http_error(resp.status_code, resp.headers)
+                err_body = await resp.aread()
+                raise map_http_error(resp.status_code, resp.headers, err_body)
             buffer = b""
             async for data in resp.aiter_bytes():
                 total += len(data)

@@ -49,7 +49,7 @@ extend-exclude = ["web"]
 select = ["E4", "E7", "E9", "F", "I", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["E701", "E702", "E731", "E741", "B011", "B017"]
+"tests/**" = ["E701", "E702", "E731", "E741", "B011", "B017", "E402"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -82,10 +82,13 @@ skip_covered = true
 
 [tool.vulture]
 paths = ["src"]
+exclude = ["*messages.py"]
 min_confidence = 60
 # Names the framework calls for us, or that are fields read by pydantic/dataclasses/JSON.
 ignore_names = ["handle_starttag", "handle_endtag", "handle_data", "model_config", "format", "reasoning",
-                "input_tokens", "output_tokens", "finish_reason", "hash"]
+                "input_tokens", "output_tokens", "finish_reason", "hash", "parameters", "tool_calls",
+                "tool_call_id", "provider_state", "tool_choice", "queue_length", "route", "wake_all",
+                "backoff", "default_settings_from_catalog", "get_task_calls"]
 
 [tool.deptry]
 known_first_party = ["lilly"]

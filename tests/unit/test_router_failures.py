@@ -10,7 +10,7 @@ import pytest
 from lilly.domain.errors import ProviderError
 from lilly.domain.grants import GrantStore
 from lilly.domain.ports import CompletionRequest, CompletionResult, Message, Provider
-from lilly.domain.settings import ModelSpec, Settings
+from lilly.domain.settings import CapacitySettings, ModelSpec, Settings
 from lilly.providers.router import ModelRouter
 from lilly.store.db import Database
 from tests.helpers import MemoryKeyStore
@@ -91,7 +91,7 @@ async def test_a_refusal_for_rate_stops_that_model_being_tried_again_and_teaches
 
     db = Database(tmp_path / "lilly.db")
     client = httpx.AsyncClient()
-    r = ModelRouter(Settings(models=(ModelSpec("a", "mistral", "m"), ModelSpec("b", "gemini", "m"))),
+    r = ModelRouter(Settings(models=(ModelSpec("a", "mistral", "m"), ModelSpec("b", "gemini", "m")), capacity=CapacitySettings(spread="ordered")),
                     MemoryKeyStore({"mistral": "k", "gemini": "k"}), client, db, GrantStore())
     await r.start()
     r._providers = {"a": Limited(), "b": Healthy()}

@@ -1,0 +1,30 @@
+{
+  "provider": "gemini",
+  "status": 429,
+  "headers": {},
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "Resource has been exhausted (e.g. check quota).",
+      "status": "RESOURCE_EXHAUSTED",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.RetryInfo",
+          "retryDelay": "34s"
+        },
+        {
+          "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+          "violations": [
+            {
+              "quotaId": "GenerateRequestsPerDay"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "retry_after": 34.0,
+    "scope": "day"
+  }
+}

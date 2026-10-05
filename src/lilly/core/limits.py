@@ -144,6 +144,124 @@ class LimitWatch:
         else:
             self.rpm = value if self.rpm is None else min(self.rpm, value)
 
+    def soft_limits(self, set_rpm: int | None = None, set_rpd: int | None = None) -> tuple[int | None, int | None]:
+        """Learned caps apply only as a lower cap than anything the owner set."""
+        eff_rpm = self.rpm if (self.rpm is not None and (set_rpm is None or set_rpm > self.rpm)) else set_rpm
+        eff_rpd = self.rpd if (self.rpd is not None and (set_rpd is None or set_rpd > self.rpd)) else set_rpd
+        return eff_rpm, eff_rpd
+
+
+class TokenWindow:
+    """At most `limit` tokens per `window_s`. Memory bounded by calls in window."""
+
+    def __init__(self, limit: int, window_s: float = 60.0, clock: Clock = time.monotonic):
+        self.limit, self.window_s, self._clock = limit, window_s, clock
+        self._items: deque[tuple[float, int]] = deque()
+        self._used: int = 0
+
+    def _prune(self, now: float) -> None:
+        cutoff = now - self.window_s
+        while self._items and self._items[0][0] <= cutoff:
+            _, tokens = self._items.popleft()
+            self._used = max(0, self._used - tokens)
+
+    def would_allow(self, tokens: int = 0) -> bool:
+        self._prune(self._clock())
+        return (self._used + tokens) <= self.limit
+
+    @property
+    def used(self) -> int:
+        self._prune(self._clock())
+        return self._used
+
+    def commit(self, tokens: int) -> None:
+        now = self._clock()
+        self._prune(now)
+        self._items.append((now, tokens))
+        self._used += tokens
+
+    def adjust(self, tokens_diff: int) -> None:
+        """Credit (negative) or debit (positive) difference on release."""
+        self._prune(self._clock())
+        self._used = max(0, self._used + tokens_diff)
+        if self._items and tokens_diff != 0:
+            ts, last_tokens = self._items[-1]
+            self._items[-1] = (ts, max(0, last_tokens + tokens_diff))
+
+    def retry_after(self, tokens: int = 0) -> float:
+        now = self._clock()
+        self._prune(now)
+        if (self._used + tokens) <= self.limit:
+            return 0.0
+        if tokens > self.limit:
+            return self.window_s
+        needed_relief = (self._used + tokens) - self.limit
+        freed = 0
+        for ts, count in self._items:
+            freed += count
+            if freed >= needed_relief:
+                return max(0.0, ts + self.window_s - now)
+        return self.window_s
+
+
+class DailyTokens:
+    """Per-day token counter that resets at local midnight of `tz`."""
+
+    def __init__(self, limit: int, tz: str = "America/Los_Angeles",
+                 now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
+        self.limit, self._zone, self._now = limit, ZoneInfo(tz), now
+        self._day = self._today()
+        self._used = 0
+
+    def _today(self) -> date:
+        return self._now().astimezone(self._zone).date()
+
+    def _roll(self) -> None:
+        d = self._today()
+        if d != self._day:
+            self._day, self._used = d, 0
+
+    def would_allow(self, tokens: int = 0) -> bool:
+        self._roll()
+        return (self._used + tokens) <= self.limit
+
+    def commit(self, tokens: int) -> None:
+        self._roll()
+        self._used += tokens
+
+    def adjust(self, tokens_diff: int) -> None:
+        self._roll()
+        self._used = max(0, self._used + tokens_diff)
+
+    @property
+    def used(self) -> int:
+        self._roll()
+        return self._used
+
+    @property
+    def day(self) -> int:
+        self._roll()
+        return self._day.toordinal()
+
+    def restore(self, day: int, used: int) -> None:
+        if day == self._today().toordinal():
+            self._day, self._used = date.fromordinal(day), used
+
+    def seconds_to_reset(self) -> float:
+        local = self._now().astimezone(self._zone)
+        nxt = datetime.combine(local.date() + timedelta(days=1), datetime.min.time(),
+                               tzinfo=self._zone)
+        return (nxt.astimezone(timezone.utc) - local.astimezone(timezone.utc)).total_seconds()
+
+
+def backoff(attempt: int, base: float = 1.0, cap: float = 60.0,
+            rand: Callable[[], float] | None = None) -> float:
+    """Full jitter exponential backoff."""
+    import secrets
+    r = rand() if rand is not None else secrets.SystemRandom().random()
+    temp = min(cap, base * (2.0 ** attempt))
+    return r * temp
+
 
 class CircuitBreaker:
     """closed -> open (after N failures) -> half-open (one probe) -> closed/open."""
