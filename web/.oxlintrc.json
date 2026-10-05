@@ -1,0 +1,5 @@
+{
+  "categories": { "correctness": "error", "suspicious": "warn" },
+  "plugins": ["react", "typescript"],
+  "rules": { "react/react-in-jsx-scope": "off" }
+}

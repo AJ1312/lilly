@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lilly"
+version = "1.8.4"
+description = "Lilly: a private AI assistant that runs on your own computer, with permissions you control."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28",
+    "keyring>=25",
+    "openpyxl>=3.1",
+    "psutil>=7",
+    "pydantic>=2.13",
+    "starlette>=1.7",
+    "uvicorn>=0.54",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "bandit>=1.9",
+    "deptry>=0.23",
+    "mypy>=2.4",
+    "pytest>=9",
+    "pytest-asyncio>=1.4",
+    "pytest-cov>=6",
+    "ruff>=0.16",
+    "types-openpyxl",
+    "types-psutil",
+    "vulture>=2.14",
+]
+
+[project.scripts]
+lilly = "lilly.daemon.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lilly"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = ["web"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E701", "E702", "E731", "E741", "B011", "B017"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["lilly"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-W error -q"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+# B101: asserts here only narrow types after an INSERT; no security decision depends on them.
+# B608: every SQL f-string interpolates only module-level column lists or "?" placeholders; values are always bound.
+skips = ["B101", "B608"]
+
+[tool.coverage.run]
+source = ["lilly"]
+branch = true
+
+[tool.coverage.report]
+# A floor that only moves up: raise it when coverage rises, never lower it.
+fail_under = 82
+show_missing = false
+skip_covered = true
+
+[tool.vulture]
+paths = ["src"]
+min_confidence = 60
+# Names the framework calls for us, or that are fields read by pydantic/dataclasses/JSON.
+ignore_names = ["handle_starttag", "handle_endtag", "handle_data", "model_config", "format", "reasoning",
+                "input_tokens", "output_tokens", "finish_reason", "hash"]
+
+[tool.deptry]
+known_first_party = ["lilly"]
+extend_exclude = ["web", "tests"]
+
+[tool.deptry.per_rule_ignores]
+# Development tools are run, not imported.
+DEP002 = ["bandit", "deptry", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "ruff", "types-openpyxl",
+          "types-psutil", "vulture"]
