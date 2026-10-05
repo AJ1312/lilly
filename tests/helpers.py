@@ -83,3 +83,32 @@ class MemoryKeyStore(KeyStore):
 
     def delete(self, ref: str) -> None:
         self._keys.pop(ref, None)
+
+
+class ControllableRand:
+    """Deterministic random float generator for tests."""
+
+    def __init__(self, values: list[float] | None = None, default: float = 0.5) -> None:
+        self.values = list(values or [])
+        self.default = default
+        self.history: list[float] = []
+
+    def __call__(self) -> float:
+        val = self.values.pop(0) if self.values else self.default
+        self.history.append(val)
+        return val
+
+
+class FakeSleep:
+    """An asyncio.sleep stand-in tied to a fake Clock."""
+
+    def __init__(self, clock: Clock) -> None:
+        self.clock = clock
+        self.sleeps: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.clock.advance(seconds)
+        import asyncio
+
+        await asyncio.sleep(0)

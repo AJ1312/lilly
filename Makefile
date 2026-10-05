@@ -1,7 +1,7 @@
 # One command for every check.
 PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: help install test lint types sec dead deps web check run clean
+.PHONY: help install test lint types sec dead deps web web-test check run clean
 
 help:
 	@echo "make install   install Lilly and the dev tools into the current environment"
@@ -12,7 +12,8 @@ help:
 	@echo "make dead      vulture: unused code"
 	@echo "make deps      deptry: unused or missing dependencies"
 	@echo "make web       rebuild the interface (needs Node 20+; output goes to src/lilly/web)"
-	@echo "make check     lint + types + sec + test"
+	@echo "make web-test  run web test suite (vitest)"
+	@echo "make check     lint + types + sec + test + web-test"
 	@echo "make run       run Lilly in this terminal"
 
 install:
@@ -39,7 +40,10 @@ deps:
 web:
 	cd web && npm ci && npm run lint && npm run build
 
-check: lint types sec dead deps test
+web-test:
+	cd web && npm test
+
+check: lint types sec dead deps test web-test
 	@echo "all checks passed"
 
 run:
