@@ -16,7 +16,7 @@ from lilly.domain.grants import GrantStore
 from lilly.domain.labels import Label, Mode, Risk
 from lilly.domain.policy import PathScope
 from lilly.domain.ports import ToolContext, ToolResult
-from lilly.domain.settings import MODULES, LimitSettings, Settings
+from lilly.domain.settings import MODULES, EngineSettings, LimitSettings, Settings
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
@@ -102,7 +102,7 @@ async def lab(tmp_path: Path) -> AsyncIterator[Lab]:
     root.mkdir()
     home.mkdir()
     clock, db, bus, grants, completer = Clock(), Database(tmp_path / "lilly.db"), EventBus(), GrantStore(), ScriptedCompleter()
-    settings = Settings(file_roots=(str(root),), modules=MODULES)
+    settings = Settings(file_roots=(str(root),), modules=MODULES, engine=EngineSettings(mode="plan"))
     scope = PathScope(settings.file_roots, deny=(str(home),))
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
     tools = build_tools(settings, scope=scope, db=db, router=completer, keys=MemoryKeyStore(), client=client, clock=clock)
@@ -114,7 +114,7 @@ async def lab(tmp_path: Path) -> AsyncIterator[Lab]:
                                                                   "rules": InstructionRules(), "match": MatchRule(),
                                                                   **extra}, DatabaseSink(db), clock)
     deps = EngineDeps(db, completer, lambda: tools, lambda: scope, lambda: settings.file_roots, bus, approvals, grants,
-                      clock, lambda: limits[0], pipeline)
+                      clock, lambda: limits[0], pipeline, engine_settings=lambda: settings.engine)
     orchestrator = Orchestrator(deps)
     orchestrator.configure(settings)
     await orchestrator.start()

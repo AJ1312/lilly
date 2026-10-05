@@ -14,7 +14,7 @@ from lilly.domain.grants import GrantStore
 from lilly.domain.ids import new_id
 from lilly.domain.labels import Mode
 from lilly.domain.policy import PathScope
-from lilly.domain.settings import MODULES, Settings
+from lilly.domain.settings import MODULES, EngineSettings, Settings
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
 from lilly.engine.orchestrator import Orchestrator, SubmitRequest
@@ -75,14 +75,14 @@ async def engine(tmp_path: Path) -> AsyncIterator[Engine]:
     bus = EventBus()
     grants = GrantStore()
     completer = ScriptedCompleter()
-    settings = Settings(file_roots=(str(root),), modules=MODULES)
+    settings = Settings(file_roots=(str(root),), modules=MODULES, engine=EngineSettings(mode="plan"))
     scope = PathScope(settings.file_roots, deny=(str(home),))
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
     tools = build_tools(settings, scope=scope, db=db, router=completer, keys=MemoryKeyStore(), client=client,
                         clock=clock)
     approvals = ApprovalService(db, bus, clock, ttl_s=30.0)
     deps = EngineDeps(db, completer, lambda: tools, lambda: scope, lambda: settings.file_roots, bus, approvals,
-                      grants, clock)
+                      grants, clock, engine_settings=lambda: settings.engine)
     orchestrator = Orchestrator(deps)
     orchestrator.configure(settings)
     await orchestrator.start()

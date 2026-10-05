@@ -105,7 +105,8 @@ class Runtime:
         self.decisions = DecisionPipeline(lambda: self.settings.decisions, self._deciders, DatabaseSink(db), clock)
         self.orchestrator = Orchestrator(EngineDeps(
             db, self.router, lambda: self.tools, lambda: self.scope, lambda: self.settings.file_roots, self.bus,
-            self.approvals, self.grants, clock, lambda: self.settings.limits, self.decisions))
+            self.approvals, self.grants, clock, lambda: self.settings.limits, self.decisions,
+            engine_settings=lambda: self.settings.engine))
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()

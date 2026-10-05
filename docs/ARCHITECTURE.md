@@ -29,16 +29,22 @@ Imports go strictly downward; `tests/unit/test_import_boundaries.py` enforces it
 
 The interface source is in `web/` (React 19, Vite, TypeScript, zustand); `npm run build` writes the static files to `src/lilly/web`, which ship inside the Python package so Lilly runs without Node.
 
-## A request, end to end
+## A request, end to end (Agent Loop)
 
 1. The browser posts a message to `POST /api/tasks`. `guarded()` checks the session cookie, CSRF token and origin.
 2. The orchestrator creates a task (label PUBLIC, untainted), records it, and starts the runner.
-3. The planner asks the router for a model; the router picks by your list order, capability, label permission and remaining quota. A pinned model is never silently replaced.
-4. The plan is validated (`domain/plan.py`): known tools only, no forbidden tools, steps reference only earlier steps, the last step is `llm.work`.
-5. Preflight predicts a verdict for every step with `decide()`. For each step at run time: `ALLOW` runs; `NEEDS_APPROVAL` creates an approval bound to the hash of that exact step and waits; `DENY` fails the step.
-6. Tool results raise the task's label (for example reading a file makes it PERSONAL) and taint (web content is untrusted). Neither ever goes down within a task.
-7. `llm.work` composes the answer through the router, which again checks whether that model may see the task's label.
-8. Every state change is appended to the hash-chained event log and published on the SSE stream (`/api/events`), which the interface listens to.
+3. The runner invokes `AgentLoop` (rank 4). Initial messages are built: system prompt (`AGENT_SYSTEM`), agent's pet sheet instructions, visible tools catalog, recent conversation answers, and the user's goal.
+4. **Turn-by-turn dynamic execution**:
+   - **Role selection**: Turn 1 and turns following escalation use `plan` role; subsequent tool-calling turns use `act`; final reserved budget turn uses `write` with `tool_choice="none"`.
+   - **Model call**: Dispatched via `StepExecutor.with_model_permission`. If a model needs user permission for sensitive data (`Label.PERSONAL`), an approval request is triggered and the loop resumes upon decision.
+   - **Tool execution**: Calls in each turn are validated against their schemas. Read-only, unconfirmed, non-serial calls eligible under policy execute concurrently via `LaneScheduler`. Mutating or confirm steps execute serially.
+   - **Observations**: Every tool call generates a structured observation (`RESULT {step_id} ...`). Policy blocks, tool errors, and user declines generate observations without aborting the task.
+   - **Loop guard & Escalation**: Step executions trigger `_advise()`. On first `LOOPING` detection, `NOTICE_LOOPING` is injected; a second consecutive loop aborts. Consecutive invalid turns escalate to the `plan` model once.
+   - **Completion**: When the model answers directly without tool calls, or budget exhaustion forces a final answer, the final response is recorded and the task transitions to `DONE`.
+
+### Legacy plan path
+
+Tasks configured with skills or `engine.mode == "plan"` use the pre-2.0 ahead-of-time planner (`_execute_plan()`). The planner generates a static JSON plan (`llm.work` as final step), validates references, pre-flights policy, and executes steps through `LaneScheduler`.
 
 ## Data
 

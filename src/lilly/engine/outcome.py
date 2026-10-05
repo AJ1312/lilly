@@ -44,6 +44,14 @@ class StepFailed(Exception):
         self.kind: StepFailureKind = kind
 
 
+class StepDeclined(StepFailed):
+    """The user declined this step. In loop mode, the loop continues with a declined observation."""
+
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(reason or "declined by the user")
+        self.user_reason = reason
+
+
 def describe_provider_error(exc: ProviderError) -> str:
     """Say what happened and what to do about it, in plain words."""
     if isinstance(exc, RateLimited):

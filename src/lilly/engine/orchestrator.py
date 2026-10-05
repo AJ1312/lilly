@@ -11,7 +11,7 @@ from lilly.domain.errors import ConflictError, LillyError, NotFound, ValidationF
 from lilly.domain.ids import new_id
 from lilly.domain.labels import Label, Mode
 from lilly.domain.pets import agent_prompt
-from lilly.domain.settings import Settings
+from lilly.domain.settings import EngineSettings, Settings
 from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import TERMINAL, TaskState
 from lilly.engine.replycheck import ReplyChecker
@@ -203,7 +203,13 @@ class Orchestrator:
                 out[name] = tool
             return out
 
-        return replace(self._d, tools=allowed)
+        engine_fn = self._d.engine_settings
+        if self._settings is not None and engine_fn is EngineSettings:
+            settings_ref = self._settings
+
+            def engine_fn() -> EngineSettings:
+                return settings_ref.engine
+        return replace(self._d, tools=allowed, engine_settings=engine_fn)
 
     async def _run(self, runner: TaskRunner) -> None:
         async with self._gate:

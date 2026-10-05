@@ -87,6 +87,9 @@ async def api(tmp_path: Path) -> AsyncIterator[Api]:
     client = httpx.AsyncClient(transport=httpx.MockTransport(provider.handle))
     paths = init_paths(tmp_path / "lilly-home")
     runtime = await Runtime.create(paths, client=client, keys=MemoryKeyStore({"mistral": "test-key"}))
+    from dataclasses import replace
+    runtime.settings = replace(runtime.settings, engine=replace(runtime.settings.engine, mode="plan"))
+    runtime.orchestrator.configure(runtime.settings)
     auth = Auth(paths.token, paths.secret)
     shared = tmp_path / "shared"
     shared.mkdir()

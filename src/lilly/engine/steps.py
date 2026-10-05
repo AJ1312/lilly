@@ -46,7 +46,7 @@ from lilly.domain.tasks import TaskState
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.decisions import DecisionPipeline
-from lilly.engine.outcome import StepFailed, Stop, clip, describe_error, resolve_refs
+from lilly.engine.outcome import StepDeclined, StepFailed, Stop, clip, describe_error, resolve_refs
 from lilly.engine.record import TaskRecord
 from lilly.engine.stream import TextStream
 from lilly.engine.verify import check_output
@@ -73,11 +73,26 @@ def add_doubt(verdict: Verdict, why: str, plan_choice: str | None) -> tuple[Verd
 class StepExecutor:
     def __init__(self, rec: TaskRecord, approvals: ApprovalService, grants: GrantStore,
                  scope: Callable[[], PathScope], limits: Callable[[], LimitSettings], pin_model: str | None,
-                 decisions: DecisionPipeline | None = None, brief: Brief | None = None) -> None:
+                 decisions: DecisionPipeline | None = None, brief: Brief | None = None,
+                 loop_mode: bool = False) -> None:
         self._rec, self._approvals, self._grants = rec, approvals, grants
         self._scope, self._limits, self._pin, self._decisions = scope, limits, pin_model, decisions
         self._brief = brief or Brief("")      # what the user asked and the agent's standing instructions, for the plan check
         self._finished: list[StepSig] = []   # what finished steps looked like, across replans, for loop detection
+        self._loop_mode = loop_mode
+        self._seen_looping = 0
+
+    @property
+    def seen_looping(self) -> int:
+        return self._seen_looping
+
+    @property
+    def loop_mode(self) -> bool:
+        return self._loop_mode
+
+    @loop_mode.setter
+    def loop_mode(self, val: bool) -> None:
+        self._loop_mode = val
 
     def may_taint(self) -> bool:
         """Whether a finished step's result can come back more tainted than its tool declares (the decision layer
@@ -85,7 +100,7 @@ class StepExecutor:
         return self._decisions is not None and self._decisions.active(Kind.INSTRUCTIONS)
 
     async def run(self, st: Mapping[str, Any], row_id: str, outputs: Mapping[str, str],
-                  tools: Mapping[str, Tool]) -> str:
+                  tools: Mapping[str, Tool], decline_continues: bool = False) -> str:
         """Run one step and return its output. Raises StepFailed, or Stop when the task must end."""
         rec, name = self._rec, st["tool"]
         tool = tools.get(name)
@@ -104,12 +119,12 @@ class StepExecutor:
         if verdict is Verdict.DENY:
             await rec.step_status(row_id, "failed", error=f"blocked: {why}")
             await rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=row_id)
-            raise StepFailed(f"{name} is blocked: {why}")
+            raise StepFailed(f"{name} is blocked: {why}", kind="policy")
         verdict, why = await self._doubted(verdict, why, name, spec, args)
         payload = {"tool": name, "args": args}
         digest = payload_hash(rec.task_id, row_id, "step", payload)
         if verdict is Verdict.NEEDS_APPROVAL:
-            await self._approve(row_id, name, args, payload, why)
+            await self._approve(row_id, name, args, payload, why, decline_continues=decline_continues)
         await rec.step_status(row_id, "running", args_json=canonical(clip(args)))
         await rec.thought(Layer.ACT, f"Running {name}" + (f" to get {st['expect']}" if st.get("expect") else ""),
                           step=row_id)
@@ -182,6 +197,11 @@ class StepExecutor:
         self._finished.append(step_sig(name, args))
         loop = await pipeline.decide(Kind.LOOP, rec.task_id, LOOP_OPTIONS, Context(steps=tuple(self._finished)))
         if loop.choice == LOOPING:
+            self._seen_looping += 1
+            if self._loop_mode:
+                if self._seen_looping >= 2:
+                    raise Stop(TaskState.FAILED, "the task kept repeating the same steps, so it was stopped")
+                return
             raise Stop(TaskState.FAILED, "the task kept repeating the same steps, so it was stopped")
 
     async def abandon(self, row_id: str) -> None:
@@ -189,7 +209,7 @@ class StepExecutor:
         await self._rec.step_status(row_id, "skipped", error="stopped because another step failed")
 
     async def _approve(self, row_id: str, name: str, args: Mapping[str, Any], payload: dict[str, Any],
-                       why: str) -> None:
+                       why: str, decline_continues: bool = False) -> None:
         rec = self._rec
         await rec.step_status(row_id, "waiting")
         await rec.state(TaskState.WAITING_APPROVAL)
@@ -203,6 +223,10 @@ class StepExecutor:
             raise Stop(TaskState.EXPIRED, "nobody approved in time, so nothing was done") from None
         if not decision.approved:
             await rec.step_status(row_id, "skipped", error="declined")
+            if decline_continues:
+                reason = getattr(decision, "reason", "") or ""
+                await rec.state(TaskState.RUNNING)
+                raise StepDeclined(str(reason))
             raise Stop(TaskState.CANCELLED, f"you declined {name}")
         await rec.state(TaskState.RUNNING)
 

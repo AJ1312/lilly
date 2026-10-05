@@ -24,7 +24,7 @@ class Clock:
         self.t += seconds
 
 
-Reply = str | Exception | Callable[[CompletionRequest], str]
+Reply = str | Exception | Callable[[CompletionRequest], str] | CompletionResult | Completed
 
 
 @dataclass
@@ -50,6 +50,10 @@ class ScriptedCompleter:
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
+        if isinstance(reply, Completed):
+            return reply
+        if isinstance(reply, CompletionResult):
+            return Completed(reply, self.model)
         text = reply(req) if callable(reply) else reply
         if req.on_text is not None:          # like a model that writes a little at a time
             req.on_text(text[: len(text) // 2])

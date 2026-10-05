@@ -25,7 +25,7 @@ TERMINAL: frozenset[TaskState] = frozenset(
 _S = TaskState
 _FORWARD: dict[TaskState, frozenset[TaskState]] = {
     _S.PENDING: frozenset({_S.PLANNING}),
-    _S.PLANNING: frozenset({_S.RUNNING, _S.DONE}),  # DONE: the planner answered directly
+    _S.PLANNING: frozenset({_S.RUNNING, _S.DONE, _S.WAITING_APPROVAL}),  # DONE: direct answer; WAITING_APPROVAL: model grant
     _S.RUNNING: frozenset({_S.WAITING_APPROVAL, _S.VERIFYING}),
     _S.WAITING_APPROVAL: frozenset({_S.PLANNING, _S.RUNNING, _S.EXPIRED}),
     _S.VERIFYING: frozenset({_S.DONE}),

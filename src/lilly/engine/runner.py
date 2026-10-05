@@ -27,10 +27,11 @@ from lilly.domain.plan import preflight
 from lilly.domain.policy import PathScope
 from lilly.domain.ports import Completed, Completer, CompletionRequest
 from lilly.domain.reasoning import Layer
-from lilly.domain.settings import LimitSettings
+from lilly.domain.settings import EngineSettings, LimitSettings
 from lilly.domain.skills import BUILTIN_SKILLS, check_skill, instantiate
 from lilly.domain.tasks import TERMINAL, TaskState
 from lilly.domain.tools_registry import ToolSpec
+from lilly.engine.agent_loop import AgentLoop
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
 from lilly.engine.decisions import DecisionPipeline
@@ -72,6 +73,7 @@ class EngineDeps:
     clock: Clock
     limits: Callable[[], LimitSettings] = LimitSettings
     decisions: DecisionPipeline | None = None   # cheap advisers; None means every question gets no decision
+    engine_settings: Callable[[], EngineSettings] = EngineSettings
 
 
 class TaskRunner:
@@ -135,6 +137,34 @@ class TaskRunner:
 
     # ---- the work -----------------------------------------------------------------------------------
     async def _execute(self) -> None:
+        if self._spec.skill or self._d.engine_settings().mode == "plan":
+            await self._execute_plan()
+            return
+
+        self._prepare_assist()
+        await self._rec.state(TaskState.PLANNING)
+        loop = AgentLoop(
+            rec=self._rec,
+            completer=self._d.completer,
+            steps=self._steps,
+            tools=self._d.tools,
+            scope=self._d.scope,
+            file_roots=self._d.file_roots,
+            limits=self._d.limits,
+            engine_settings=self._d.engine_settings,
+            db=self._d.db,
+            goal=self._spec.goal,
+            conversation_id=self._spec.conversation_id,
+            agent_instructions=self._spec.agent_instructions,
+            pin_model=self._spec.pin_model,
+            pet_name="Lilly",
+            decisions=self._d.decisions,
+            stop_reason=lambda: self.stop_reason,
+        )
+        answer = await loop.run()
+        await self._answer(answer)
+
+    async def _execute_plan(self) -> None:
         self._prepare_assist()
         tools = dict(self._d.tools())   # what the plan is made from; each step looks its tool up again when it starts
         specs: dict[str, ToolSpec] = {n: t.spec for n, t in tools.items()}
