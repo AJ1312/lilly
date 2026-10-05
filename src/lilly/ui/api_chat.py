@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from lilly.domain.decisions import DRIFTS, FOLLOWS
 from lilly.domain.errors import NotFound, ValidationFailed
+from lilly.domain.sheet import TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import TaskState
 from lilly.engine.bus import EventBus
@@ -86,13 +87,20 @@ async def submit_task(request: Request) -> Response:
     params = data.get("params", {})
     if not isinstance(params, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in params.items()):
         raise ValidationFailed("params must be an object of text values")
+    profile_data = data.get("profile")
+    profile: TaskProfile | None = None
+    if profile_data is not None:
+        if not isinstance(profile_data, dict):
+            raise ValidationFailed("profile must be an object")
+        profile = TaskProfile.from_dict(profile_data)
     row = await rt.orchestrator.submit(SubmitRequest(
         goal=text(data, "goal", max_len=4000) or "",
         conversation_id=text(data, "conversation_id", required=False, max_len=64),
         agent_id=text(data, "agent_id", required=False, max_len=64),
         skill=text(data, "skill", required=False, max_len=64),
         params=params,
-        pin_model=text(data, "pin_model", required=False, max_len=64)))
+        pin_model=text(data, "pin_model", required=False, max_len=64),
+        profile=profile))
     return JSONResponse({"task": task_json(row)}, 202)
 
 

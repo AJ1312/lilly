@@ -573,6 +573,20 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
             "additionalProperties": False,
         },
     ),
+    "agent.delegate": ToolSpec(
+        Risk.R0,
+        doc="Hand a self-contained job to another agent in the user's crew and get back its answer. Name the agent and say exactly what you need.",
+        args='{"agent": "Mochi", "task": "Research Python 3.13"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "agent": {"type": "string", "description": "Name or pet species of the agent"},
+                "task": {"type": "string", "description": "Self-contained task instructions for the agent"},
+            },
+            "required": ["agent", "task"],
+            "additionalProperties": False,
+        },
+    ),
 }
 
 # Verify all default tools have valid names

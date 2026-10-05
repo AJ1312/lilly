@@ -28,11 +28,12 @@ from lilly.domain.devbox import Engine, Engines
 from lilly.domain.grants import GrantStore
 from lilly.domain.pets import look_to_dict
 from lilly.domain.policy import PathScope
-from lilly.domain.ports import KeyStore
+from lilly.domain.ports import KeyStore, ToolContext, ToolResult
 from lilly.domain.settings import Settings, load_settings, save_settings
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
 from lilly.engine.decisions import DatabaseSink, DecisionPipeline
+from lilly.engine.delegate import DelegateHandler, DelegationContext
 from lilly.engine.orchestrator import Orchestrator
 from lilly.engine.runner import EngineDeps
 from lilly.engine.scheduler import Scheduler
@@ -162,7 +163,18 @@ class Runtime:
     def _build_tools(self, settings: Settings) -> dict[str, Tool]:
         return build_tools(settings, scope=self.scope, db=self.db, router=self.router, keys=self.keys,
                            client=self.client, clock=self.clock,
-                           browser=(self.browser, lambda: self.settings.browser), devbox=self.devbox)
+                           browser=(self.browser, lambda: self.settings.browser), devbox=self.devbox,
+                           delegate_fn=self._delegate)
+
+    async def _delegate(self, target_agent: str, task_instruction: str, ctx: ToolContext) -> ToolResult:
+        handler = DelegateHandler(DelegationContext(
+            db=self.db,
+            bus=self.bus,
+            orchestrator=self.orchestrator,
+            crew_settings=lambda: self.settings.crew,
+            limits=lambda: self.settings.limits,
+        ))
+        return await handler.delegate(target_agent, task_instruction, ctx)
 
     def _secret(self, ref: str) -> str | None:
         found = self.keys.get(ref)

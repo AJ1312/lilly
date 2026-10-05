@@ -13,7 +13,8 @@ from lilly.store.connection import tx
 from lilly.store.events import append_event
 
 _TASK_COLS = ("id, conversation_id, agent_id, state, goal, mode, label, tainted, skill, "
-              "plan_json, pinned_model, answer, error, created_at, updated_at, finished_at")
+              "plan_json, pinned_model, answer, error, created_at, updated_at, finished_at, "
+              "parent_task_id, depth, profile_json")
 _STEP_COLS = "step_id, position, tool, status, args_json, output, label, untrusted, error, started_at, finished_at"
 MAX_OUTPUT = 262_144
 MAX_ARGS = 16_384
@@ -38,6 +39,9 @@ class TaskRow:
     created_at: float
     updated_at: float
     finished_at: float | None
+    parent_task_id: str | None = None
+    depth: int = 0
+    profile_json: str = "{}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,19 +67,25 @@ def _clip_args(args_json: str) -> str:
 
 
 def _task(r: tuple[Any, ...]) -> TaskRow:
-    return TaskRow(str(r[0]), r[1], r[2], TaskState(r[3]), str(r[4]), int(r[5]),
-                   Label(r[6]), bool(r[7]), r[8], r[9], r[10], r[11], r[12],
-                   float(r[13]), float(r[14]), r[15])
+    return TaskRow(
+        str(r[0]), r[1], r[2], TaskState(r[3]), str(r[4]), int(r[5]),
+        Label(r[6]), bool(r[7]), r[8], r[9], r[10], r[11], r[12],
+        float(r[13]), float(r[14]), r[15],
+        str(r[16]) if len(r) > 16 and r[16] is not None else None,
+        int(r[17]) if len(r) > 17 and r[17] is not None else 0,
+        str(r[18]) if len(r) > 18 and r[18] is not None else "{}",
+    )
 
 
 def create_task(con: sqlite3.Connection, *, id: str, goal: str, mode: int,
                 label: Label, tainted: bool, now: float, conversation_id: str | None = None,
                 agent_id: str | None = None, skill: str | None = None,
-                pinned_model: str | None = None) -> TaskRow:
+                pinned_model: str | None = None, parent_task_id: str | None = None,
+                depth: int = 0, profile_json: str = "{}") -> TaskRow:
     con.execute(
-        f"INSERT INTO tasks({_TASK_COLS}) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,NULL,NULL,?,?,NULL)",
+        f"INSERT INTO tasks({_TASK_COLS}) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,NULL,NULL,?,?,NULL,?,?,?)",
         (id, conversation_id, agent_id, TaskState.PENDING.value, goal, mode, int(label),
-         int(tainted), skill, pinned_model, now, now))
+         int(tainted), skill, pinned_model, now, now, parent_task_id, depth, profile_json))
     task = get_task(con, id)
     assert task is not None
     return task
@@ -184,4 +194,10 @@ def list_steps(con: sqlite3.Connection, task_id: str) -> list[StepRow]:
 def get_step(con: sqlite3.Connection, task_id: str, step_id: str) -> StepRow | None:
     row = con.execute(f"SELECT {_STEP_COLS} FROM steps WHERE task_id=? AND step_id=?", (task_id, step_id)).fetchone()
     return _step(row) if row else None
+
+
+def list_children(con: sqlite3.Connection, parent_task_id: str) -> list[TaskRow]:
+    rows = con.execute(f"SELECT {_TASK_COLS} FROM tasks WHERE parent_task_id=?", (parent_task_id,)).fetchall()
+    return [_task(r) for r in rows]
+
 

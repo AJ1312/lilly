@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 from collections.abc import Mapping
@@ -10,8 +11,8 @@ from dataclasses import dataclass, field, replace
 from lilly.domain.errors import ConflictError, LillyError, NotFound, ValidationFailed
 from lilly.domain.ids import new_id
 from lilly.domain.labels import Label, Mode
-from lilly.domain.pets import agent_prompt
 from lilly.domain.settings import EngineSettings, Settings
+from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import TERMINAL, TaskState
 from lilly.engine.replycheck import ReplyChecker
@@ -40,6 +41,10 @@ class SubmitRequest:
     pin_model: str | None = None
     source: str = "app"          # where the request came from: "app", or a chat app such as "telegram"
     outside: bool = False        # the text came from outside Lilly's own interface: the task starts out untrusted
+    profile: TaskProfile | None = None
+    parent_task_id: str | None = None
+    depth: int = 0
+    mode: Mode | None = None
 
 
 class Gate:
@@ -142,10 +147,33 @@ class Orchestrator:
         if req.conversation_id and conversations.get_conversation(db.reader, req.conversation_id) is None:
             raise NotFound(f"conversation {req.conversation_id}")
 
-        mode = self._effective_mode(agent.mode if agent else None)
+        mode = req.mode if req.mode is not None else self._effective_mode(agent.mode if agent else None)
         pin = req.pin_model or (agent.model if agent else "") or None   # a request's pin beats the pet's own model
         task_id, conv_id, now = new_id(), req.conversation_id or new_id(), self._d.clock()
         title = goal[:60]
+        sheet = agent_store.parsed_sheet_for(agent) if agent else None
+        profile = req.profile
+        pet_name = agent.name if agent else "Lilly"
+
+        if profile is not None:
+            available_tool_names: set[str] = set()
+            for name in self._d.tools().keys():
+                if agent is not None:
+                    if name.startswith(("web.", "browser.")) and not agent.research_allowed:
+                        continue
+                    if name.startswith(("memory.", "notes.")) and not agent.memory_allowed:
+                        continue
+                    if name.startswith(("fs.", "data.", "devbox.")) and not agent.files_allowed:
+                        continue
+                    if name.startswith("computer.") and not agent.computer_allowed:
+                        continue
+                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "result.read", "agent.delegate"):
+                    continue
+                available_tool_names.add(name)
+
+            for tool in profile.tools:
+                if tool not in available_tool_names:
+                    raise ValidationFailed(f'You can narrow a pet for one task, not widen it: "{tool}" is not available to {pet_name}.')
 
         def create(con: sqlite3.Connection) -> tasks.TaskRow:
             if not req.conversation_id:
@@ -154,7 +182,9 @@ class Orchestrator:
             row = tasks.create_task(
                 con, id=task_id, goal=goal, mode=int(mode),
                 label=Label.PUBLIC, tainted=req.outside, now=now, conversation_id=conv_id,
-                agent_id=agent.id if agent else None, skill=req.skill, pinned_model=pin)
+                agent_id=agent.id if agent else None, skill=req.skill, pinned_model=pin,
+                parent_task_id=req.parent_task_id, depth=req.depth,
+                profile_json=json.dumps(profile.to_dict()) if profile else "{}")
             conversations.add_message(con, conv_id, "user", goal, now, task_id=task_id)
             append_event(con, task_id, "created", {"mode": mode.name, "skill": req.skill,
                                                    "agent": agent.name if agent else None, "source": req.source}, "user", now)
@@ -166,9 +196,9 @@ class Orchestrator:
             if self._closed:       # shutdown began while the task was being written: nobody would stop it
                 await self._cancel_queued(task_id)
                 raise ConflictError("Lilly is shutting down")
-            spec = RunSpec(goal, conv_id, agent_prompt(agent.instructions, agent.skills) if agent else "",
-                           req.skill, req.params, pin)
-            runner = TaskRunner(self._scoped_deps(agent), row, spec, self._replies)
+            owner_text = agent_store.owner_text_for(agent) if agent else ""
+            spec = RunSpec(goal, conv_id, owner_text, req.skill, req.params, pin, sheet=sheet, profile=profile)
+            runner = TaskRunner(self._scoped_deps(agent, sheet=sheet, profile=profile), row, spec, self._replies)
             handle = asyncio.create_task(self._run(runner), name=f"lilly-task-{task_id}")
             self._active[task_id] = (handle, runner)
             handle.add_done_callback(lambda h: self._ended(task_id, h))
@@ -184,12 +214,17 @@ class Orchestrator:
         now = agent_store.get_agent(self._d.db.reader, agent.id)
         return now is None or agent_store.narrows(agent, now)
 
-    def _scoped_deps(self, agent: agent_store.AgentRow | None) -> EngineDeps:
-        """The tools this task may use: the enabled ones, narrowed by the agent's permissions."""
+    def _scoped_deps(
+        self,
+        agent: agent_store.AgentRow | None,
+        sheet: PetSheet | None = None,
+        profile: TaskProfile | None = None,
+    ) -> EngineDeps:
+        """The tools this task may use: the enabled ones, narrowed by the agent's permissions, sheet allowlist, and profile tools_off."""
         base = self._d.tools
 
         def allowed() -> Mapping[str, Tool]:
-            out = {}
+            out: dict[str, Tool] = {}
             for name, tool in base().items():
                 if agent is not None:
                     if name.startswith(("web.", "browser.")) and not agent.research_allowed:
@@ -200,11 +235,15 @@ class Orchestrator:
                         continue
                     if name.startswith("computer.") and not agent.computer_allowed:
                         continue
+                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "result.read", "agent.delegate"):
+                    continue
+                if profile is not None and name in profile.tools_off:
+                    continue
                 out[name] = tool
             return out
 
         engine_fn = self._d.engine_settings
-        if self._settings is not None and engine_fn is EngineSettings:
+        if self._settings is not None:
             settings_ref = self._settings
 
             def engine_fn() -> EngineSettings:
@@ -254,6 +293,10 @@ class Orchestrator:
         handle, runner = entry
         runner.request_cancel()
         handle.cancel()
+        for cid, (c_handle, c_runner) in list(self._active.items()):
+            if cid != task_id and getattr(c_runner._task, "parent_task_id", None) == task_id:
+                c_runner.request_cancel(f"cancelled because parent task {task_id} was cancelled")
+                c_handle.cancel()
 
     async def stop_all(self, wait_s: float = KILL_SWITCH_WAIT_S) -> int:
         """The kill switch: cancel every task, running or queued, and wait briefly for them to end.
@@ -264,7 +307,13 @@ class Orchestrator:
     async def cancel_agent_tasks(self, agent_id: str, reason: str, wait_s: float = KILL_SWITCH_WAIT_S) -> int:
         """Cancel every unfinished task of one agent, a step already running included, and say why in the task.
         Other agents' tasks are untouched. Returns how many were stopped."""
-        return await self._stop([e for e in self._active.values() if e[1].agent_id == agent_id], reason, wait_s)
+        direct = [e for e in self._active.values() if e[1].agent_id == agent_id]
+        direct_ids = {e[1]._task.id for e in direct}
+        to_stop = list(direct)
+        for handle, runner in list(self._active.values()):
+            if getattr(runner._task, "parent_task_id", None) in direct_ids and runner not in [e[1] for e in to_stop]:
+                to_stop.append((handle, runner))
+        return await self._stop(to_stop, reason, wait_s)
 
     async def _stop(self, entries: list[tuple[asyncio.Task[None], TaskRunner]], reason: str, wait_s: float) -> int:
         for handle, runner in entries:

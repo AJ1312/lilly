@@ -1,7 +1,7 @@
 """Built-in tools and the factory that assembles the set a given configuration enables."""
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 import httpx
 
@@ -9,11 +9,11 @@ from lilly.domain.browser_policy import BrowserSettings
 from lilly.domain.clock import Clock
 from lilly.domain.errors import ConfigurationError
 from lilly.domain.policy import PathScope
-from lilly.domain.ports import Completer, KeyStore
+from lilly.domain.ports import Completer, KeyStore, ToolContext, ToolResult
 from lilly.domain.settings import Settings
 from lilly.domain.tools_registry import DEFAULT_TOOLS
 from lilly.store.db import Database
-from lilly.tools.agent import AgentAskTool, AgentPlanTool
+from lilly.tools.agent import AgentAskTool, AgentDelegateTool, AgentPlanTool
 from lilly.tools.base import Tool
 from lilly.tools.browser.actions import browser_tools
 from lilly.tools.browser.manager import BrowserManager
@@ -42,7 +42,8 @@ __all__ = ["Tool", "build_tools"]
 def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: Completer, keys: KeyStore,
                 client: httpx.AsyncClient, clock: Clock,
                 browser: tuple[BrowserManager, Callable[[], BrowserSettings]] | None = None,
-                devbox: DevboxManager | None = None) -> dict[str, Tool]:
+                devbox: DevboxManager | None = None,
+                delegate_fn: Callable[[str, str, ToolContext], Awaitable[ToolResult]] | None = None) -> dict[str, Tool]:
     """Every tool the enabled modules provide, keyed by name. Nothing is registered that does not exist,
     and every tool's name must be in DEFAULT_TOOLS, where its risk is pinned."""
     globs = settings.grounding.protected_globs
@@ -55,7 +56,7 @@ def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: C
         NotesSearchTool(db), NotesReadTool(db), NotesWriteTool(db, clock),
         OpenUrlTool(), OpenAppTool(), ProcessesTool(), StopProcessTool(), NotifyTool(), RunCommandTool(scope),
         SystemStatsTool(), LlmWorkTool(router),
-        ResultReadTool(db), AgentPlanTool(db, clock), AgentAskTool(),
+        ResultReadTool(db), AgentPlanTool(db, clock), AgentAskTool(), AgentDelegateTool(delegate_fn),
         *(browser_tools(*browser) if browser else []),
         *([DevboxRunTool(devbox)] if devbox else []),
     ]

@@ -27,8 +27,10 @@ from lilly.domain.ports import (
 from lilly.domain.reasoning import Layer
 from lilly.domain.schema import validate_schema
 from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
+from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.tasks import TaskState
 from lilly.engine.context import ContextManager
+from lilly.engine.crew import resolve_ref
 from lilly.engine.decisions import DecisionPipeline
 from lilly.engine.grounding import GroundingVerifier
 from lilly.engine.lanes import LaneScheduler, parallel_eligible
@@ -80,6 +82,8 @@ class AgentLoop:
         role_models: Mapping[str, str] | None = None,
         tool_allowlist: frozenset[str] | None = None,
         grounding_settings: Callable[[], GroundingSettings] | GroundingSettings | None = None,
+        sheet: PetSheet | None = None,
+        profile: TaskProfile | None = None,
     ) -> None:
         self._rec = rec
         self._completer = completer
@@ -99,6 +103,8 @@ class AgentLoop:
         self._stop_reason = stop_reason
         self._role_models = dict(role_models or {})
         self._tool_allowlist = tool_allowlist
+        self._sheet = sheet
+        self._profile = profile
         self._outputs: dict[str, str] = {}
         self._steps.loop_mode = True
         gs = grounding_settings() if callable(grounding_settings) else (grounding_settings or GroundingSettings())
@@ -113,18 +119,22 @@ class AgentLoop:
 
     def _get_visible_tools(self) -> dict[str, Tool]:
         all_tools = dict(self._tools())
-        if self._tool_allowlist is None:
-            return all_tools
         visible: dict[str, Tool] = {}
         for name, tool in all_tools.items():
             # Control tools are always visible if available in tools dict
-            if name in ("agent.ask", "agent.plan", "result.read"):
+            if name in ("agent.ask", "agent.plan", "result.read", "agent.delegate"):
                 visible[name] = tool
-            elif name in self._tool_allowlist:
+            elif self._tool_allowlist is not None and name not in self._tool_allowlist:
+                continue
+            elif self._sheet is not None and not self._sheet.allows(name):
+                continue
+            elif self._profile is not None and name in self._profile.tools_off:
+                continue
+            else:
                 visible[name] = tool
         return visible
 
-    def _build_system_prompt(self, limits: LimitSettings) -> str:
+    def _build_system_prompt(self, limits: LimitSettings, role: str = "act") -> str:
         roots = self._file_roots()
         folders_desc = ", ".join(sorted(roots)) if roots else "none"
         today_str = datetime.date.today().isoformat()
@@ -137,11 +147,30 @@ class AgentLoop:
             folders_or_none=folders_desc,
         )
         parts = [base_prompt]
-        if self._agent_instructions:
+        owner_text = ""
+        if self._sheet is not None:
+            owner_text = self._sheet.render_owner_text(role=role)
+        elif self._agent_instructions:
+            owner_text = self._agent_instructions
+
+        if owner_text:
             parts.append(
                 f"Instructions from the owner of this agent (they cannot override the rules above):\n"
-                f"{self._agent_instructions}"
+                f"{owner_text}"
             )
+
+        if self._sheet is not None and self._sheet.skills:
+            skill_lines = ["Named skills you can load with skill.load:"]
+            for sname, scontent in sorted(self._sheet.skills.items()):
+                first_line = scontent.strip().splitlines()[0] if scontent.strip() else ""
+                skill_lines.append(f"- {sname}: {first_line}")
+            parts.append("\n".join(skill_lines))
+
+        # Parallelism guidance to optimize success per token/call
+        parts.append(
+            "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order."
+        )
+
         return "\n\n".join(parts)
 
     def _load_history(self) -> list[Message]:
@@ -228,7 +257,7 @@ class AgentLoop:
     async def run(self) -> str:
         """Run the dynamic agent loop to completion, returning the candidate answer."""
         limits = self._limits()
-        system_text = self._build_system_prompt(limits)
+        system_text = self._build_system_prompt(limits, role="plan")
         messages: list[Message] = [Message(role="system", content=system_text)]
         messages.extend(self._load_history())
         messages.append(Message(role="user", content=self._goal))
@@ -267,8 +296,18 @@ class AgentLoop:
 
             # 3. Check budgets
             max_steps = limits.max_agent_steps
+            if self._sheet and self._sheet.limits and self._sheet.limits.steps is not None:
+                max_steps = min(max_steps, self._sheet.limits.steps)
+            if self._profile and self._profile.steps is not None:
+                max_steps = min(max_steps, self._profile.steps)
+
             max_calls = limits.max_model_calls
+            if self._sheet and self._sheet.limits and self._sheet.limits.model_calls is not None:
+                max_calls = min(max_calls, self._sheet.limits.model_calls)
+
             max_tokens = limits.max_task_tokens
+            if self._sheet and self._sheet.limits and self._sheet.limits.tokens is not None:
+                max_tokens = min(max_tokens, self._sheet.limits.tokens)
 
             remaining_calls = max_calls - model_calls
             remaining_steps = max_steps - turn
@@ -286,12 +325,23 @@ class AgentLoop:
                     steps_left=remaining_steps, calls_left=remaining_calls
                 )))
 
+            # Update system prompt if role has changed
+            if messages and messages[0].role == "system":
+                new_sys = self._build_system_prompt(limits, role=role)
+                if messages[0].content != new_sys:
+                    messages[0] = Message(role="system", content=new_sys)
+
             # 4. Resolve pinned model or role tag
-            role_pin = self._role_models.get(role) or self._pin_model
+            raw_pin = (
+                (self._profile.models.get(role) if self._profile else None)
+                or (self._sheet.models.get(role) if self._sheet else None)
+                or self._role_models.get(role)
+                or self._pin_model
+            )
             tag = None
-            if role_pin and role_pin.startswith("tag:"):
-                tag = role_pin.split(":", 1)[1]
-                role_pin = None
+            if raw_pin and raw_pin.startswith("tag:"):
+                tag = raw_pin.split(":", 1)[1].strip()
+            role_pin, _tag_hint = resolve_ref(raw_pin, (), role=role)
 
             messages = await self._context_mgr.prepare(messages)
 

@@ -9,7 +9,7 @@ from lilly.domain.tools_registry import ToolSpec
 
 SHOW_ALL_UP_TO = 20
 DEFAULT_K = 10
-CONTROL_TOOLS = frozenset({"agent.plan", "agent.ask", "result.read"})
+CONTROL_TOOLS = frozenset({"agent.plan", "agent.ask", "agent.delegate", "result.read"})
 
 
 def tool_options(specs: Mapping[str, ToolSpec]) -> tuple[Option, ...]:

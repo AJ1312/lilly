@@ -80,3 +80,23 @@ class AgentAskTool(Tool):
             raise ToolError("asking the user is not supported in this context")
 
         return ToolResult(output=f"The user answered: {answer}", label=Label.PUBLIC, untrusted=False)
+
+
+class AgentDelegateTool(Tool):
+    """Hand a self-contained job to another agent in the user's crew and get back its answer."""
+
+    name = "agent.delegate"
+
+    def __init__(
+        self,
+        delegate_fn: Callable[[str, str, ToolContext], Awaitable[ToolResult]] | None = None,
+    ) -> None:
+        self._delegate_fn = delegate_fn
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        agent_name = str_arg(args, "agent")
+        task_instruction = str_arg(args, "task")
+        if self._delegate_fn is None:
+            raise ToolError("delegation is not available in this context")
+        return await self._delegate_fn(agent_name, task_instruction, ctx)
+

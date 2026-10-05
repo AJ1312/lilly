@@ -98,8 +98,13 @@ def api_routes() -> list[Route]:
         _route("/api/pages", data.search_all_pages, ["GET"]),
         _route("/api/agents", data.list_agents, ["GET"]),
         _route("/api/agents", data.create_agent, ["POST"]),
+        _route("/api/agents/validate-sheet", data.validate_sheet, ["POST"]),
+        _route("/api/agents/import", data.import_agent, ["POST"]),
+        _route("/api/agents/{agent_id}/prompt-preview", data.prompt_preview, ["GET"]),
+        _route("/api/agents/{agent_id}/export", data.export_agent, ["GET"]),
         _route("/api/agents/{agent_id}", data.update_agent, ["PATCH"]),
         _route("/api/agents/{agent_id}", data.delete_agent, ["DELETE"]),
+        _route("/api/crew/route", data.crew_route, ["POST"]),
         # settings, models, keys, system, data
         _route("/api/routines", api_routines.list_routines, ["GET"]),
         _route("/api/routines", api_routines.create_routine, ["POST"]),

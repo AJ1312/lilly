@@ -28,6 +28,7 @@ from lilly.domain.policy import PathScope
 from lilly.domain.ports import Completed, Completer, CompletionRequest
 from lilly.domain.reasoning import Layer
 from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
+from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS, check_skill, instantiate
 from lilly.domain.tasks import TERMINAL, TaskState
 from lilly.domain.tools_registry import ToolSpec
@@ -60,6 +61,8 @@ class RunSpec:
     skill: str | None = None
     params: Mapping[str, str] = field(default_factory=dict)
     pin_model: str | None = None
+    sheet: PetSheet | None = None
+    profile: TaskProfile | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +151,8 @@ class TaskRunner:
 
         self._prepare_assist()
         await self._rec.state(TaskState.PLANNING)
+        pet_name = self._spec.sheet.name if self._spec.sheet else "Lilly"
+        role_models = dict(self._spec.sheet.models) if self._spec.sheet else None
         loop = AgentLoop(
             rec=self._rec,
             completer=self._d.completer,
@@ -162,10 +167,13 @@ class TaskRunner:
             conversation_id=self._spec.conversation_id,
             agent_instructions=self._spec.agent_instructions,
             pin_model=self._spec.pin_model,
-            pet_name="Lilly",
+            pet_name=pet_name,
             decisions=self._d.decisions,
             stop_reason=lambda: self.stop_reason,
+            role_models=role_models,
             grounding_settings=self._d.grounding_settings,
+            sheet=self._spec.sheet,
+            profile=self._spec.profile,
         )
         answer = await loop.run()
         await self._answer(answer)
