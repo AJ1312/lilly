@@ -7,7 +7,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,8 +25,9 @@ def normalise(text: str) -> str:
 
 
 class AppIndex:
-    def __init__(self, platform: str = sys.platform, listdir=os.scandir, read=Path.read_bytes,
-                 clock=time.monotonic, ttl_s: float = 300.0, roots: Callable[[], list[str]] | None = None) -> None:
+    def __init__(self, platform: str = sys.platform, listdir: Callable[..., Any] = os.scandir,
+                 read: Callable[..., Any] = Path.read_bytes, clock: Callable[[], float] = time.monotonic,
+                 ttl_s: float = 300.0, roots: Callable[[], list[str]] | None = None) -> None:
         self._platform = platform
         self._listdir = listdir
         self._read = read

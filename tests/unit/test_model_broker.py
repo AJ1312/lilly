@@ -1,22 +1,20 @@
 """Tests for the ModelBroker component."""
 from __future__ import annotations
 
-import asyncio
-import tempfile
 import sqlite3
+import tempfile
 from pathlib import Path
 
+import httpx
 import pytest
 
-from lilly.providers.model_broker import ModelBroker, ModelCapabilityProfile, RoutingDecision, RoutingResult
+from lilly.core.pool import ModelEntry
 from lilly.domain.caps import Cap
-from lilly.domain.labels import Label, Mode
-from lilly.domain.settings import Settings, ModelSpec
-from lilly.domain.ports import CompletionRequest, Message
+from lilly.domain.labels import Label
+from lilly.domain.ports import CompletionRequest
+from lilly.domain.settings import ModelSpec, Settings
+from lilly.providers.model_broker import ModelBroker, ModelCapabilityProfile, RoutingDecision, RoutingResult
 from lilly.store.db import Database
-from lilly.core.pool import ModelEntry, ProviderPool, build_pool
-from lilly.domain.clock import Clock
-import httpx
 
 
 class MockKeyStore:
@@ -139,6 +137,22 @@ async def test_model_broker_get_available_models(mock_settings, mock_db, mock_ke
     available = broker.get_available_models()
     # Models are available if enabled (we don't have keys, but that's mocked)
     assert isinstance(available, list)
+
+
+@pytest.mark.asyncio
+async def test_model_broker_state_reports_health_for_each_entry(mock_settings, mock_db, mock_key_store, mock_client):
+    broker = ModelBroker(
+        settings=mock_settings,
+        keys=mock_key_store,
+        client=mock_client,
+        db=mock_db,
+        grants=None,
+    )
+
+    state = broker.get_broker_state()
+
+    assert set(state.health_status) == {"mistral-small", "mistral-large"}
+    assert all(status is not None for status in state.health_status.values())
 
 
 @pytest.mark.asyncio

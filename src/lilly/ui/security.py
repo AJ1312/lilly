@@ -218,7 +218,7 @@ class Shield:
         except ValueError:
             pass
         extras = {h.lower() for h in self._extra_hosts()}
-        if "*" in extras or "0.0.0.0" in extras:
+        if "*" in extras or "0.0.0.0" in extras:  # nosec B104 - explicit opt-in host allowlist
             return True
         if host in extras:
             return True

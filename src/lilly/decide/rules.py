@@ -9,13 +9,11 @@ from lilly.core.lexical import score
 from lilly.domain.decisions import (
     CLEAN,
     DIRECT,
-    DRIFTS,
     FITS,
     FLAGGED,
     FOLLOWS,
     LOOPING,
     NEEDS_TOOLS,
-    OFF,
     PROGRESSING,
     Answer,
     Kind,

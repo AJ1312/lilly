@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from lilly.store.db import Database
 
@@ -27,7 +25,7 @@ class StandingStore:
     def __init__(self, db: Database) -> None:
         self._db = db
     
-    def add(self, tool: str, target: str, now: float | None = None) -> int:
+    async def add(self, tool: str, target: str, now: float | None = None) -> int:
         """Add a new standing grant. Returns the grant id."""
         if now is None:
             now = time.time()
@@ -38,9 +36,9 @@ class StandingStore:
                 "INSERT INTO standing_grants (tool, target, created_at, revoked_at, uses, last_used_at) VALUES (?, ?, ?, NULL, 0, NULL)",
                 (tool, target, now)
             )
-            return cursor.lastrowid
+            return int(cursor.lastrowid or 0)
         
-        return self._db.write(_add)
+        return await self._db.write(_add)
     
     def find(self, tool: str, target: str) -> StandingGrant | None:
         """Find a standing grant by tool and target. Returns None if not found or revoked."""
@@ -58,7 +56,7 @@ class StandingStore:
             )
         return None
     
-    def revoke(self, grant_id: int, now: float | None = None) -> bool:
+    async def revoke(self, grant_id: int, now: float | None = None) -> bool:
         """Revoke a standing grant. Returns True if grant was found and revoked."""
         if now is None:
             now = time.time()
@@ -71,9 +69,9 @@ class StandingStore:
             )
             return cursor.rowcount > 0
         
-        return self._db.write(_revoke)
+        return await self._db.write(_revoke)
     
-    def touch(self, grant_id: int, now: float | None = None) -> bool:
+    async def touch(self, grant_id: int, now: float | None = None) -> bool:
         """Update last_used_at and increment uses for a grant. Returns True if grant was found."""
         if now is None:
             now = time.time()
@@ -86,7 +84,7 @@ class StandingStore:
             )
             return cursor.rowcount > 0
         
-        return self._db.write(_touch)
+        return await self._db.write(_touch)
     
     def list_all(self) -> list[StandingGrant]:
         """List all active (non-revoked) standing grants."""

@@ -30,6 +30,7 @@ class ModelEntry:
     daily_tokens: DailyTokens | None = None
     inflight: int = 0
     token_ratio: float = 1.0
+    last_successful_call: float | None = None
 
     # label_access() reads these
     @property
@@ -175,7 +176,8 @@ def _entry(spec: ModelSpec, kept: ModelEntry | None, clock: Clock) -> ModelEntry
         DailyQuota(spec.rpd, spec.tz) if spec.rpd else None
     return ModelEntry(spec, minute, daily, kept.breaker, kept.last_error, kept.tokens, kept.watch,
                       minute_tokens=minute_tokens, daily_tokens=daily_tokens,
-                      inflight=kept.inflight, token_ratio=kept.token_ratio)
+                      inflight=kept.inflight, token_ratio=kept.token_ratio,
+                      last_successful_call=kept.last_successful_call)
 
 
 def build_pool(settings: Settings, previous: ProviderPool | None = None, clock: Clock = time.monotonic) -> ProviderPool:

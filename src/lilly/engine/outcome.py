@@ -24,7 +24,6 @@ from lilly.domain.plan import REF
 from lilly.domain.tasks import TaskState
 from lilly.engine.messages import RATE_LIMITED_PROVIDER_ERROR
 
-
 OutcomeKind = Literal["ok", "declined", "blocked", "failed", "invalid", "unavailable"]
 
 

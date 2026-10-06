@@ -33,6 +33,7 @@ from lilly.domain.schema import validate_schema
 from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.tasks import TaskState
+from lilly.domain.text import fence
 from lilly.engine.context import ContextManager
 from lilly.engine.crew import resolve_ref
 from lilly.engine.decisions import DecisionPipeline
@@ -52,7 +53,6 @@ from lilly.engine.messages import (
     OBS_OK,
     OBS_UNAVAILABLE,
 )
-from lilly.domain.text import fence
 from lilly.engine.outcome import StepDeclined, StepFailed, StepOutcome, Stop, clip
 from lilly.engine.record import TaskRecord
 from lilly.engine.steps import StepExecutor
@@ -114,6 +114,9 @@ class AgentLoop:
         self._system1 = system1_engine
         self._task_complexity = 0.5
         self._system1_requires_vision = False
+        self._system1_model_tier: str | None = None
+        self._system1_tool_family: str | None = None
+        self._system1_verification: str | None = None
         self._outputs: dict[str, str] = {}
         self._steps.loop_mode = True
         self._ranked: list[str] | None = None  # P2-C-2: ranked tools, computed once per task
@@ -143,9 +146,12 @@ class AgentLoop:
             "COMPLEX": 0.8, "EXPERT": 0.95,
         }.get(complexity.level.name, 0.5)
         self._system1_requires_vision = capability.needs_vision
+        self._system1_model_tier = tier.tier.name
+        self._system1_tool_family = tool_family.primary_family.name
         verification = await self._system1.assess_verification(
             self._rec.task_id, self._goal, self._task_complexity, classification.task_class
         )
+        self._system1_verification = verification.level.name
         await self._rec.event("system1", {
             "classification": classification.task_class.name,
             "complexity": complexity.level.name,
@@ -162,9 +168,12 @@ class AgentLoop:
         
         for name, tool in all_tools.items():
             if name not in ALWAYS_VISIBLE:
-                if self._tool_allowlist is not None and name not in self._tool_allowlist: continue
-                if self._sheet is not None and not self._sheet.allows(name): continue
-                if self._profile is not None and name in self._profile.tools_off: continue
+                if self._tool_allowlist is not None and name not in self._tool_allowlist:
+                    continue
+                if self._sheet is not None and not self._sheet.allows(name):
+                    continue
+                if self._profile is not None and name in self._profile.tools_off:
+                    continue
             visible[name] = tool
         return visible
 
@@ -473,20 +482,20 @@ class AgentLoop:
                 p: str | None = cur_pin,
             ) -> Completed:
                 digest = payload_hash(self._rec.task_id, f"turn_{t}_{c}", "loop", {"goal": self._goal})
-                done = await self._completer.complete(
-                    r,
-                    need=Cap.NONE,
-                    label=self._rec.ctx.label,
-                    task_id=self._rec.task_id,
-                    payload_hash=digest,
-                    mode=self._rec.ctx.mode,
-                    pin=p,
-                    **({
-                        "task_complexity": self._task_complexity,
-                        "requires_tools": bool(r.tools),
-                        "requires_vision": self._system1_requires_vision,
-                    } if getattr(self._completer, "supports_system1_routing", False) else {}),
-                )
+                if getattr(self._completer, "supports_system1_routing", False):
+                    done = await self._completer.complete(
+                        r, need=Cap.NONE, label=self._rec.ctx.label, task_id=self._rec.task_id,
+                        payload_hash=digest, mode=self._rec.ctx.mode, pin=p,
+                        task_complexity=self._task_complexity,
+                        requires_tools=bool(r.tools), requires_vision=self._system1_requires_vision,
+                        model_tier=self._system1_model_tier, tool_family=self._system1_tool_family,
+                        verification=self._system1_verification,
+                    )
+                else:
+                    done = await self._completer.complete(
+                        r, need=Cap.NONE, label=self._rec.ctx.label, task_id=self._rec.task_id,
+                        payload_hash=digest, mode=self._rec.ctx.mode, pin=p,
+                    )
                 self._rec.models.append(done.model)
                 return done
 

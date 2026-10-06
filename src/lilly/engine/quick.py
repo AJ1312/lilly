@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Any
+from typing import Any, Literal
 
 from lilly.tools.appindex import AppIndex, normalise
 

@@ -20,16 +20,16 @@ import math
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+import httpx
+
 from lilly.core.capacity import CallProfile, CapacityManager
-from lilly.core.limits import CircuitBreaker, DailyQuota, DailyTokens, SlidingWindowLimiter, TokenWindow
 from lilly.core.pool import ModelEntry, ProviderPool, build_pool
 from lilly.domain.caps import Cap
 from lilly.domain.clock import Clock
-from lilly.domain.decisions import Context, Kind, Request
 from lilly.domain.errors import NoModelAvailable, ProviderError, QuotaExhausted, RateLimited
 from lilly.domain.grants import GrantStore, label_access
 from lilly.domain.labels import Label, Mode
@@ -41,12 +41,12 @@ from lilly.domain.ports import (
     Message,
     Provider,
 )
-from lilly.domain.settings import ModelSpec, Settings
+from lilly.domain.settings import Settings
 from lilly.providers.factory import build_provider
 from lilly.providers.local_gate import LocalGate
 from lilly.providers.ollama import OllamaStatus, probe
 from lilly.store.db import Database
-from lilly.store.ledger import ModelCallRecord, save_usage, record_model_call
+from lilly.store.ledger import ModelCallRecord, record_model_call, save_usage
 
 log = logging.getLogger("lilly.model_broker")
 
@@ -281,6 +281,8 @@ class ModelBroker:
             return True
         if required_cap == Cap.LONG_CONTEXT and profile.context_window >= 32768:
             return True
+        if required_cap == Cap.VISION and profile.vision >= 0.7:
+            return True
         return False
 
     def _get_capability_profile(self, model_name: str) -> ModelCapabilityProfile:
@@ -295,7 +297,7 @@ class ModelBroker:
             return ModelCapabilityProfile(
                 reasoning_strength=0.8 if spec.provider in ("mistral", "openrouter", "gemini", "openai") else 0.6,
                 coding_strength=0.9 if spec.provider in ("mistral", "openrouter", "openai") else 0.5,
-                vision=0.8 if spec.provider in ("gemini", "openai") and "vision" in spec.model_id.lower() else 0.2,
+                vision=1.0 if (spec.caps & Cap.VISION) else 0.0,
                 tool_calling=0.9 if spec.tools in ("native", "protocol") else 0.5,
                 context_window=spec.max_context_tokens or 32768,
                 local=spec.local,
@@ -313,6 +315,9 @@ class ModelBroker:
         requires_tools: bool = False,
         requires_vision: bool = False,
         cost_sensitivity: float = 0.5,
+        model_tier: str | None = None,
+        tool_family: str | None = None,
+        verification: str | None = None,
     ) -> float:
         """Score a model's suitability for a given task (higher is better)."""
         if not entry.spec.enabled or not self.has_key(entry):
@@ -341,13 +346,23 @@ class ModelBroker:
             else:
                 score -= 0.1
         
-        # Vision support (not currently used in existing cap system)
+        # Vision is an explicit capability, never a tool-calling proxy.
         if requires_vision:
-            # For now, just use tool_calling as proxy for multimodal capabilities
-            if profile.tool_calling >= 0.7:
+            if profile.vision >= 0.7:
                 score += 0.1
             else:
-                score -= 0.05
+                return -0.1
+
+        if model_tier == "STRONG":
+            score += profile.reasoning_strength * 0.2
+        elif model_tier == "QUICK":
+            score += (1.0 - profile.reasoning_strength) * 0.1
+        elif model_tier == "VISION" and profile.vision < 0.7:
+            return -0.1
+        if verification == "THOROUGH":
+            score += profile.reasoning_strength * 0.1
+        if tool_family and tool_family != "NONE" and profile.tool_calling < 0.7:
+            return -0.1
         
         # Complexity matching
         if task_complexity >= 0.8:  # High complexity
@@ -428,8 +443,11 @@ class ModelBroker:
         healthy = tuple(e.name for e in self.pool.entries
                       if e.spec.enabled and self.has_key(e) and e.breaker.ready())
         
-        health_status = {e.name: self.get_model_health_status(e.name) 
-                        for e in self.pool.entries if e.name}
+        health_status = {
+            e.name: status
+            for e in self.pool.entries
+            if e.name and (status := self.get_model_health_status(e.name)) is not None
+        }
         
         return BrokerState(
             available_models=available,
@@ -457,6 +475,9 @@ class ModelBroker:
         requires_tools: bool = False,
         requires_vision: bool = False,
         cost_sensitivity: float = 0.5,
+        model_tier: str | None = None,
+        tool_family: str | None = None,
+        verification: str | None = None,
         role: str = "act",
         tag: str | None = None,
     ) -> RoutingResult:
@@ -491,17 +512,17 @@ class ModelBroker:
             # Check permissions
             ok, grant = label_access(pinned_entry, label, grants, task_id, payload_hash, mode)
             if not ok:
-                grantable = [pinned_entry.name] if (pinned_entry.max_label < label and 
+                pinned_grantable = [pinned_entry.name] if (pinned_entry.max_label < label and
                                                      pinned_entry.ask_private and 
                                                      mode is not Mode.LOCKED and 
                                                      (label is not Label.SECRET or pinned_entry.local)) else []
-                if grantable:
+                if pinned_grantable:
                     return RoutingResult(
                         model_entry=None,
                         decision=RoutingDecision.NEEDS_PERMISSION,
                         reason=f"Model '{pin}' needs permission for this data",
                         candidates_tried=(pin,),
-                        grantable_models=tuple(grantable),
+                        grantable_models=tuple(pinned_grantable),
                     )
                 else:
                     return RoutingResult(
@@ -523,6 +544,7 @@ class ModelBroker:
         candidates.sort(
             key=lambda e: self._score_model_for_task(
                 e, need, task_complexity, requires_tools, requires_vision, cost_sensitivity
+                , model_tier, tool_family, verification
             ),
             reverse=True
         )
@@ -596,6 +618,9 @@ class ModelBroker:
         requires_tools: bool = False,
         requires_vision: bool = False,
         cost_sensitivity: float = 0.5,
+        model_tier: str | None = None,
+        tool_family: str | None = None,
+        verification: str | None = None,
     ) -> Completed:
         """Execute a completion request using the best available model.
         
@@ -606,7 +631,6 @@ class ModelBroker:
         - Error handling and retry logic
         - Observability and event reporting
         """
-        import httpx
         
         if not any(e.spec.enabled and self.has_key(e) for e in self.pool.entries):
             raise NoModelAvailable("No model has an API key yet. Add one in Settings → Models & keys "
@@ -625,6 +649,7 @@ class ModelBroker:
             requires_tools=requires_tools,
             requires_vision=requires_vision,
             cost_sensitivity=cost_sensitivity,
+            model_tier=model_tier, tool_family=tool_family, verification=verification,
             role=role,
             tag=tag,
         )
@@ -651,7 +676,6 @@ class ModelBroker:
         profile = CallProfile(est_in=est_in, est_out=est_out, role=role, need=need, priority=priority)
         
         # Use capacity manager for rate limiting and quotas
-        max_inline_retries = 3
         retry_count = 0
         inline_retry_max_s = self._settings.capacity.inline_retry_max_s
         skip: set[str] = set()
@@ -689,7 +713,7 @@ class ModelBroker:
                     retry_count += 1
                     if pin and (exc.retry_after or 0) > self._settings.capacity.max_wait_interactive_s:
                         raise
-                    if retry_count > max_inline_retries and not pin:
+                    if not pin:
                         skip.add(entry.name)
                     continue
                     
@@ -718,6 +742,7 @@ class ModelBroker:
                 # Success
                 self.capacity.release(lease, tokens_in=result.input_tokens, tokens_out=result.output_tokens, outcome="ok")
                 entry.last_error = None
+                entry.last_successful_call = self._clock()
                 await self._record_call(
                     call_id, task_id, role, entry.name, started,
                     int((self._clock() - started) * 1000),
@@ -755,9 +780,9 @@ class ModelBroker:
                     if routing.model_entry is None:
                         if routing.decision == RoutingDecision.NEEDS_PERMISSION:
                             from lilly.domain.errors import NeedsGrant
-                            raise NeedsGrant(list(routing.grantable_models), int(label))
+                            raise NeedsGrant(list(routing.grantable_models), int(label)) from None
                         else:
-                            raise NoModelAvailable(routing.reason)
+                            raise NoModelAvailable(routing.reason) from None
                     continue
                 else:
                     raise
@@ -883,12 +908,12 @@ class ModelBroker:
         return self.pool.snapshot()
 
     # For backward compatibility with existing interfaces
-    def route(self, need: Cap = Cap.NONE, label: Label = Label.PUBLIC, *, pin: str | None = None,
+    async def route(self, need: Cap = Cap.NONE, label: Label = Label.PUBLIC, *, pin: str | None = None,
               grants: GrantStore | None = None, task_id: str | None = None, payload_hash: str | None = None,
               mode: Mode = Mode.ASK, skip: frozenset[str] = frozenset(), quick: bool = False,
               usable: Callable[[ModelEntry], bool] = lambda e: True) -> tuple[ModelEntry | None, str, tuple[str, ...]]:
         """Backward compatibility with existing route interface."""
-        routing = self.select_model(
+        routing = await self.select_model(
             need=need, label=label, pin=pin, grants=grants, task_id=task_id,
             payload_hash=payload_hash, mode=mode, skip=skip,
         )
@@ -896,7 +921,3 @@ class ModelBroker:
             return routing.model_entry, routing.reason, routing.grantable_models
         else:
             return None, routing.reason, routing.grantable_models
-
-
-# Import httpx here for type hints
-import httpx

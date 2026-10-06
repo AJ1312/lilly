@@ -113,7 +113,7 @@ def cmd_share(args: argparse.Namespace) -> int:
     if not os.path.exists(cf_path):
         raise ConfigurationError(f"cloudflared was not found at {cf_path}. Install it to enable remote sharing.")
     print(f"Opening secure HTTPS tunnel for Lilly on port {port}...")
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # nosec B603 - fixed executable and fixed argument structure; no shell
         [cf_path, "tunnel", "--url", f"http://{HOST}:{port}"],
         stderr=subprocess.PIPE,
         stdout=subprocess.DEVNULL,

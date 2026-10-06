@@ -28,14 +28,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from lilly.domain.caps import Cap
-from lilly.domain.decisions import Context, Kind, Request, Answer
-from lilly.domain.labels import Label
+from lilly.domain.decisions import Answer, Context, Kind, Request
 from lilly.domain.settings import EngineSettings
 
 log = logging.getLogger("lilly.system1")
@@ -175,7 +174,7 @@ class TaskClassification:
             TaskClass.CODING,
             TaskClass.DATA_ANALYSIS,
             TaskClass.MULTI_STEP,
-            TaskClass.EXPERT
+            ComplexityLevel.EXPERT
         }
 
 
@@ -318,7 +317,7 @@ class System1Engine:
     def __init__(
         self,
         laya_decider: Any | None = None,  # LayaDecider instance
-        fallback_deciders: dict[str, Callable[[System1Request], System1Decision]] | None = None,
+        fallback_deciders: dict[DecisionType, Callable[[System1Request], System1Decision]] | None = None,
         engine_settings: Callable[[], EngineSettings] | EngineSettings | None = None,
         on_decision: Callable[[DecisionType, System1Decision], None] | None = None,
         on_missing_laya: Callable[[], None] | None = None,
@@ -449,11 +448,9 @@ class System1Engine:
             options=(),  # Will be populated based on decision type
             context=Context(
                 text=request.user_request or "",
-                goal=request.user_request or "",
-                history=[{"role": "user", "content": request.user_request or ""}] if request.user_request else [],
             ),
-            temperature=0.1,  # Low temperature for deterministic-like decisions
-            max_tokens=512,
+            tokens_left=512,
+            timeout_s=0.1,
         )
 
     def _convert_from_laya_answer(self, decision_type: DecisionType, answer: Answer) -> System1Decision:
@@ -483,7 +480,7 @@ class System1Engine:
             return TaskClassification(
                 task_class=task_class,
                 confidence=answer.confidence or 0.7,
-                reasoning=answer.reasoning or "Laya classification"
+                reasoning="Laya classification"
             )
         
         elif decision_type == DecisionType.COMPLEXITY_ESTIMATION:
@@ -504,7 +501,7 @@ class System1Engine:
                 confidence=answer.confidence or 0.7,
                 estimated_steps=1 if level in (ComplexityLevel.TRIVIAL, ComplexityLevel.SIMPLE) else 3,
                 estimated_model_calls=1 if level in (ComplexityLevel.TRIVIAL, ComplexityLevel.SIMPLE) else 2,
-                reasoning=answer.reasoning or "Laya complexity estimation"
+                reasoning="Laya complexity estimation"
             )
         
         elif decision_type == DecisionType.MODEL_TIER_SELECTION:
@@ -520,25 +517,26 @@ class System1Engine:
             return ModelTierDecision(
                 tier=tier,
                 confidence=answer.confidence or 0.7,
-                reasoning=answer.reasoning or "Laya tier selection"
+                reasoning="Laya tier selection"
             )
         
         # Add more conversions for other decision types...
         
         elif decision_type == DecisionType.VERIFICATION_NECESSITY:
+            verification_level: VerificationLevel
             if "thorough" in (answer.choice or "").lower():
-                level = VerificationLevel.THOROUGH
+                verification_level = VerificationLevel.THOROUGH
             elif "standard" in (answer.choice or "").lower():
-                level = VerificationLevel.STANDARD
+                verification_level = VerificationLevel.STANDARD
             elif "light" in (answer.choice or "").lower():
-                level = VerificationLevel.LIGHT
+                verification_level = VerificationLevel.LIGHT
             else:
-                level = VerificationLevel.NONE
+                verification_level = VerificationLevel.NONE
             
             return VerificationDecision(
-                level=level,
+                level=verification_level,
                 confidence=answer.confidence or 0.7,
-                reasoning=answer.reasoning or "Laya verification decision"
+                reasoning="Laya verification decision"
             )
         
         # Default fallback
@@ -671,7 +669,7 @@ class System1Engine:
             self.decide(complexity_request),
         )
         
-        return classification, complexity
+        return cast(TaskClassification, classification), cast(ComplexityAssessment, complexity)
 
     async def determine_routing(self, user_request: str, available_models: tuple[str, ...], 
                                available_tools: tuple[str, ...], task_id: str | None = None) -> tuple[ModelTierDecision, CapabilityRouting, ToolFamilyDecision]:
@@ -704,7 +702,7 @@ class System1Engine:
             self.decide(tool_request),
         )
         
-        return tier, capability, tool_family
+        return cast(ModelTierDecision, tier), cast(CapabilityRouting, capability), cast(ToolFamilyDecision, tool_family)
 
     async def assess_verification(self, task_id: str, user_request: str, 
                                   task_complexity: float = 0.5, task_class: TaskClass | None = None) -> VerificationDecision:

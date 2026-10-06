@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from lilly.core.shortlist import shortlist, tool_options
+from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
 from lilly.domain.clock import Clock
 from lilly.domain.decisions import ASSIST_KINDS, DIRECT, ROUTE_OPTIONS, Brief, Context, Kind, Outcome, route_state
@@ -31,7 +32,6 @@ from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettin
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS, check_skill, instantiate
 from lilly.domain.tasks import TERMINAL, TaskState
-from lilly.decide.system1 import System1Engine
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.agent_loop import AgentLoop
 from lilly.engine.approvals import ApprovalService
@@ -44,6 +44,7 @@ from lilly.engine.receipt import ReceiptBuilder
 from lilly.engine.record import TaskRecord
 from lilly.engine.replycheck import ReplyChecker
 from lilly.engine.steps import StepExecutor
+
 # Import for type hints - avoid circular import issues
 try:
     from lilly.engine.quick import QuickAction, QuickRouter
@@ -167,7 +168,7 @@ class TaskRunner:
         # Quick Actions hook (P2-A)
         if self._d.quick is not None and not self._spec.skill:
             tools = dict(self._d.tools())
-            allowed = self._spec.sheet.allowed_tools(tools) if self._spec.sheet else None
+            allowed = self._spec.sheet.tools if self._spec.sheet else None
             allowed_names = {n for n in tools if allowed is None or n in allowed}
             found = self._d.quick.match(self._spec.goal, allowed_names)
             if isinstance(found, QuickAction):
@@ -377,6 +378,7 @@ class TaskRunner:
     async def _run_quick(self, qa: QuickAction, tools: dict[str, Tool]) -> None:
         """Execute a quick action without model calls."""
         import json
+
         from lilly.engine.outcome import StepDeclined, StepFailed
         from lilly.store import tasks
         
@@ -392,9 +394,11 @@ class TaskRunner:
             out = await self._steps.run({"tool": qa.tool, "args": qa.args}, step_id, {}, tools, decline_continues=True)
         except StepDeclined:
             # For now, use a simple message since we don't have access to copy
-            await self._answer(f"Quick action declined: {qa.shown}"); return
+            await self._answer(f"Quick action declined: {qa.shown}")
+            return
         except StepFailed as failed:
-            await self._finish(TaskState.FAILED, error=failed.reason); return
+            await self._finish(TaskState.FAILED, error=failed.reason)
+            return
         await self._answer(tools[qa.tool].summary(qa.args, out))      # code-written; no model text
 
     async def _answer(self, text: str) -> None:

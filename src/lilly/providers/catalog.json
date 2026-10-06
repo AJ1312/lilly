@@ -11,7 +11,7 @@
     "local": false,
     "lane": 1,
     "tags": ["quick"],
-    "caps": ["JSON", "LONG_CONTEXT", "TOOLS"],
+    "caps": ["JSON", "LONG_CONTEXT", "TOOLS", "VISION"],
     "key_ref": "mistral",
     "free_tier": {
       "rpm": null,

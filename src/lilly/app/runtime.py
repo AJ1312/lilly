@@ -20,11 +20,11 @@ import httpx
 from lilly.app.laya import LayaService
 from lilly.app.paths import LillyPaths
 from lilly.app.power import Caffeinate
-from lilly.decide.rules import InstructionRules, LoopRule, MatchRule, RulesDecider, SearchRanker
+from lilly.decide.rules import LoopRule, MatchRule, RulesDecider, SearchRanker
 from lilly.decide.small_model import SmallModelDecider
 from lilly.decide.system1 import System1Engine
 from lilly.domain.clock import Clock
-from lilly.domain.decisions import Decider
+from lilly.domain.decisions import Decider, laya_kinds
 from lilly.domain.devbox import Engine, Engines
 from lilly.domain.grants import GrantStore
 from lilly.domain.pets import look_to_dict
@@ -35,11 +35,11 @@ from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
 from lilly.engine.decisions import DatabaseSink, DecisionPipeline
 from lilly.engine.delegate import DelegateHandler, DelegationContext
-from lilly.engine.session_runtime import SessionRuntime
 from lilly.engine.orchestrator import Orchestrator
 from lilly.engine.quick import QuickRouter, load_intents
 from lilly.engine.runner import EngineDeps
 from lilly.engine.scheduler import Scheduler
+from lilly.engine.session_runtime import SessionRuntime
 from lilly.providers.http import create_http_client, create_local_client
 from lilly.providers.keys import open_key_store
 from lilly.providers.model_broker import ModelBroker
@@ -114,7 +114,7 @@ class Runtime:
         self.system1_engine = System1Engine(
             laya_decider=None,
             engine_settings=lambda: settings.engine,
-            laya_enabled=lambda: settings.decisions.laya_enabled,
+            laya_enabled=lambda: bool(laya_kinds(settings.decisions)),
         )
         self.session_runtime = SessionRuntime(
             db, self.model_broker, self.system1_engine, clock,
@@ -237,7 +237,7 @@ class Runtime:
         
         await self.model_broker.configure(new)
         self.system1_engine.set_engine_settings(lambda: new.engine)
-        self.system1_engine.set_laya_enabled(lambda: new.decisions.laya_enabled)
+        self.system1_engine.set_laya_enabled(lambda: bool(laya_kinds(new.decisions)))
         self.orchestrator.configure(new)
         self._sync_power()
         for observe in self._observers:

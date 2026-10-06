@@ -82,7 +82,10 @@ class Completer(Protocol):
     async def complete(self, req: CompletionRequest, *, need: Cap = Cap.NONE, label: Label = Label.PUBLIC,
                        task_id: str | None = None, payload_hash: str | None = None, mode: Mode = Mode.ASK,
                        pin: str | None = None, role: str = "act", tag: str | None = None,
-                       priority: int = 0) -> Completed: ...
+                       priority: int = 0, task_complexity: float = 0.5, requires_tools: bool = False,
+                       requires_vision: bool = False, cost_sensitivity: float = 0.5,
+                       model_tier: str | None = None, tool_family: str | None = None,
+                       verification: str | None = None) -> Completed: ...
 
 
 class Secret:
