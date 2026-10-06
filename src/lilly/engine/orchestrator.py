@@ -115,6 +115,8 @@ class Orchestrator:
             return ids
 
         interrupted = await self._d.db.write(recover)
+        if self._d.session_runtime is not None and interrupted:
+            await self._d.session_runtime.reconcile_interrupted_tasks(interrupted)
         if interrupted:
             log.warning("marked %d unfinished task(s) as interrupted after restart", len(interrupted))
 
@@ -289,6 +291,9 @@ class Orchestrator:
             try:
                 await runner.run()
             finally:
+                computer = self._d.computer_runtime
+                if computer is not None:
+                    await computer.stop_monitor(runner._task.id)
                 runtime = self._d.session_runtime
                 session_id = self._session_ids.pop(runner._task.id, None)
                 if runtime is not None and session_id is not None:

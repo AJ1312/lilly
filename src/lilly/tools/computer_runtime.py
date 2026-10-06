@@ -215,6 +215,8 @@ class ComputerRuntime:
     vision_grounder: VisionGrounder | None = None
     devbox: Any | None = None
     dom_provider: Callable[[str], Awaitable[Mapping[str, Any] | None]] | None = None
+    on_frame: Callable[[str, ComputerFrame], None] | None = None
+    continuous: bool = False
     clock: Any = time.time
     _frames: dict[str, ComputerFrame] = field(default_factory=dict)
     _latest: dict[str, str] = field(default_factory=dict)
@@ -267,6 +269,10 @@ class ComputerRuntime:
         temporary.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
         temporary.replace(self._state_path)
 
+    def _emit_frame(self, task_id: str, frame: ComputerFrame) -> None:
+        if self.on_frame is not None:
+            self.on_frame(task_id, frame)
+
     async def observe(self, task_id: str, *, capture: bool = True) -> ComputerFrame:
         async with self._lock:
             frame_id = f"frame-{uuid.uuid4().hex[:16]}"
@@ -283,7 +289,8 @@ class ComputerRuntime:
             self._frames[frame_id] = frame
             self._latest[task_id] = frame_id
             self._persist_state()
-            if isinstance(self.backend, MacComputerBackend) and task_id not in self._monitors:
+            self._emit_frame(task_id, frame)
+            if self.continuous and task_id not in self._monitors:
                 self._monitors[task_id] = asyncio.create_task(self._monitor(task_id), name=f"lilly-computer-{task_id}")
             return frame
 
@@ -297,6 +304,13 @@ class ComputerRuntime:
                     await self._observe_locked(task_id, capture=True)
         except asyncio.CancelledError:
             raise
+
+    async def stop_monitor(self, task_id: str) -> None:
+        """Stop the event-driven observer when its task leaves the active set."""
+        monitor = self._monitors.pop(task_id, None)
+        if monitor is not None:
+            monitor.cancel()
+            await asyncio.gather(monitor, return_exceptions=True)
 
     async def close(self) -> None:
         monitors, self._monitors = self._monitors, {}
@@ -438,6 +452,7 @@ class ComputerRuntime:
         self._frames[frame_id] = frame
         self._latest[task_id] = frame_id
         self._persist_state()
+        self._emit_frame(task_id, frame)
         return frame
 
     @staticmethod

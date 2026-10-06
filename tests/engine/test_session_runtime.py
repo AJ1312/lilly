@@ -49,3 +49,18 @@ async def test_session_runtime_recovers_and_cleans_old_created_sessions(tmp_path
     assert await runtime.cleanup_old_sessions() == 1
     assert runtime.get_session(session.session_id) is None
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_session_runtime_reconciles_interrupted_task_after_restart(tmp_path: Path) -> None:
+    clock = Clock()
+    db = Database(tmp_path / "sessions.db")
+    runtime = SessionRuntime(db, Broker(), clock=clock)
+    session = runtime.create_session("task-restarted", "continue the job")
+    await runtime.start_session(session.session_id)
+
+    await runtime.reconcile_interrupted_tasks(["task-restarted"])
+
+    assert runtime.get_session(session.session_id).status is SessionStatus.FAILED
+    assert runtime.get_session_events(session.session_id)[-1].event_type == "recovered_interrupted"
+    db.close()

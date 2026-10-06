@@ -155,8 +155,6 @@ class EngineSettings:
     read_cache_ttl_s: int = 0
     self_check: bool = False
     finish_on_terminal: bool = True
-    shortlist_min: int = 12
-    shortlist_size: int = 10
     # Quick Actions settings
     quick_enabled: bool = True
     quick_fuzzy_min: float = 0.86

@@ -74,7 +74,7 @@ Three extra questions at Settings → Quick decisions → *Laya assist*. Each st
 
 Turning Laya off turns all three off.
 
-Laya cannot run tools or write their arguments: it only picks from options that Lilly offers. Letting it pick the tool for simple requests is not built.
+Laya cannot run tools or write their arguments: it only picks from options that Lilly offers. In the normal runtime its typed System-1 output can route a model tier, capability namespace, tool family and verification depth. It never chooses arbitrary concrete tool arguments or widens policy.
 
 ## Resource use
 

@@ -6,9 +6,16 @@ questions: does it help one person on one laptop, can it be made safe, and can i
 
 ## Already in Lilly
 
-Chat with steps shown · approvals bound to the exact action · tamper-evident activity log · notes (spaces and pages) ·
-searchable memory · team of agents with pets · model list with automatic fallback and per-model quotas ·
-computer control that always asks · live Resources screen with limits · backup, export, kill switch · MCP connections (reviewed, pinned, started on demand) · Ollama on this computer or a private network with plain-words diagnosis · OpenAI API key · quick deciders (tool shortlist, loop stop, instructions-in-data flag, pick-one) with a log and calibration · read-only steps side by side · optional Laya model · agent browser (your installed Chrome, separate empty profile, three approval modes) · streaming replies and the plan in the step list · Telegram chat with pairing and approval buttons · read-only live view of the agent's browser · devbox (sealed container, on demand, idle stop) · local-model resource rules · settings presets and `lilly doctor` · customisable pets (look, skills file, own model) · jump-to palette (Ctrl/Cmd+K) · glass surfaces with solid fallback · routines (scheduled requests) · Laya guided setup, self-test and the optional *Laya assist* checks on plans and replies (`docs/LAYA.md`).
+Persistent task workspace · approvals bound to the exact action · tamper-evident activity log · notes (spaces and pages) ·
+searchable memory · agents with pets as personality state · ModelBroker fallback and per-model quotas · persistent
+ComputerRuntime with screenshots, AX/DOM, pointer, keyboard, scroll, drag and stale-frame verification · live Resources
+screen with limits · backup, export, kill switch · MCP connections (reviewed, pinned, started on demand) · Ollama on
+this computer or a private network with plain-words diagnosis · OpenAI API key · typed Laya System-1 routing and
+verification · policy-filtered capability namespaces with lazy discovery · optional Laya model · agent browser (your
+installed Chrome, separate empty profile, approval modes) · streaming task activity · Telegram chat with pairing and
+approval buttons · integrated live browser/computer view · persistent sealed DevBox · local-model resource rules ·
+settings presets and `lilly doctor` · customisable pets (look, skills file, own model) · jump-to palette (Ctrl/Cmd+K) ·
+routines (scheduled requests) · resumable first-run wizard.
 
 ## Next (needs design, not just code)
 
@@ -17,7 +24,7 @@ computer control that always asks · live Resources screen with limits · backup
 | Browser take-over (you type a password in the agent's browser) | Needs a visible window and a hand-back protocol. |
 | Agent-built extensions (manifest, protected paths, install, test, enable, roll back) | Lets an agent change Lilly itself; needs the devbox verified on a real engine first. |
 | Learned playbooks, trajectory-aware routing, failover across keys, an eval set | Per-turn capability and health routing exists; these learning and multi-credential policies need measurements before they can safely change selection. |
-| Desktop and phone screen view | Needs OS screen capture that cannot be tested on Linux, and a safe way to reach Lilly from a phone. |
+| Desktop hand-back/take-over flow | Needs a visible hand-back protocol so Lilly can pause while the owner enters sensitive information. |
 | Pets: lit 3D models that move and react, and a range of allowed models per pet (today one pinned model) | Started and paused: a small WebGL renderer is the plan, with a still fallback and a frame-time guard for the 2019 Mac. Today's pets are layered SVG with a CSS tilt. |
 | Desktop notification when an approval or routine needs you | Small, but the macOS path must be tested on a Mac first. |
 | Email and WhatsApp as chat apps | Telegram is built with the taint rules and sender allowlist; the others reuse them but each needs its own verified API and signature checks. |

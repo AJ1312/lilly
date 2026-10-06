@@ -143,3 +143,23 @@ async def test_dom_provider_is_included_in_fresh_frames(tmp_path: Path) -> None:
     runtime = ComputerRuntime(tmp_path, backend=FakeBackend(), dom_provider=dom)
     frame = await runtime.observe("task")
     assert frame.dom == {"task": "task", "url": "https://example.test"}
+
+
+@pytest.mark.asyncio
+async def test_frame_callback_emits_after_observation_and_action(tmp_path: Path) -> None:
+    emitted: list[tuple[str, str]] = []
+    runtime = ComputerRuntime(tmp_path, backend=FakeBackend(),
+                              on_frame=lambda task, frame: emitted.append((task, frame.frame_id)))
+    frame = await runtime.observe("task")
+    await runtime.click("task", frame.frame_id, "Continue")
+    assert [task for task, _ in emitted] == ["task", "task"]
+    assert emitted[0][1] != emitted[1][1]
+
+
+@pytest.mark.asyncio
+async def test_continuous_monitor_starts_and_stops_with_task_lifecycle(tmp_path: Path) -> None:
+    runtime = ComputerRuntime(tmp_path, backend=FakeBackend(), continuous=True)
+    await runtime.observe("task")
+    assert "task" in runtime._monitors
+    await runtime.stop_monitor("task")
+    assert "task" not in runtime._monitors

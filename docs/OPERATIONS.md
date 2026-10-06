@@ -72,7 +72,7 @@ Tests need no network and no real models: the integration suite builds a real `R
 
 ## Chat apps (Telegram)
 
-* Make a bot with @BotFather, then Settings → Chat apps → paste the token, press *Link a Telegram account*, and send the 8-character code to the bot in a private chat within 10 minutes. Mark an agent *Reachable from chat apps* (Team) and choose it under *Agent that answers*, then switch on *Answer messages*.
+* Make a bot with @BotFather, then Settings → Chat apps → paste the token, press *Link a Telegram account*, and send the 8-character code to the bot in a private chat within 10 minutes. Mark an agent *Reachable from chat apps* (Agents) and choose it under *Agent that answers*, then switch on *Answer messages*.
 * Messages from chat are treated as outside text. Approvals appear with the exact action and Approve / Decline buttons; computer-control approvals stay in the app. Answers that used private data stay in the app unless *Send private answers to chat* is on.
 * To stop: switch it off, unlink an account, or remove the bot (the token is forgotten).
 
@@ -97,4 +97,4 @@ Tests need no network and no real models: the integration suite builds a real `R
 * **Ctrl/Cmd+K** opens *Jump to*: views, recent conversations, new chat, theme, stop all.
 * The tab title shows where you are and how many approvals wait.
 * Blur ("glass") is on four floating surfaces only. It switches itself off when the system asks for reduced transparency or more contrast.
-* Team → a pet: species, colour, accessory, eyes, an optional **skills.md** (added to every task of that pet, so it costs tokens) and an optional model the pet always uses (a task fails clearly if that model is unavailable).
+* Agents → a pet: species, colour, accessory, eyes, an optional **skills.md** (added to every task of that pet, so it costs tokens) and an optional model the pet always uses (a task fails clearly if that model is unavailable).

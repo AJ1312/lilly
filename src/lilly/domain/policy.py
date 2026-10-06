@@ -53,7 +53,7 @@ class PathScope:
 def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str]:
     """Pure policy. Most restrictive matching rule wins.
 
-    The floor applies in every mode: forbidden tools, computer control (always asks), credentials never shown to an
+    The floor applies in every mode: forbidden tools, computer-control hard denials, credentials never shown to an
     agent, nothing secret leaves, sending out private data after reading untrusted
     content needs approval, and paths stay inside granted roots.
 

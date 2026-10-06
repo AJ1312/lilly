@@ -1,6 +1,6 @@
 # Lilly
 
-A private AI assistant that runs on your own computer. You talk to it in your browser; it can search the web, read and organise files in folders you choose, remember facts about you, keep notes and run ready-made routines. It never does anything outside the permissions you set, and anything that changes your files or leaves your computer waits for your approval.
+A private AI assistant that runs on your own computer. Give Lilly a job and it plans, acts, verifies the result, and keeps you posted in a persistent task workspace. It can research, work with files, remember facts, use a browser or computer, run isolated DevBox commands and run routines within the permissions you set.
 
 Lilly is free to run: it uses the free tiers of Mistral, OpenRouter and Gemini (in the order you choose) and, optionally, a local Ollama model that keeps everything on your machine.
 
@@ -17,26 +17,26 @@ Needs Python 3.12 or newer and an internet connection for the install. Then run 
 
 | Screen | What it is for |
 | --- | --- |
-| Talk | Chat. Each answer shows the steps taken and which model wrote it. |
+| Sessions | Persistent task workspace with live progress, approvals, computer/browser state, results and artifacts. |
 | Approvals | Every file change or sensitive action waits here for a yes or no, bound to exactly what will happen. |
 | Activity | A tamper-evident log of everything Lilly did, with verification. |
 | Notes, Memory | Your notes, and short facts Lilly remembers (editable, deletable, clearable). Agents can propose a note; it is saved only after you have read it and approved. |
 | Routines | Requests that run on a schedule (daily at a time, chosen weekdays, or every few minutes or hours) while Lilly is running. Pause, run now, see the last result. Stop all pauses every routine. |
-| Team | Different assistants, each with its own pet, instructions, access level (Locked / Ask / Open) and a separate switch for controlling this computer. The pet shows what the agent is doing. |
+| Agents | Different personality and permission profiles. Pets are visual state only; they never create separate brains or sessions. |
 | Resources | Live processor, memory and disk, the heaviest programs, work in progress (with Stop), and limits you can change while Lilly runs: tasks at once, longest step, longest task. |
 | Settings | Models and keys, shared folders, modules, privacy, security, backup and export. Light, dark or system theme. |
 
 ## Controlling your computer
 
-Turn on **Settings → Privacy & access → Computer control**, then allow it per agent in **Team**. Lilly can then open a link or app, list and stop your programs, show a notification, and run a command in a folder you shared. **Every one of these asks you first, in every mode, including Open.** Commands run without a shell, with a cleaned environment, a time limit and capped output; `sudo`, shutdown, disk tools and similar are refused outright.
+Turn on **Settings → Privacy & access → Computer control**, then allow it per agent in **Agents**. Lilly can observe screenshots and accessibility state, move/click/type/scroll/drag, open apps and links, and verify fresh state after actions. Grounding uses semantic accessibility/DOM targets first, vision when configured, and coordinates only as a fallback. macOS Screen Recording and Accessibility permissions are required.
 
-Not included yet: clicking on your own screen, and a phone or desktop screen view.
+`MANUAL` asks for approval, `AUTO` runs ordinary safe actions directly, and `OFF` suppresses prompts. None of these modes bypasses hard policy denials, permissions, sandboxing or auditing.
 
 ## Talking to it from Telegram, running code safely, watching the browser
 
 * **Settings → Chat apps:** paste a Telegram bot token, link your account with a one-time code, and mark which agent may answer. Nothing connects in to your computer; only linked accounts are answered.
 * **Settings → Devbox:** needs Docker or Podman. Agents you allow can run commands in a sealed container with no network that sees only one folder you share. It starts when needed and sleeps when idle.
-* **Watch browser** on a running task shows a read-only picture of the agent's browser tab.
+* A running task shows an integrated browser/computer preview only when Lilly is using one.
 
 ## How it stays safe
 
@@ -44,11 +44,12 @@ A model only *proposes* a plan. A small deterministic policy (`domain/policy.py`
 
 ## Documents
 
-* [docs/SETUP.md](docs/SETUP.md): installation, first run, keys, folders, phone access, backups, troubleshooting, uninstall
+* [docs/SETUP.md](docs/SETUP.md): installation, setup wizard, keys, folders, phone access, backups, troubleshooting, uninstall
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): layers, request flow, data
 * [docs/SECURITY.md](docs/SECURITY.md): threat model, controls, honest limits
 * [docs/ROADMAP.md](docs/ROADMAP.md): what is next, and what is left out on purpose
 * [docs/OPERATIONS.md](docs/OPERATIONS.md): files, logs, backups, upgrades, development commands
+* [docs/VERIFICATION.md](docs/VERIFICATION.md): automated gates and real-machine limits
 
 ## Development
 

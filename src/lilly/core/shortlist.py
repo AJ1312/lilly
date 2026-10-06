@@ -1,4 +1,8 @@
-"""Which tools the planner is shown. A long tool list costs prompt space and invites wrong picks."""
+"""Compatibility helpers for capability discovery and historical decision tests.
+
+The normal AgentLoop exposes the complete policy-filtered catalog. This module is
+not an authority for production visibility and cannot remove capabilities.
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence

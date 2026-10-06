@@ -176,7 +176,7 @@ class AgentLoop:
             visible[name] = tool
         return visible
 
-    async def _shortlist(self, visible: dict[str, Tool]) -> dict[str, Tool]:
+    async def _capabilities(self, visible: dict[str, Tool]) -> dict[str, Tool]:
         """Expose the full policy-filtered catalog; ranking cannot hide capabilities."""
         return visible
 
@@ -359,7 +359,7 @@ class AgentLoop:
 
             # 2. Visible capability namespaces
             visible_tools = self._get_visible_tools()
-            shown_tools = await self._shortlist(visible_tools)
+            shown_tools = await self._capabilities(visible_tools)
 
             tool_schemas = [
                 ToolSchema(name=name, description=t.spec.doc, parameters=dict(t.spec.schema))

@@ -104,6 +104,7 @@ class EngineDeps:
     system1: System1Engine | None = None
     approval_mode: Callable[[], ApprovalMode] = lambda: ApprovalMode.MANUAL
     session_runtime: Any | None = None
+    computer_runtime: Any | None = None
 
 
 class TaskRunner:
@@ -234,7 +235,7 @@ class TaskRunner:
             except ValidationFailed:
                 if len(inputs.tools) == len(specs):
                     raise
-                inputs = replace(inputs, tools=specs)    # the shortlist may have hidden the tool the plan needed
+                inputs = replace(inputs, tools=specs)    # compatibility repair for legacy plan callers
                 plan = await self._make_plan(inputs, specs)
             await self._label_route(not plan["steps"])
         for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -303,11 +304,11 @@ class TaskRunner:
         for h in history:
             self._rec.absorb(h.label, h.untrusted)
         await self._rec.remember_ctx()
-        shown = await self._shortlisted(specs)
+        shown = await self._catalog(specs)
         return PlanInputs(self._spec.goal, shown, history, self._spec.agent_instructions, self._d.file_roots())
 
-    async def _shortlisted(self, specs: Mapping[str, ToolSpec]) -> Mapping[str, ToolSpec]:
-        """Record optional ranking advice, but never hide a capability from the planner."""
+    async def _catalog(self, specs: Mapping[str, ToolSpec]) -> Mapping[str, ToolSpec]:
+        """Record optional catalog advice without hiding any capability."""
         pipeline = self._d.decisions
         if pipeline is not None and not self._spec.skill:
             await pipeline.decide(

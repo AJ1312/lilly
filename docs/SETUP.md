@@ -29,6 +29,12 @@ lilly open
 
 This starts Lilly in the background if it is not already running, then opens your browser already signed in. Lilly runs only on your own computer at `http://127.0.0.1:8787` (change with `--port` or `LILLY_PORT`). On a Mac you can also open **Lilly.app**.
 
+The first launch wizard is resumable. It walks through Welcome, pet identity,
+models/providers, Laya, local model, permissions, browser/computer, DevBox,
+approval mode, notifications, health check and Ready. You can skip it and
+resume from the setup prompt later; changing the pet never resets tasks,
+sessions or memory.
+
 If the browser did not open, go to `http://127.0.0.1:8787`, run `lilly token` in a terminal and paste the token into the sign-in box.
 
 ## 4. Add a model (required, free)
@@ -55,10 +61,10 @@ Lilly cannot see any file until you share a folder. In **Settings → Privacy & 
 
 ## 6. Use it
 
-* Type in **Talk**. Try *"Research the best way to back up a laptop"* or *"Summarise ~/Documents/Taxes/notes.txt"*.
+* Create a task in **Sessions**. Try *"Research the best way to back up a laptop"* or *"Summarise ~/Documents/Taxes/notes.txt"*.
 * Anything that changes files or sends private data appears in **Approvals**. Read it, then approve or decline. Approvals are single-use and expire after 15 minutes.
 * **Stop all** (top right) cancels everything that is running.
-* **Team** lets you create assistants with their own instructions and an access level: *Locked* (no private data), *Ask* (asks first, the default) or *Open* (fewer prompts; the safety floor still applies).
+* **Agents** lets you create pets with their own instructions and an access level: *Locked* (no private data), *Ask* (asks first, the default) or *Open* (fewer prompts; the safety floor still applies).
 
 ## 7. Use it from your phone (optional)
 
@@ -110,6 +116,6 @@ API keys saved in the macOS Keychain stay until you delete the `lilly` items in 
 
 ## What has and has not been verified
 
-Verified in development (Linux, Python 3.13): a large suite of automated tests (policy, limits and routing, settings, SSRF guard, file tools, plans and skills, authentication, layering, computer-control guard rails, the agent browser against a real Chromium, MCP, quick deciders, streaming, the chat bridge against a fake Telegram, the devbox against a fake engine, routines, and an end-to-end API suite); `ruff`, `mypy --strict`, `bandit`, dead-code, dependency and import-boundary checks clean; the new screens opened in a real browser at desktop and phone width; the installer and installed package using a stand-in model server. See `docs/VERIFICATION.md` for exactly what was and was not checked.
+Verified in development: the automated Python and frontend gates, release wheel, policy and security behavior, browser/CDP adapters, deterministic ComputerRuntime contract, DevBox fake engine, restart/re-drive, model fallback, Laya routing and API flows. See `docs/VERIFICATION.md` for the exact gate and the real-machine checks that still require your Mac, browser, provider keys or container engine.
 
 **Not verified here, so treat as untested until you try them:** the Mac-specific parts (launchd login item, Keychain storage, the Lilly.app launcher, power-assertion for "stay awake"); real Mistral/OpenRouter/Gemini/Ollama services; a real Docker or Podman for the devbox; a real Telegram bot; the real Laya download and model (see docs/LAYA.md); live DuckDuckGo, Brave and SearXNG search; Tailscale and phone access. These use standard system interfaces and fail with a clear message rather than silently, but they have not been run on real hardware or accounts by the author.

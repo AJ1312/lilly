@@ -1,6 +1,6 @@
 """Rate limit and capacity reproduction script.
 
-Measures baseline behavior in Lilly 1.8.4 and verifies improvements in 2.0:
+Measures provider-throttling behavior before and after ModelBroker routing changes:
 Scenario A: 24 concurrent calls against 3 models with rpm=5.
 Scenario B: 429 response with Retry-After: 2 s, retried and succeeded.
 Scenario C: 30 calls across 3 models in list order (load spread).

@@ -116,8 +116,13 @@ class Runtime:
                 frame.screenshot, target, task_id=task_id,
             )
 
-        self.computer = ComputerRuntime(paths.root / "computer", vision_grounder=ground, devbox=self.devbox,
-                                        dom_provider=self.browser.dom_snapshot)
+        self.computer = ComputerRuntime(
+            paths.root / "computer", vision_grounder=ground, devbox=self.devbox,
+            dom_provider=self.browser.dom_snapshot, continuous=True,
+            on_frame=lambda task_id, frame: self.bus.publish({
+                "type": "computer", "task_id": task_id, "frame_id": frame.frame_id,
+            }),
+        )
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
@@ -156,7 +161,8 @@ class Runtime:
             standing=self.standing,
             system1=self.system1_engine,
             approval_mode=lambda: self.settings.approval_mode,
-            session_runtime=self.session_runtime))
+            session_runtime=self.session_runtime,
+            computer_runtime=self.computer))
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()

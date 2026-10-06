@@ -155,7 +155,7 @@ class SessionRuntime:
         db: Database,
         model_broker: ModelBroker,
         system1_engine: System1Engine | None = None,
-        clock: Clock = time.monotonic,
+        clock: Clock = time.time,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
         session_timeout: float = 3600.0,  # 1 hour default timeout
         max_sessions: int = 100,
@@ -183,6 +183,20 @@ class SessionRuntime:
         """Start the session runtime and recover any existing sessions."""
         await self._recover_sessions()
         log.info(f"SessionRuntime started with {len(self._sessions)} recovered sessions")
+
+    async def reconcile_interrupted_tasks(self, task_ids: list[str]) -> None:
+        """Close sessions whose task was interrupted before this process started."""
+        for task_id in task_ids:
+            session = next((item for item in self._sessions.values() if item.task_id == task_id), None)
+            if session is None or session.status not in (SessionStatus.CREATED, SessionStatus.RUNNING, SessionStatus.PAUSED):
+                continue
+            now = self._clock()
+            updated = replace(session, status=SessionStatus.FAILED, completed_at=now, updated_at=now)
+            self._sessions[session.session_id] = updated
+            self.add_session_event(session.session_id, "recovered_interrupted", {
+                "error": "interrupted by a restart",
+            })
+            await self._persist_session(session.session_id)
 
     async def _recover_sessions(self) -> None:
         """Recover sessions from persistence."""
