@@ -64,3 +64,14 @@ async def test_session_runtime_reconciles_interrupted_task_after_restart(tmp_pat
     assert runtime.get_session(session.session_id).status is SessionStatus.FAILED
     assert runtime.get_session_events(session.session_id)[-1].event_type == "recovered_interrupted"
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_session_runtime_owns_changed_computer_observations(tmp_path: Path) -> None:
+    db = Database(tmp_path / "sessions.db")
+    runtime = SessionRuntime(db, Broker(), clock=Clock())
+    session = runtime.create_session("task-computer", "watch the desktop")
+    runtime.record_computer_frame("task-computer", {"frame_id": "f1", "app": "Demo"})
+    assert runtime.get_session_state(session.session_id)["computer"]["frame_id"] == "f1"
+    assert runtime.get_session_events(session.session_id)[-1].event_type == "computer_frame"
+    db.close()

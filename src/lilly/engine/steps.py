@@ -35,7 +35,7 @@ from lilly.domain.errors import (
     ValidationFailed,
 )
 from lilly.domain.grants import GrantStore
-from lilly.domain.labels import Label, Risk, Verdict
+from lilly.domain.labels import ApprovalMode, Label, Risk, Verdict
 from lilly.domain.payload import canonical, payload_hash
 from lilly.domain.plan import FINAL_TOOL, tool_call
 from lilly.domain.policy import PathScope, decide
@@ -158,6 +158,8 @@ class StepExecutor:
             await rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=row_id)
             raise StepFailed(f"{name} is blocked: {why}", kind="policy")
         verdict, why = await self._doubted(verdict, why, name, spec, args)
+        if rec.ctx.approval_mode is ApprovalMode.OFF and verdict is Verdict.NEEDS_APPROVAL and why == DOUBT:
+            verdict, why = Verdict.ALLOW, "approval mode is OFF"
         payload = {"tool": name, "args": args}
         digest = payload_hash(rec.task_id, row_id, "step", payload)
         if verdict is Verdict.NEEDS_APPROVAL:

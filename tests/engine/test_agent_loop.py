@@ -347,6 +347,42 @@ async def test_loop_03_browser_errand_gate(env: LoopEnv) -> None:
     assert json.loads(steps[1].args_json)["target"] == "[2] <button id=\"checkout\">Proceed to Checkout</button>"
 
 
+async def test_action_request_requires_fresh_verification_before_completion(env: LoopEnv) -> None:
+    """An action cannot finish on a model claim before its resulting state is read."""
+    env.add_tool(
+        "computer.run",
+        ToolSpec(
+            Risk.R1,
+            schema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
+        ),
+        result_text="Command completed. Current state is available to inspect.",
+    )
+    env.add_tool(
+        "computer.observe",
+        ToolSpec(Risk.R0, schema={"type": "object"}),
+        result_text="Desktop: player is ready",
+    )
+    env.completer.replies = [
+        reply_tools(make_call("computer.run", {"command": "start-player"})),
+        reply_text("The requested action is complete."),
+        reply_tools(make_call("computer.observe", {})),
+        reply_text("The player is ready."),
+    ]
+
+    runner, row = await env.make_runner(goal="Run the player action")
+    await runner.run()
+
+    final_row = tasks.get_task(env.db.reader, row.id)
+    assert final_row is not None and final_row.state is TaskState.DONE
+    assert final_row.answer == "The player is ready."
+    assert len(env.completer.calls) == 4
+    assert any("fresh browser/desktop state" in message.content for message in env.completer.calls[2].messages)
+
+
 # ---- LOOP-04: Parallel read-only calls ---------------------------------------
 
 async def test_loop_04_parallel_read_only_calls(env: LoopEnv) -> None:

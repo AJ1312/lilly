@@ -95,5 +95,12 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
         out.append((Verdict.DENY, "path outside granted roots"))
     verdict = max(out, key=lambda r: r[0]) if out else (Verdict.ALLOW, "ok")
     if verdict[0] is Verdict.NEEDS_APPROVAL and ctx.approval_mode is ApprovalMode.OFF:
-        return Verdict.DENY, "approval mode is OFF"
+        # OFF is a no-prompt mode for ordinary R1/R2 work. It cannot bypass
+        # taint, private-data permissions, egress restrictions, or a tool's
+        # explicit confirmation contract.
+        protected = call.confirm or ctx.tainted or call.reads_label is Label.PERSONAL \
+            or (call.egress and ctx.label >= Label.PERSONAL)
+        if protected:
+            return Verdict.DENY, "approval mode is OFF and this action needs a hard security gate"
+        return Verdict.ALLOW, "approval mode is OFF"
     return verdict

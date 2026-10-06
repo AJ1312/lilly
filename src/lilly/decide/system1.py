@@ -174,7 +174,6 @@ class TaskClassification:
             TaskClass.CODING,
             TaskClass.DATA_ANALYSIS,
             TaskClass.MULTI_STEP,
-            ComplexityLevel.EXPERT
         }
 
 
@@ -468,28 +467,15 @@ class System1Engine:
 
     def _convert_from_laya_answer(self, decision_type: DecisionType, answer: Answer) -> System1Decision:
         """Convert a Laya Answer to a System1Decision."""
-        # This is a simplified conversion - in practice, this would be more sophisticated
+        def enum_choice(enum_type: Any) -> Any:
+            value = (answer.choice or "").strip().casefold()
+            for member in enum_type:
+                if member.value.casefold() == value:
+                    return member
+            raise ValueError(f"Laya returned an invalid {decision_type.value} choice: {answer.choice!r}")
+
         if decision_type == DecisionType.TASK_CLASSIFICATION:
-            # Map Laya response to task classification
-            task_class_map = {
-                "research": TaskClass.RESEARCH,
-                "coding": TaskClass.CODING,
-                "data": TaskClass.DATA_ANALYSIS,
-                "document": TaskClass.DOCUMENTATION,
-                "system": TaskClass.SYSTEM_OPERATION,
-                "web": TaskClass.WEB_BROWSING,
-                "multi": TaskClass.MULTI_STEP,
-                "simple": TaskClass.SIMPLE_QUERY,
-                "conversation": TaskClass.CONVERSATION,
-            }
-            
-            response_text = (answer.choice or "").lower()
-            task_class = TaskClass.CONVERSATION  # Default
-            for key, cls in task_class_map.items():
-                if key in response_text:
-                    task_class = cls
-                    break
-            
+            task_class = enum_choice(TaskClass)
             return TaskClassification(
                 task_class=task_class,
                 confidence=answer.confidence or 0.7,
@@ -497,18 +483,7 @@ class System1Engine:
             )
         
         elif decision_type == DecisionType.COMPLEXITY_ESTIMATION:
-            # Map response to complexity level
-            if "complex" in (answer.choice or "").lower():
-                level = ComplexityLevel.COMPLEX
-            elif "expert" in (answer.choice or "").lower():
-                level = ComplexityLevel.EXPERT
-            elif "moderate" in (answer.choice or "").lower():
-                level = ComplexityLevel.MODERATE
-            elif "simple" in (answer.choice or "").lower():
-                level = ComplexityLevel.SIMPLE
-            else:
-                level = ComplexityLevel.TRIVIAL
-            
+            level = enum_choice(ComplexityLevel)
             return ComplexityAssessment(
                 level=level,
                 confidence=answer.confidence or 0.7,
@@ -518,17 +493,7 @@ class System1Engine:
             )
         
         elif decision_type == DecisionType.MODEL_TIER_SELECTION:
-            if "strong" in (answer.choice or "").lower():
-                tier = ModelTier.STRONG
-            elif "vision" in (answer.choice or "").lower():
-                tier = ModelTier.VISION
-            elif "quick" in (answer.choice or "").lower():
-                tier = ModelTier.QUICK
-            elif "special" in (answer.choice or "").lower():
-                tier = ModelTier.SPECIALIZED
-            else:
-                tier = ModelTier.STANDARD
-            
+            tier = enum_choice(ModelTier)
             return ModelTierDecision(
                 tier=tier,
                 confidence=answer.confidence or 0.7,
@@ -536,20 +501,26 @@ class System1Engine:
             )
 
         elif decision_type == DecisionType.CAPABILITY_ROUTING:
-            choice = (answer.choice or "").lower()
-            primary = next((cap for cap in Cap if cap != Cap.NONE and cap.name and cap.name.lower() in choice), Cap.NONE)
+            value = (answer.choice or "").strip().casefold()
+            by_name = {
+                cap.name.casefold(): cap
+                for cap in Cap
+                if cap != Cap.NONE and cap.name
+            }
+            primary = by_name.get(value)
+            if primary is None:
+                raise ValueError(f"Laya returned an invalid {decision_type.value} choice: {answer.choice!r}")
             return CapabilityRouting(
                 primary_capability=primary,
                 secondary_capabilities=(),
-                required_model_capabilities=(primary,) if primary is not Cap.NONE else (),
-                needs_tool_use=primary is Cap.TOOLS,
-                needs_vision=primary is Cap.VISION,
+                required_model_capabilities=(primary,),
+                needs_tool_use=primary == Cap.TOOLS,
+                needs_vision=primary == Cap.VISION,
                 reasoning="Laya capability routing",
             )
 
         elif decision_type == DecisionType.TOOL_FAMILY_SELECTION:
-            choice = (answer.choice or "").lower()
-            family = next((item for item in ToolFamily if item.value in choice), ToolFamily.NONE)
+            family = enum_choice(ToolFamily)
             return ToolFamilyDecision(
                 primary_family=family,
                 secondary_families=(),
@@ -560,16 +531,7 @@ class System1Engine:
         # Add more conversions for other decision types...
         
         elif decision_type == DecisionType.VERIFICATION_NECESSITY:
-            verification_level: VerificationLevel
-            if "thorough" in (answer.choice or "").lower():
-                verification_level = VerificationLevel.THOROUGH
-            elif "standard" in (answer.choice or "").lower():
-                verification_level = VerificationLevel.STANDARD
-            elif "light" in (answer.choice or "").lower():
-                verification_level = VerificationLevel.LIGHT
-            else:
-                verification_level = VerificationLevel.NONE
-            
+            verification_level = enum_choice(VerificationLevel)
             return VerificationDecision(
                 level=verification_level,
                 confidence=answer.confidence or 0.7,

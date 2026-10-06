@@ -498,6 +498,18 @@ class SessionRuntime:
         """Get session metadata."""
         return self._sessions.get(session_id)
 
+    def session_for_task(self, task_id: str) -> SessionMetadata | None:
+        """Return the canonical session owning a task, if it is still active."""
+        return next((session for session in self._sessions.values() if session.task_id == task_id), None)
+
+    def record_computer_frame(self, task_id: str, frame: dict[str, Any]) -> None:
+        """Fold a changed computer observation into canonical session state."""
+        session = self.session_for_task(task_id)
+        if session is None:
+            return
+        self.update_session_state(session.session_id, {"computer": frame})
+        self.add_session_event(session.session_id, "computer_frame", frame)
+
     def get_session_state(self, session_id: str) -> dict[str, Any] | None:
         """Get the full state of a session."""
         return self._session_state.get(session_id)

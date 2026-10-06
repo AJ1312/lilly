@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from lilly.decide.system1 import DecisionType, System1Engine, System1Request
+from lilly.decide.system1 import (
+    ComplexityLevel,
+    DecisionType,
+    System1Engine,
+    System1Request,
+    TaskClass,
+)
 from lilly.domain.decisions import Answer
 
 
@@ -37,3 +43,27 @@ async def test_system1_can_clear_laya_and_use_default() -> None:
     engine.set_laya_decider(None)
     result = await engine.decide(System1Request(DecisionType.MODEL_TIER_SELECTION))
     assert result.tier.value == "standard"  # type: ignore[attr-defined]
+
+
+def test_system1_uses_exact_enum_values_for_laya_answers() -> None:
+    engine = System1Engine()
+
+    classification = engine._convert_from_laya_answer(
+        DecisionType.TASK_CLASSIFICATION, Answer("laya", "coding", 0.9)
+    )
+    assert classification.task_class is TaskClass.CODING
+
+    complexity = engine._convert_from_laya_answer(
+        DecisionType.COMPLEXITY_ESTIMATION, Answer("laya", "expert", 0.9)
+    )
+    assert complexity.level is ComplexityLevel.EXPERT
+
+    with pytest.raises(ValueError):
+        engine._convert_from_laya_answer(
+            DecisionType.COMPLEXITY_ESTIMATION, Answer("laya", "very complex reasoning", 0.9)
+        )
+
+    with pytest.raises(ValueError):
+        engine._convert_from_laya_answer(
+            DecisionType.CAPABILITY_ROUTING, Answer("laya", "vision and tools", 0.9)
+        )

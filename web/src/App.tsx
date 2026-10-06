@@ -20,7 +20,7 @@ import { Workspace } from './views/Workspace'
 
 interface Session { signed_in: boolean; csrf?: string }
 
-type LiveMessage = { type: 'text'; task_id: string; text: string } | { type: 'task'; task_id: string; state: string } | { type: 'other' }
+type LiveMessage = { type: 'text'; task_id: string; text: string } | { type: 'task'; task_id: string; state: string } | { type: 'computer'; task_id: string; frame_id: string; changed: boolean } | { type: 'other' }
 const FINISHED = ['DONE', 'FAILED', 'CANCELLED', 'EXPIRED']
 const RETRY_MIN_MS = 1000
 const RETRY_MAX_MS = 30000
@@ -30,6 +30,7 @@ function parseLive(raw: string): LiveMessage | null {
     const m = JSON.parse(raw) as Record<string, unknown>
     if (m.type === 'text' && typeof m.task_id === 'string' && typeof m.text === 'string') return { type: 'text', task_id: m.task_id, text: m.text }
     if (m.type === 'task' && typeof m.task_id === 'string' && typeof m.state === 'string') return { type: 'task', task_id: m.task_id, state: m.state }
+    if (m.type === 'computer' && typeof m.task_id === 'string' && typeof m.frame_id === 'string' && typeof m.changed === 'boolean') return { type: 'computer', task_id: m.task_id, frame_id: m.frame_id, changed: m.changed }
     return { type: 'other' }
   } catch {
     return null

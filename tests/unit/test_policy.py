@@ -35,7 +35,12 @@ def test_approval_modes_are_separate_from_private_data_mode() -> None:
     call = ToolCall("fs.write", Risk.R1)
     assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.MANUAL) is Verdict.NEEDS_APPROVAL
     assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.AUTO) is Verdict.ALLOW
-    assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.OFF) is Verdict.DENY
+    assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.OFF) is Verdict.ALLOW
+
+
+def test_off_keeps_hard_security_gates() -> None:
+    assert verdict(ToolCall("fs.write", Risk.R1), mode=Mode.ASK, approval_mode=ApprovalMode.OFF, tainted=True) is Verdict.DENY
+    assert verdict(ToolCall("notes.write", Risk.R1, confirm=True), mode=Mode.ASK, approval_mode=ApprovalMode.OFF) is Verdict.DENY
 
 
 def test_untrusted_content_forces_approval_even_in_open_mode() -> None:

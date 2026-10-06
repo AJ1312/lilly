@@ -61,6 +61,28 @@ from lilly.tools.base import Tool
 
 log = logging.getLogger("lilly.agent_loop")
 
+# An ACTION request is complete only after a state-changing interaction and a
+# fresh browser/desktop observation. Read-only web research is intentionally
+# outside this contract.
+_ACTION_TOOLS = frozenset({
+    "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
+    "browser.scroll", "browser.back", "browser.forward", "browser.close",
+    "computer.click", "computer.type", "computer.press", "computer.move",
+    "computer.scroll", "computer.drag", "computer.open_app", "computer.open_url",
+    "computer.stop_process", "computer.run", "devbox.run", "fs.write", "fs.edit",
+    "notes.write", "memory.write",
+})
+_ACTION_OBSERVATION_TOOLS = frozenset({
+    "browser.open", "browser.read", "browser.find", "browser.screenshot", "browser.back",
+    "browser.forward", "computer.observe", "computer.processes",
+})
+_ACTION_TOOLS_WITH_FRESH_STATE = frozenset({
+    "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
+    "browser.scroll", "browser.back", "browser.forward",
+    "computer.click", "computer.type", "computer.press", "computer.move",
+    "computer.scroll", "computer.drag",
+})
+
 
 class AgentLoop:
     """Orchestrates an agentic loop for a single task."""
@@ -343,6 +365,10 @@ class AgentLoop:
         self._grounding.record_user_message(self._goal)
 
         candidate_answer: str | None = None
+        intent = classify_intent(self._goal)
+        action_performed = False
+        action_verified = False
+        action_prompted = False
 
         while True:
             if self._rec.cancelled:
@@ -480,6 +506,25 @@ class AgentLoop:
                 candidate_answer = done.result.text.strip()
 
             if candidate_answer is not None:
+                # Do not let a model stop after opening a page/app or after a
+                # mutation whose resulting state has not been inspected. The
+                # next turn is deliberately model-driven; this guard only
+                # enforces the user's requested outcome boundary.
+                if (intent.value == "ACTION" and not action_verified and tool_choice != "none"
+                        and remaining_calls > 1 and (not action_prompted or action_performed)):
+                    action_prompted = True
+                    messages.append(Message(role="assistant", content=candidate_answer))
+                    messages.append(Message(
+                        role="user",
+                        content=(
+                            "This is an ACTION request. Do not report completion yet. "
+                            "Perform the requested interaction if it has not happened, then inspect a fresh "
+                            "browser/desktop state and verify the user-visible outcome."
+                        ),
+                    ))
+                    turn += 1
+                    candidate_answer = None
+                    continue
                 if self._grounding.enabled:
                     is_grounded, unseen = self._grounding.verify(candidate_answer)
                     if not is_grounded:
@@ -640,13 +685,27 @@ class AgentLoop:
             all_sids = [f"t{turn}c{i}" for i in range(1, len(done.result.tool_calls) + 1)]
             messages.extend([obs_by_sid[sid] for sid in all_sids if sid in obs_by_sid])
 
+            if intent.value == "ACTION":
+                for outcome in outcomes.values():
+                    if not outcome.ok:
+                        continue
+                    if outcome.tool in _ACTION_TOOLS:
+                        action_performed = True
+                        # Browser and ComputerRuntime interaction tools return
+                        # a fresh post-action snapshot/frame. Other mutations
+                        # still need an explicit read/observe step.
+                        action_verified = outcome.tool in _ACTION_TOOLS_WITH_FRESH_STATE
+                    elif action_performed and outcome.tool in _ACTION_OBSERVATION_TOOLS:
+                        action_verified = True
+
             # Early finish for terminal tools (P2-Bc)
             text_with_calls = (done.result.text or "").strip()
             if (self._engine_settings().finish_on_terminal
                     and outcomes
                     and not text_with_calls                       # the model said nothing else this turn
                     and all(o.ok and o.terminal for o in outcomes.values())
-                    and len(outcomes) == len(done.result.tool_calls)):   # every call was valid and terminal
+                    and len(outcomes) == len(done.result.tool_calls)       # every call was valid and terminal
+                    and (intent.value != "ACTION" or action_verified)):
                 candidate_answer = " ".join(o.summary for o in outcomes.values())
                 # Leave the loop through the same exit used when the model returns an answer with no tool calls
                 break

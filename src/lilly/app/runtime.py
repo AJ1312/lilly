@@ -104,6 +104,7 @@ class Runtime:
         # Compatibility name for older integrations. There is only one inference implementation.
         self.router = self.model_broker
         self.approvals = ApprovalService(db, self.bus, clock)
+        self._computer_signatures: dict[str, str] = {}
         self.scope = self._build_scope(settings)
         self.mcp = McpManager(self._secret)
         self.browser = BrowserManager(lambda: self.settings.browser)
@@ -119,9 +120,7 @@ class Runtime:
         self.computer = ComputerRuntime(
             paths.root / "computer", vision_grounder=ground, devbox=self.devbox,
             dom_provider=self.browser.dom_snapshot, continuous=True,
-            on_frame=lambda task_id, frame: self.bus.publish({
-                "type": "computer", "task_id": task_id, "frame_id": frame.frame_id,
-            }),
+            on_frame=self._on_computer_frame,
         )
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
@@ -171,6 +170,18 @@ class Runtime:
         self.power = Caffeinate()
         self._background: list[asyncio.Task[None]] = []
         self._observers: list[Callable[[Settings], Awaitable[None]]] = []
+
+    def _on_computer_frame(self, task_id: str, frame: Any) -> None:
+        """Publish every frame for the workspace, and persist meaningful deltas canonically."""
+        signature = repr((frame.app, frame.window, tuple((e.role, e.name, e.description) for e in frame.elements), frame.dom))
+        changed = self._computer_signatures.get(task_id) != signature
+        self._computer_signatures[task_id] = signature
+        self.bus.publish({"type": "computer", "task_id": task_id, "frame_id": frame.frame_id, "changed": changed})
+        if changed and hasattr(self, "session_runtime"):
+            self.session_runtime.record_computer_frame(task_id, {
+                "frame_id": frame.frame_id, "app": frame.app, "window": frame.window,
+                "screenshot": frame.screenshot, "elements": len(frame.elements),
+            })
 
     def _deciders(self) -> dict[str, Decider]:
         """The deciders that exist right now, looked up for every question so that a local model switched on or
