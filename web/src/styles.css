@@ -538,6 +538,8 @@ input.hue::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; bac
 .live-task { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .live-task > .clamp1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-task > button { flex-shrink: 0; }
+.computer-watch { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.computer-watch img { display: block; width: 100%; max-height: 360px; object-fit: contain; object-position: top left; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); }
 .clamp1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .with-unit { display: flex; align-items: center; gap: 8px; }

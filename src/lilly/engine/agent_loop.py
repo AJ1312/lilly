@@ -38,6 +38,7 @@ from lilly.engine.context import ContextManager
 from lilly.engine.crew import resolve_ref
 from lilly.engine.decisions import DecisionPipeline
 from lilly.engine.grounding import GroundingVerifier
+from lilly.engine.intent import classify_intent
 from lilly.engine.lanes import LaneScheduler, parallel_eligible
 from lilly.engine.messages import (
     AGENT_SYSTEM,
@@ -258,6 +259,12 @@ class AgentLoop:
         parts.append(
             "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order. "
             "If the capability you need is not listed, call agent.discover with descriptive words and use the discovered tool on the next turn."
+        )
+        intent = classify_intent(self._goal)
+        parts.append(
+            f"Request intent: {intent.value}. For WEB RETRIEVE, gather and return information without opening a browser unless interaction is required. "
+            "For NAVIGATE, opening the destination is the outcome. For ACTION, continue through every interaction and verify the user-visible result; "
+            "a search-results page or opened app is not completion. For ANSWER, answer directly when tools are unnecessary."
         )
 
         # P2-F: Caveman line removed, style text will be added later

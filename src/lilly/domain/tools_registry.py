@@ -391,6 +391,28 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
             "additionalProperties": False,
         },
     ),
+    "computer.move": ToolSpec(
+        Risk.R1, confirm=False, reads_label=_P, path_args=(), module="computer", serial=True,
+        doc="Move the pointer to a fresh semantic, visual, or coordinate target and return a fresh frame.",
+        args='{"frame_id": "fresh observation id", "target": "target label or @x=10,y=20"}',
+        schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "target": {"type": "string"}},
+                "required": ["frame_id", "target"], "additionalProperties": False},
+    ),
+    "computer.scroll": ToolSpec(
+        Risk.R1, confirm=False, reads_label=_P, path_args=(), module="computer", serial=True,
+        doc="Scroll the desktop view from a fresh frame and return fresh state.",
+        args='{"frame_id": "fresh observation id", "amount": "signed pages"}',
+        schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "amount": {"type": "integer", "minimum": -20, "maximum": 20}},
+                "required": ["frame_id"], "additionalProperties": False},
+    ),
+    "computer.drag": ToolSpec(
+        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        doc="Drag between two targets from a fresh frame, then verify a fresh observation.",
+        args='{"frame_id": "fresh observation id", "start": "source target", "end": "destination target", "expected": "optional text"}',
+        schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "start": {"type": "string"},
+                "end": {"type": "string"}, "expected": {"type": "string"}},
+                "required": ["frame_id", "start", "end"], "additionalProperties": False},
+    ),
     "computer.processes": ToolSpec(
         Risk.R0, reads_label=_P, path_args=(), module="computer",
         doc="List the user's running programs by memory or CPU use.",

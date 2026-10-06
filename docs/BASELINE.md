@@ -1,4 +1,4 @@
-# Lilly 1.8.4 Baseline Measurements
+# Lilly 2.0 Baseline Measurements
 
 Measured on 2026-10-05 on macOS Darwin x86_64, Python 3.12.13, Node v26.3.1.
 
@@ -51,6 +51,6 @@ Scenario C distribution: {'model-1': 30}
 1. **Scenario A (Rate limit ends task instead of waiting)**:
    24 concurrent calls over 3 providers (rpm=5 each) immediately hit per-minute limits. 15 succeeded, and 9 failed instantly after 0.012s with `NoModelAvailable`. Tasks terminate rather than waiting.
 2. **Scenario B (429 is never retried)**:
-   When a provider returns HTTP 429 with `Retry-After: 2`, 1.8.4 maps this to `QuotaExhausted(retryable=False)`. The call fails after 0.0011s without waiting, and the next call sends no request.
+   When a provider returns HTTP 429 with `Retry-After: 2`, Lilly maps this to `QuotaExhausted(retryable=False)`. The call fails without waiting, and the next call sends no request.
 3. **Scenario C (No load balancing)**:
    All 30 calls land on the first model in list order (`model-1`: 30, `model-2`: 0, `model-3`: 0).

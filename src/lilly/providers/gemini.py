@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import mimetypes
 import uuid
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -124,7 +127,15 @@ class GeminiProvider(Provider):
                     parts.append({"text": ""})
                 contents.append({"role": "model", "parts": parts})
             else:
-                contents.append({"role": "user", "parts": [{"text": m.content}]})
+                user_parts: list[dict[str, Any]] = [{"text": m.content}]
+                for image_path in req.image_paths:
+                    try:
+                        raw = await asyncio.to_thread(_read_image, image_path)
+                    except (OSError, ValueError) as exc:
+                        raise ProviderError(retryable=False) from exc
+                    user_parts.append({"inline_data": {"mime_type": mimetypes.guess_type(image_path)[0] or "image/png",
+                                                        "data": base64.b64encode(raw).decode("ascii")}})
+                contents.append({"role": "user", "parts": user_parts})
 
         config: dict[str, Any] = {"maxOutputTokens": req.max_tokens, "temperature": req.temperature}
         if req.json_mode:
@@ -186,3 +197,10 @@ class GeminiProvider(Provider):
             )
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             raise ProviderError(retryable=False) from exc
+
+
+def _read_image(path: str) -> bytes:
+    data = Path(path).read_bytes()
+    if not data or len(data) > 8_000_000:
+        raise ValueError("image is empty or too large")
+    return data

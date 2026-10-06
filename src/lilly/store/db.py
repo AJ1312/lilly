@@ -30,3 +30,8 @@ class Database:
         self._writer.close()
         with contextlib.suppress(sqlite3.Error):
             self.reader.close()
+
+    def __del__(self) -> None:
+        # Close databases created by short-lived callers that have no lifecycle hook.
+        with contextlib.suppress(Exception):
+            self.close()

@@ -19,8 +19,11 @@ from lilly.tools.browser.actions import browser_tools
 from lilly.tools.browser.manager import BrowserManager
 from lilly.tools.computer import (
     ComputerClickTool,
+    ComputerDragTool,
+    ComputerMoveTool,
     ComputerObserveTool,
     ComputerPressTool,
+    ComputerScrollTool,
     ComputerTypeTool,
     NotifyTool,
     OpenAppTool,
@@ -73,7 +76,9 @@ def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: C
         if not isinstance(computer_runtime, ComputerRuntime):
             raise ConfigurationError("computer_runtime must be a ComputerRuntime")
         every.extend([ComputerObserveTool(computer_runtime), ComputerClickTool(computer_runtime),
-                      ComputerTypeTool(computer_runtime), ComputerPressTool(computer_runtime)])
+                      ComputerTypeTool(computer_runtime), ComputerPressTool(computer_runtime),
+                      ComputerMoveTool(computer_runtime), ComputerScrollTool(computer_runtime),
+                      ComputerDragTool(computer_runtime)])
     tools: dict[str, Tool] = {}
     for tool in every:
         spec = DEFAULT_TOOLS.get(tool.name)

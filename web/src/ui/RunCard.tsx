@@ -1,4 +1,5 @@
 import { BrowserWatch } from './BrowserWatch'
+import { ComputerWatch } from './ComputerWatch'
 import { useState } from 'react'
 import { api } from '../api'
 import { useLoad } from '../hooks'
@@ -107,6 +108,7 @@ export function RunCard({ taskId, initialState }: { taskId: string; initialState
       )}
       {isLive && <Writing taskId={taskId} />}
       {isLive && <BrowserWatch taskId={taskId} />}
+      {isLive && <ComputerWatch taskId={taskId} />}
       <ErrorNote text={error} />
     </section>
   )

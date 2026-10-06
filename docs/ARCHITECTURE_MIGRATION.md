@@ -1,4 +1,10 @@
-# Lilly 2.0 Architecture Migration
+# Lilly 2.0 Architecture Status
+
+This document records the completed migration boundaries. It is not a second
+runtime design: the active implementation is AgentLoop, Laya System-1,
+ModelBroker, SessionRuntime, and the policy-bound tool registry. The explicit
+`mode="plan"` path remains only as a deprecated compatibility path for callers
+that require deterministic skill plans.
 
 ## What was wrong with the current architecture
 
@@ -40,7 +46,9 @@ The current Lilly codebase has excellent components but suffers from:
 
 ## Migration Strategy
 
-The migration will happen incrementally, maintaining backward compatibility where possible. Each change will be tested independently before proceeding to the next.
+The migration is complete in place. Compatibility is limited to the explicit
+plan mode and the `providers.router` import alias; neither is used by the
+normal interactive runtime.
 
 ## Phase 1: Model Broker Implementation
 - Create `ModelBroker` that unifies existing `ProviderPool` and `ModelRouter` functionality

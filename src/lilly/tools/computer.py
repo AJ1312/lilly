@@ -88,6 +88,41 @@ class ComputerPressTool(Tool):
         return _frame_result(self._runtime, frame)
 
 
+class ComputerMoveTool(Tool):
+    name = "computer.move"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        frame = await self._runtime.move(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "target"))
+        return _frame_result(self._runtime, frame)
+
+
+class ComputerScrollTool(Tool):
+    name = "computer.scroll"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        frame = await self._runtime.scroll(ctx.task_id, str_arg(args, "frame_id"),
+                                           int_arg(args, "amount", 1, lo=-20, hi=20))
+        return _frame_result(self._runtime, frame)
+
+
+class ComputerDragTool(Tool):
+    name = "computer.drag"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        frame = await self._runtime.drag(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "start"),
+                                         str_arg(args, "end"), str_arg(args, "expected", required=False))
+        return _frame_result(self._runtime, frame)
+
+
 def _spawn_detached(argv: list[str]) -> None:
     """Start a program and let it live on its own; its output is not ours."""
     try:

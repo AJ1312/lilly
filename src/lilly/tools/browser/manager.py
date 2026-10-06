@@ -90,6 +90,14 @@ class BrowserManager:
         except Exception as exc:
             raise ToolError("the page could not be shown right now") from exc
 
+    async def dom_snapshot(self, task_id: str) -> dict[str, Any] | None:
+        """Return the current browser DOM snapshot when this task already owns a tab."""
+        tab = self._tabs.get(task_id)
+        if tab is None or not self._alive():
+            return None
+        snap = await tab.page.snapshot()
+        return {"url": snap.url, "title": snap.title, "text": snap.text, "elements": list(snap.elements)}
+
     def host_of(self, task_id: str) -> str:
         tab = self._tabs.get(task_id)
         return tab.page.host if tab else ""

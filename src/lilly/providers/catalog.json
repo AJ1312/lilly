@@ -65,7 +65,7 @@
     "local": false,
     "lane": 1,
     "tags": ["strong", "quick"],
-    "caps": ["JSON", "LONG_CONTEXT", "TOOLS"],
+    "caps": ["JSON", "LONG_CONTEXT", "TOOLS", "VISION"],
     "key_ref": "gemini",
     "free_tier": {
       "rpm": 15,

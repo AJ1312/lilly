@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import mimetypes
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -86,7 +89,15 @@ class OpenAICompatProvider(Provider):
                 }
                 formatted_messages.append(msg)
             else:
-                formatted_messages.append({"role": m.role, "content": m.content})
+                content: str | list[dict[str, Any]] = m.content
+                if req.image_paths and m.role == "user":
+                    content = [{"type": "text", "text": m.content}]
+                    for image_path in req.image_paths:
+                        raw = await asyncio.to_thread(_read_image, image_path)
+                        mime = mimetypes.guess_type(image_path)[0] or "image/png"
+                        content.append({"type": "image_url", "image_url": {
+                            "url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"}})
+                formatted_messages.append({"role": m.role, "content": content})
 
         body: dict[str, object] = {
             "model": self._model_id,
@@ -184,3 +195,10 @@ class OpenAICompatProvider(Provider):
             for idx in sorted(accumulated_tc)
         ]
         return CompletionResult(text, tokens[0], tokens[1], finish, tool_calls=tuple(parsed_calls))
+
+
+def _read_image(path: str) -> bytes:
+    data = Path(path).read_bytes()
+    if not data or len(data) > 8_000_000:
+        raise ProviderError(retryable=False)
+    return data

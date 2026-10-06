@@ -50,6 +50,7 @@ class CompletionRequest:
     role: str = "act"
     tag: str | None = None
     priority: int = 0               # 0 interactive, 1 background
+    image_paths: tuple[str, ...] = ()  # local images for providers with multimodal support
 
 
 @dataclass(frozen=True, slots=True)

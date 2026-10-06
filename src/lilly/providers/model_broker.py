@@ -15,6 +15,7 @@ while adding enhanced decision-making capabilities.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import time
@@ -430,7 +431,7 @@ class ModelBroker:
             rate_limited=entry.minute is not None and not entry.minute.would_allow(),
             quota_exhausted=entry.daily is not None and not entry.daily.would_allow(),
             inflight_requests=entry.inflight,
-            last_successful_call=None,  # TODO: Track this
+            last_successful_call=entry.last_successful_call,
             total_calls_today=entry.tokens[0] if len(entry.tokens) > 0 else 0,
             total_tokens_in_today=entry.tokens[1] if len(entry.tokens) > 1 else 0,
             total_tokens_out_today=entry.tokens[2] if len(entry.tokens) > 2 else 0,
@@ -600,6 +601,35 @@ class ModelBroker:
             reason="Every model is busy, over quota, or down: try again shortly",
             candidates_tried=tuple(tried),
         )
+
+    async def ground_computer_target(self, image_path: str, target: str, *, task_id: str | None = None,
+                                     mode: Mode = Mode.ASK, pin: str | None = None) -> tuple[int, int] | None:
+        """Use a routed vision-capable model to locate a desktop target in a screenshot."""
+        request = CompletionRequest(
+            messages=(Message(
+                "user",
+                'Return JSON only: {"x": integer, "y": integer} for the center of the UI target '
+                f'{target!r}. If it is not visible, return {{"x": null, "y": null}}.',
+            ),),
+            max_tokens=120,
+            json_mode=True,
+            image_paths=(image_path,),
+            role="computer_vision",
+            tag="cua",
+        )
+        result = await self.complete(
+            request, need=Cap.VISION, label=Label.PERSONAL, requires_vision=True, requires_tools=False,
+            task_id=task_id, mode=mode, pin=pin, role="computer_vision", tag="cua",
+            model_tier="VISION", cost_sensitivity=0.7, verification="THOROUGH",
+        )
+        try:
+            value = json.loads(result.result.text)
+            x, y = value.get("x"), value.get("y")
+            if isinstance(x, int) and isinstance(y, int) and x >= 0 and y >= 0:
+                return x, y
+        except (TypeError, ValueError, AttributeError):
+            pass
+        return None
 
     async def complete(
         self,

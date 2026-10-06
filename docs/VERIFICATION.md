@@ -15,7 +15,7 @@ what only a real device or service can confirm.
 4. The tagged tree is packaged with `git archive`, installed into a clean environment with `install.sh`, and started
    once.
 
-## Version 1.8.4 (Laya state in Settings; install message)
+## Lilly 2.0 verification record
 
 ### Scope
 Settings now says why a Laya install made by `install.sh` or `lilly laya install` failed (the reason is kept beside

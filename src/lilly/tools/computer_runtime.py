@@ -15,7 +15,7 @@ import subprocess  # nosec B404 - fixed osascript/screencapture invocations only
 import sys
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -67,10 +67,13 @@ class ComputerBackend(Protocol):
     async def click(self, x: int, y: int) -> None: ...
     async def type_text(self, text: str) -> None: ...
     async def press(self, key: str) -> None: ...
+    async def move(self, x: int, y: int) -> None: ...
+    async def scroll(self, amount: int) -> None: ...
+    async def drag(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None: ...
 
 
 class VisionGrounder(Protocol):
-    async def __call__(self, frame: ComputerFrame, target: str) -> tuple[int, int] | None: ...
+    async def __call__(self, frame: ComputerFrame, target: str, task_id: str) -> tuple[int, int] | None: ...
 
 
 class MacComputerBackend:  # pragma: no cover - exercised by the macOS desktop smoke test
@@ -165,10 +168,39 @@ end tell'''
             raise ValidationFailed(f"unsupported key: {key}")
         await self._script(f'tell application "System Events" to key code {_KEY_CODES[normalized]}')
 
+    async def move(self, x: int, y: int) -> None:
+        await self._jxa(f"mouseMove({x}, {y})")
+
+    async def scroll(self, amount: int) -> None:
+        await self.press("pagedown" if amount < 0 else "pageup")
+
+    async def drag(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
+        await self._jxa(f"mouseDrag({start_x}, {start_y}, {end_x}, {end_y})")
+
     async def _script(self, script: str) -> None:
         if self._osascript is None or sys.platform != "darwin":
             raise ToolError("desktop computer control is unavailable on this platform")
         await asyncio.to_thread(self._run, [self._osascript, "-e", script])
+
+    async def _jxa(self, body: str) -> None:
+        if self._osascript is None:
+            raise ToolError("desktop computer control is unavailable")
+        script = '''ObjC.import('CoreGraphics');
+function point(x, y) { return $.CGPointMake(x, y); }
+function mouseMove(x, y) {
+  const e = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, point(x, y), 0);
+  $.CGEventPost($.kCGHIDEventTap, e);
+}
+function mouseDrag(x1, y1, x2, y2) {
+  const down = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, point(x1, y1), 0);
+  $.CGEventPost($.kCGHIDEventTap, down);
+  const move = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDragged, point(x2, y2), 0);
+  $.CGEventPost($.kCGHIDEventTap, move);
+  const up = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, point(x2, y2), 0);
+  $.CGEventPost($.kCGHIDEventTap, up);
+}
+''' + body
+        await asyncio.to_thread(self._run, [self._osascript, "-l", "JavaScript", "-e", script])
 
     @staticmethod
     def _run(argv: list[str]) -> str:
@@ -182,11 +214,14 @@ class ComputerRuntime:
     backend: ComputerBackend | None = None
     vision_grounder: VisionGrounder | None = None
     devbox: Any | None = None
+    dom_provider: Callable[[str], Awaitable[Mapping[str, Any] | None]] | None = None
     clock: Any = time.time
     _frames: dict[str, ComputerFrame] = field(default_factory=dict)
     _latest: dict[str, str] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _monitors: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     _state_path: Path = field(init=False)
+    _inflight: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -208,22 +243,24 @@ class ComputerRuntime:
                 frame = ComputerFrame(
                     str(item["frame_id"]), float(item["created_at"]), item.get("app"), item.get("window"),
                     item.get("screenshot"), tuple(A11yElement(**element) for element in item.get("elements", [])),
-                    devbox=item.get("devbox"),
+                    dom=item.get("dom"), devbox=item.get("devbox"),
                 )
                 self._frames[frame.frame_id] = frame
             except (KeyError, TypeError, ValueError):
                 continue
+        self._inflight = {str(k): dict(v) for k, v in (raw.get("inflight") or {}).items() if isinstance(v, Mapping)}
 
     def _persist_state(self) -> None:
         frames = list(self._frames.values())[-64:]
         payload = {
             "latest": self._latest,
+            "inflight": self._inflight,
             "frames": [{
                 "frame_id": frame.frame_id, "created_at": frame.created_at, "app": frame.app,
                 "window": frame.window, "screenshot": frame.screenshot,
                 "elements": [{"role": e.role, "name": e.name, "description": e.description,
                               "x": e.x, "y": e.y, "width": e.width, "height": e.height}
-                             for e in frame.elements], "devbox": frame.devbox,
+                             for e in frame.elements], "dom": frame.dom, "devbox": frame.devbox,
             } for frame in frames],
         }
         temporary = self._state_path.with_suffix(".tmp")
@@ -239,13 +276,34 @@ class ComputerRuntime:
             assert self.backend is not None
             app, window, elements = await self.backend.observe(screenshot)
             environment = await self._environment()
+            dom = await self._dom(task_id)
             frame = ComputerFrame(frame_id, float(self.clock()), app, window,
                                   str(screenshot) if screenshot and screenshot.is_file() else None,
-                                  tuple(elements), devbox=environment)
+                                  tuple(elements), dom=dom, devbox=environment)
             self._frames[frame_id] = frame
             self._latest[task_id] = frame_id
             self._persist_state()
+            if isinstance(self.backend, MacComputerBackend) and task_id not in self._monitors:
+                self._monitors[task_id] = asyncio.create_task(self._monitor(task_id), name=f"lilly-computer-{task_id}")
             return frame
+
+    async def _monitor(self, task_id: str) -> None:
+        try:
+            while True:
+                await asyncio.sleep(2.0)
+                async with self._lock:
+                    # Keep the live computer panel backed by a current image as
+                    # well as a current accessibility tree.
+                    await self._observe_locked(task_id, capture=True)
+        except asyncio.CancelledError:
+            raise
+
+    async def close(self) -> None:
+        monitors, self._monitors = self._monitors, {}
+        for task in monitors.values():
+            task.cancel()
+        if monitors:
+            await asyncio.gather(*monitors.values(), return_exceptions=True)
 
     def current(self, frame_id: str, task_id: str | None = None) -> ComputerFrame:
         frame = self._frames.get(frame_id)
@@ -255,7 +313,26 @@ class ComputerRuntime:
             raise ToolError("that observation is stale; observe the computer again")
         return frame
 
-    async def _target(self, frame: ComputerFrame, target: str) -> tuple[int, int]:
+    def latest(self, task_id: str) -> ComputerFrame | None:
+        frame_id = self._latest.get(task_id)
+        return self._frames.get(frame_id) if frame_id else None
+
+    def is_ambiguous(self, task_id: str) -> bool:
+        return task_id in self._inflight
+
+    def confirm_recovery(self, task_id: str) -> None:
+        self._inflight.pop(task_id, None)
+        self._persist_state()
+
+    def _begin_action(self, task_id: str, frame_id: str, action: str, args: Mapping[str, Any]) -> None:
+        self._inflight[task_id] = {"frame_id": frame_id, "action": action, "args": dict(args), "started_at": self.clock()}
+        self._persist_state()
+
+    def _finish_action(self, task_id: str) -> None:
+        self._inflight.pop(task_id, None)
+        self._persist_state()
+
+    async def _target(self, frame: ComputerFrame, target: str, task_id: str) -> tuple[int, int]:
         needle = target.casefold().strip()
         matches = [item for item in frame.elements if needle and needle in item.text.casefold()]
         if len(matches) == 1:
@@ -265,7 +342,7 @@ class ComputerRuntime:
         if len(matches) > 1:
             raise ToolError("target is ambiguous in this observation; use a more specific target")
         if self.vision_grounder is not None:
-            point = await self.vision_grounder(frame, target)
+            point = await self.vision_grounder(frame, target, task_id)
             if point is not None:
                 return point
         match = _COORDINATE.match(target.strip())
@@ -278,43 +355,86 @@ class ComputerRuntime:
     async def click(self, task_id: str, frame_id: str, target: str, expected: str = "") -> ComputerFrame:
         async with self._lock:
             frame = self.current(frame_id, task_id)
-            x, y = await self._target(frame, target)
+            x, y = await self._target(frame, target, task_id)
             assert self.backend is not None
+            self._begin_action(task_id, frame_id, "click", {"x": x, "y": y})
             await self.backend.click(x, y)
             fresh = await self._observe_locked(task_id)
             self._verify(fresh, expected)
+            self._finish_action(task_id)
             return fresh
 
     async def type_text(self, task_id: str, frame_id: str, target: str, text: str,
                         expected: str = "") -> ComputerFrame:
         async with self._lock:
             frame = self.current(frame_id, task_id)
-            x, y = await self._target(frame, target)
+            x, y = await self._target(frame, target, task_id)
             assert self.backend is not None
+            self._begin_action(task_id, frame_id, "type", {"x": x, "y": y, "text_length": len(text)})
             await self.backend.click(x, y)
             await self.backend.type_text(text)
             fresh = await self._observe_locked(task_id)
             self._verify(fresh, expected)
+            self._finish_action(task_id)
             return fresh
 
     async def press(self, task_id: str, frame_id: str, key: str, expected: str = "") -> ComputerFrame:
         async with self._lock:
             self.current(frame_id, task_id)
             assert self.backend is not None
+            self._begin_action(task_id, frame_id, "press", {"key": key})
             await self.backend.press(key)
             fresh = await self._observe_locked(task_id)
             self._verify(fresh, expected)
+            self._finish_action(task_id)
             return fresh
 
-    async def _observe_locked(self, task_id: str) -> ComputerFrame:
+    async def move(self, task_id: str, frame_id: str, target: str) -> ComputerFrame:
+        async with self._lock:
+            frame = self.current(frame_id, task_id)
+            x, y = await self._target(frame, target, task_id)
+            assert self.backend is not None
+            self._begin_action(task_id, frame_id, "move", {"x": x, "y": y})
+            await self.backend.move(x, y)
+            fresh = await self._observe_locked(task_id)
+            self._finish_action(task_id)
+            return fresh
+
+    async def scroll(self, task_id: str, frame_id: str, amount: int) -> ComputerFrame:
+        async with self._lock:
+            self.current(frame_id, task_id)
+            assert self.backend is not None
+            self._begin_action(task_id, frame_id, "scroll", {"amount": amount})
+            await self.backend.scroll(amount)
+            fresh = await self._observe_locked(task_id)
+            self._finish_action(task_id)
+            return fresh
+
+    async def drag(self, task_id: str, frame_id: str, start: str, end: str, expected: str = "") -> ComputerFrame:
+        async with self._lock:
+            frame = self.current(frame_id, task_id)
+            start_x, start_y = await self._target(frame, start, task_id)
+            end_x, end_y = await self._target(frame, end, task_id)
+            assert self.backend is not None
+            self._begin_action(task_id, frame_id, "drag", {"start": [start_x, start_y], "end": [end_x, end_y]})
+            await self.backend.drag(start_x, start_y, end_x, end_y)
+            fresh = await self._observe_locked(task_id)
+            self._verify(fresh, expected)
+            self._finish_action(task_id)
+            return fresh
+
+    async def _observe_locked(self, task_id: str, *, capture: bool = True) -> ComputerFrame:
         frame_id = f"frame-{uuid.uuid4().hex[:16]}"
-        screenshot = self.root / task_id / f"{frame_id}.png"
-        screenshot.parent.mkdir(parents=True, exist_ok=True)
+        screenshot = self.root / task_id / f"{frame_id}.png" if capture else None
+        if screenshot is not None:
+            screenshot.parent.mkdir(parents=True, exist_ok=True)
         assert self.backend is not None
         app, window, elements = await self.backend.observe(screenshot)
         environment = await self._environment()
+        dom = await self._dom(task_id)
         frame = ComputerFrame(frame_id, float(self.clock()), app, window,
-                              str(screenshot) if screenshot.is_file() else None, tuple(elements), devbox=environment)
+                              str(screenshot) if screenshot and screenshot.is_file() else None,
+                              tuple(elements), dom=dom, devbox=environment)
         self._frames[frame_id] = frame
         self._latest[task_id] = frame_id
         self._persist_state()
@@ -335,6 +455,7 @@ class ComputerRuntime:
                 "x": item.x, "y": item.y, "width": item.width, "height": item.height,
             } for item in frame.elements],
             "devbox": frame.devbox,
+            "dom": frame.dom,
         }
         return json.dumps(payload, ensure_ascii=True)
 
@@ -346,3 +467,8 @@ class ComputerRuntime:
             return None
         result = await status()
         return result if isinstance(result, Mapping) else None
+
+    async def _dom(self, task_id: str) -> Mapping[str, Any] | None:
+        if self.dom_provider is None:
+            return None
+        return await self.dom_provider(task_id)

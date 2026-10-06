@@ -109,7 +109,15 @@ class Runtime:
         self.browser = BrowserManager(lambda: self.settings.browser)
         self.devbox = DevboxManager(lambda: self.settings.devbox, lambda: self.scope,
                                     lambda cfg: _engine_for(cfg.runtime), self.clock)
-        self.computer = ComputerRuntime(paths.root / "computer", devbox=self.devbox)
+        async def ground(frame: Any, target: str, task_id: str) -> tuple[int, int] | None:
+            if not frame.screenshot:
+                return None
+            return await self.model_broker.ground_computer_target(
+                frame.screenshot, target, task_id=task_id,
+            )
+
+        self.computer = ComputerRuntime(paths.root / "computer", vision_grounder=ground, devbox=self.devbox,
+                                        dom_provider=self.browser.dom_snapshot)
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
@@ -377,6 +385,7 @@ class Runtime:
         await self.orchestrator.aclose()
         await self.mcp.aclose()
         await self.browser.close_all()
+        await self.computer.close()
         await self.devbox.close_all()
         await self.laya.aclose()
         self.bus.close()

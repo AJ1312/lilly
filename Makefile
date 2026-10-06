@@ -1,7 +1,7 @@
 # One command for every check.
 PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: help install test lint types sec dead deps web web-test release-check check run clean
+.PHONY: help install test lint types sec dead deps web web-test release-check python-check check run clean
 
 help:
 	@echo "make install   install Lilly and the dev tools into the current environment"
@@ -44,6 +44,8 @@ web:
 web-test:
 	cd web && npm test
 
+python-check: lint types sec dead deps test
+
 release-check:
 	@set -eu; \
 	for script in install.sh uninstall.sh "Install Lilly.command"; do bash -n "$$script"; done; \
@@ -54,7 +56,7 @@ release-check:
 	test -n "$$wheel"; \
 	$(PY) -c 'import sys, zipfile; names = set(zipfile.ZipFile(sys.argv[1]).namelist()); assert any(n.startswith("lilly/") and n.endswith("__init__.py") for n in names); assert "lilly/web/index.html" in names; assert any(n.startswith("lilly/web/assets/") for n in names)' "$$wheel"
 
-check: lint types sec dead deps test web-test
+check: python-check web-test
 	@echo "all checks passed"
 
 run:

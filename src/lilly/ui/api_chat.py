@@ -166,7 +166,13 @@ async def cancel_task(request: Request) -> Response:
 async def resume_task(request: Request) -> Response:
     data = await json_body(request)
     confirmed = flag(data, "confirm_ambiguous") is True
-    row = await runtime(request).orchestrator.redrive(request.path_params["task_id"], confirm_ambiguous=confirmed)
+    rt = runtime(request)
+    task_id = request.path_params["task_id"]
+    if rt.computer.is_ambiguous(task_id) and not confirmed:
+        raise ValidationFailed("a desktop action was in flight when Lilly stopped; confirm before resuming")
+    if confirmed:
+        rt.computer.confirm_recovery(task_id)
+    row = await rt.orchestrator.redrive(task_id, confirm_ambiguous=confirmed)
     return JSONResponse({"task": task_json(row)}, 202)
 
 
