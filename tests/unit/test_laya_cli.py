@@ -14,6 +14,7 @@ from lilly.domain.settings import load_settings
 @pytest.fixture(autouse=True)
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LILLY_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(cli, "_is_up", lambda port: False)
     return tmp_path / "home"
 
 
