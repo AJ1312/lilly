@@ -44,22 +44,19 @@ class StandingStore:
     
     def find(self, tool: str, target: str) -> StandingGrant | None:
         """Find a standing grant by tool and target. Returns None if not found or revoked."""
-        def _find(reader: sqlite3.Connection) -> StandingGrant | None:
-            cursor = reader.cursor()
-            cursor.execute(
-                "SELECT id, tool, target, created_at, revoked_at, uses, last_used_at FROM standing_grants WHERE tool = ? AND target = ? AND revoked_at IS NULL",
-                (tool, target)
+        cursor = self._db.reader.cursor()
+        cursor.execute(
+            "SELECT id, tool, target, created_at, revoked_at, uses, last_used_at FROM standing_grants WHERE tool = ? AND target = ? AND revoked_at IS NULL",
+            (tool, target)
+        )
+        row = cursor.fetchone()
+        if row:
+            return StandingGrant(
+                id=row[0], tool=row[1], target=row[2], 
+                created_at=row[3], revoked_at=row[4], 
+                uses=row[5], last_used_at=row[6]
             )
-            row = cursor.fetchone()
-            if row:
-                return StandingGrant(
-                    id=row[0], tool=row[1], target=row[2], 
-                    created_at=row[3], revoked_at=row[4], 
-                    uses=row[5], last_used_at=row[6]
-                )
-            return None
-        
-        return self._db.read(_find)
+        return None
     
     def revoke(self, grant_id: int, now: float | None = None) -> bool:
         """Revoke a standing grant. Returns True if grant was found and revoked."""
@@ -93,18 +90,15 @@ class StandingStore:
     
     def list_all(self) -> list[StandingGrant]:
         """List all active (non-revoked) standing grants."""
-        def _list(reader: sqlite3.Connection) -> list[StandingGrant]:
-            cursor = reader.cursor()
-            cursor.execute(
-                "SELECT id, tool, target, created_at, revoked_at, uses, last_used_at FROM standing_grants WHERE revoked_at IS NULL ORDER BY tool, target"
+        cursor = self._db.reader.cursor()
+        cursor.execute(
+            "SELECT id, tool, target, created_at, revoked_at, uses, last_used_at FROM standing_grants WHERE revoked_at IS NULL ORDER BY tool, target"
+        )
+        return [
+            StandingGrant(
+                id=row[0], tool=row[1], target=row[2], 
+                created_at=row[3], revoked_at=row[4], 
+                uses=row[5], last_used_at=row[6]
             )
-            return [
-                StandingGrant(
-                    id=row[0], tool=row[1], target=row[2], 
-                    created_at=row[3], revoked_at=row[4], 
-                    uses=row[5], last_used_at=row[6]
-                )
-                for row in cursor.fetchall()
-            ]
-        
-        return self._db.read(_list)
+            for row in cursor.fetchall()
+        ]

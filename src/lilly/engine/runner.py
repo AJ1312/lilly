@@ -380,7 +380,7 @@ class TaskRunner:
         
         await self._rec.state(TaskState.PLANNING)
         await self._rec.event("quick", {"tool": qa.tool, "target": qa.shown, "by": qa.matched_by,
-                                        "confidence": round(qa.confidence, 2)}, "engine")
+                                        "confidence": round(qa.confidence, 2)}, "system")
         step_id = "q1"
         await self._d.db.write(lambda con: tasks.create_steps(con, self._task.id,
                                [(step_id, qa.tool, json.dumps(qa.args))]))

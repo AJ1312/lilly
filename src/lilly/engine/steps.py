@@ -162,9 +162,9 @@ class StepExecutor:
         digest = payload_hash(rec.task_id, row_id, "step", payload)
         if verdict is Verdict.NEEDS_APPROVAL:
             target = tool.standing_target(args) if spec.standing_ok and self._standing_enabled() else None
-            grant = await self._standing.find(name, target) if target and self._standing else None
+            grant = self._standing.find(name, target) if target and self._standing else None
             if grant is not None and why_allows_standing(why, rec):
-                await self._standing.touch(grant.id)
+                self._standing.touch(grant.id)
                 await rec.event("standing_grant_used", {"step": row_id, "tool": name, "target": target, "grant": grant.id}, "tool")
             else:
                 await self._approve(row_id, name, args, payload, why, decline_continues=decline_continues)
