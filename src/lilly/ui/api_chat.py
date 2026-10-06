@@ -135,7 +135,7 @@ async def get_task(request: Request) -> Response:
     return JSONResponse({"task": task_json(row), "steps": [step_json(s) for s in tasks.list_steps(rt.db.reader, task_id)],
                          "approvals": pending,
                          # the newest plan as announced: tool, expectation, dependencies and the predicted verdict
-                         "plan_steps": announced.payload["steps"] if announced else [],
+                         "plan_steps": announced.payload.get("steps", []) if announced else [],
                          # Laya's advice on the finished reply, when it was asked and answered; it never changed the reply
                          "reply_check": verdict if verdict in (FOLLOWS, DRIFTS) else None})
 

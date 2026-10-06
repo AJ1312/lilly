@@ -14,7 +14,8 @@ export function ApprovalCard({ approval, onDone }: { approval: Approval; onDone?
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const models = approval.kind === 'model' ? ((approval.payload?.models as string[] | undefined) ?? []) : []
-  const [choice, setChoice] = useState(models[0] ?? '')
+  const questionChoices = approval.kind === 'question' ? ((approval.payload?.choices as string[] | undefined) ?? []) : []
+  const [choice, setChoice] = useState(models[0] ?? questionChoices[0] ?? '')
   const bump = useApp((s) => s.bump)
   const [shownAt] = useState(() => Date.now() / 1000)
 
@@ -25,7 +26,7 @@ export function ApprovalCard({ approval, onDone }: { approval: Approval; onDone?
       await api.post(`/api/approvals/${approval.id}/decide`, {
         approve,
         payload_hash: approval.payload_hash,
-        choice: approval.kind === 'model' ? choice : undefined,
+        choice: approval.kind === 'model' || approval.kind === 'question' ? choice : undefined,
       })
       bump()
       onDone?.()
@@ -41,7 +42,7 @@ export function ApprovalCard({ approval, onDone }: { approval: Approval; onDone?
   const expires = Math.max(0, Math.round(approval.expires_at - shownAt))
   return (
     <section className="approval" aria-label="Approval needed">
-      <p className="approval-kicker">{approval.kind === 'model' ? 'Sharing needs your OK' : 'Needs your OK'}</p>
+      <p className="approval-kicker">{approval.kind === 'model' ? 'Sharing needs your OK' : approval.kind === 'question' ? 'Lilly needs an answer' : 'Needs your OK'}</p>
       <h3>{approval.kind === 'step' ? (TOOL_LABEL[tool] ?? tool) : approval.summary}</h3>
       {approval.kind === 'step' && <p className="approval-why">{String(approval.payload?.why ?? approval.summary)}</p>}
       {approval.kind === 'model' ? (
@@ -53,6 +54,18 @@ export function ApprovalCard({ approval, onDone }: { approval: Approval; onDone?
               <span>{m}</span>
             </label>
           ))}
+        </fieldset>
+      ) : approval.kind === 'question' ? (
+        <fieldset className="choices">
+          <legend>{String(approval.payload?.question ?? approval.summary)}</legend>
+          {questionChoices.length > 0 ? questionChoices.map((item) => (
+            <label key={item} className="choice">
+              <input type="radio" name={`q-${approval.id}`} checked={choice === item} onChange={() => setChoice(item)} />
+              <span>{item}</span>
+            </label>
+          )) : (
+            <input aria-label="Answer" value={choice} onChange={(event) => setChoice(event.target.value)} />
+          )}
         </fieldset>
       ) : note ? (
         <div>

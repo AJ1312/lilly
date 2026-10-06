@@ -16,7 +16,7 @@ class ApprovalRow:
     id: str
     task_id: str
     step_id: str
-    kind: str          # 'step' (run a tool) or 'model' (let a model see private data)
+    kind: str          # 'step', 'model', or 'question'
     summary: str
     payload_json: str
     payload_hash: str

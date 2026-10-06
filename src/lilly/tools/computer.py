@@ -57,7 +57,7 @@ class OpenUrlTool(Tool):
     name = "computer.open_url"
 
     def summary(self, args: Mapping[str, object], output: str) -> str:
-        """The sentence shown as the answer when this tool ends a task."""
+        """The sentence shown in the action result."""
         url = str(args.get("url", ""))
         return f"Opened {url}."
 

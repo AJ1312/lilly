@@ -313,7 +313,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     ),
     "computer.open_url": ToolSpec(
         Risk.R2, egress=True, confirm=True, path_args=(), module="computer",
-        terminal=True, standing_ok=True,
+        terminal=False, standing_ok=True,
         doc="Open a web link in the user's own browser (they see it; Lilly cannot read it).",
         args='{"url": "http(s) link"}',
         schema={
@@ -327,7 +327,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     ),
     "computer.open_app": ToolSpec(
         Risk.R2, confirm=True, path_args=(), module="computer",
-        terminal=True, standing_ok=True,
+        terminal=False, standing_ok=True,
         doc="Start an application on the user's computer.",
         args='{"name": "application name"}',
         schema={

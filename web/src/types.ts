@@ -41,7 +41,7 @@ export interface Approval {
   id: string
   task_id: string
   step_id: string
-  kind: 'step' | 'model'
+  kind: 'step' | 'model' | 'question'
   summary: string
   payload: Record<string, unknown> | null
   payload_hash: string
