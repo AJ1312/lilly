@@ -17,7 +17,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -206,11 +206,16 @@ class SessionRuntime:
             for session_data in sessions:
                 session_id = session_data["session_id"]
                 try:
-                    metadata = SessionMetadata(**session_data["metadata"])
+                    metadata_data = dict(session_data["metadata"])
+                    metadata_data["status"] = SessionStatus(metadata_data["status"])
+                    metadata_data["session_type"] = SessionType(metadata_data["session_type"])
+                    metadata = SessionMetadata(**metadata_data)
                     state = session_data["state"]
                     
                     self._sessions[session_id] = metadata
                     self._session_state[session_id] = state
+                    self._session_artifacts[session_id] = [SessionArtifact(**item) for item in session_data.get("artifacts", [])]
+                    self._session_events[session_id] = [SessionEvent(**item) for item in session_data.get("events", [])]
                     self._recovering_sessions.add(session_id)
                     
                     log.info(f"Recovered session {session_id} with status {metadata.status}")
@@ -229,9 +234,21 @@ class SessionRuntime:
 
     async def _load_sessions_from_db(self) -> list[dict[str, Any]]:
         """Load sessions from the database."""
-        # This would be implemented with actual database queries
-        # For now, return empty list
-        return []
+        rows = self._db.reader.execute(
+            "SELECT session_id, task_id, metadata_json, state_json, artifacts_json, events_json "
+            "FROM session_snapshots").fetchall()
+        return [{
+            "session_id": row[0], "task_id": row[1],
+            "metadata": json.loads(row[2]), "state": json.loads(row[3]),
+            "artifacts": json.loads(row[4]), "events": json.loads(row[5]),
+        } for row in rows]
+
+    @staticmethod
+    def _metadata_dict(session: SessionMetadata) -> dict[str, Any]:
+        data = asdict(session)
+        data["status"] = session.status.value
+        data["session_type"] = session.session_type.value
+        return data
 
     def create_session(
         self,
@@ -293,14 +310,15 @@ class SessionRuntime:
         if session.status != SessionStatus.CREATED:
             log.warning(f"Session {session_id} is not in CREATED state (current: {session.status})")
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             status=SessionStatus.RUNNING,
             started_at=self._clock(),
             updated_at=self._clock(),
         )
         
         self._sessions[session_id] = updated_session
+        await self._persist_session(session_id)
         
         # Emit session started event
         if self._on_event:
@@ -320,13 +338,14 @@ class SessionRuntime:
         if session.status != SessionStatus.RUNNING:
             log.warning(f"Session {session_id} is not in RUNNING state (current: {session.status})")
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             status=SessionStatus.PAUSED,
             updated_at=self._clock(),
         )
         
         self._sessions[session_id] = updated_session
+        await self._persist_session(session_id)
         
         # Emit session paused event
         if self._on_event:
@@ -344,8 +363,8 @@ class SessionRuntime:
         
         session = self._sessions[session_id]
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             status=SessionStatus.COMPLETED,
             completed_at=self._clock(),
             updated_at=self._clock(),
@@ -375,14 +394,15 @@ class SessionRuntime:
         
         session = self._sessions[session_id]
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             status=SessionStatus.FAILED,
             completed_at=self._clock(),
             updated_at=self._clock(),
         )
         
         self._sessions[session_id] = updated_session
+        await self._persist_session(session_id)
         
         # Emit session failed event
         if self._on_event:
@@ -401,14 +421,15 @@ class SessionRuntime:
         
         session = self._sessions[session_id]
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             status=SessionStatus.CANCELLED,
             completed_at=self._clock(),
             updated_at=self._clock(),
         )
         
         self._sessions[session_id] = updated_session
+        await self._persist_session(session_id)
         
         # Emit session cancelled event
         if self._on_event:
@@ -454,15 +475,24 @@ class SessionRuntime:
             task_id=session.task_id,
             status=session.status,
             type=session.session_type,
-            metadata=session.__dict__,
+            metadata=self._metadata_dict(session),
             state=state,
             created_at=session.created_at,
             updated_at=self._clock(),
         )
         
-        # Here we would save to the database
-        # For now, just log
-        log.debug(f"Persisting session {session_id}")
+        artifacts = [asdict(a) for a in self._session_artifacts.get(session_id, [])]
+        events = [asdict(e) for e in self._session_events.get(session_id, [])]
+        await self._db.write(lambda con: con.execute(
+            "INSERT INTO session_snapshots(session_id, task_id, status, session_type, metadata_json, state_json, "
+            "artifacts_json, events_json, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(session_id) DO UPDATE SET task_id=excluded.task_id, status=excluded.status, "
+            "session_type=excluded.session_type, metadata_json=excluded.metadata_json, state_json=excluded.state_json, "
+            "artifacts_json=excluded.artifacts_json, events_json=excluded.events_json, updated_at=excluded.updated_at",
+            (snapshot.session_id, snapshot.task_id, snapshot.status.value, snapshot.type.value,
+             json.dumps(snapshot.metadata, default=str), json.dumps(snapshot.state, default=str),
+             json.dumps(artifacts, default=str), json.dumps(events, default=str),
+             snapshot.created_at, snapshot.updated_at)))
 
     def get_session(self, session_id: str) -> SessionMetadata | None:
         """Get session metadata."""
@@ -489,11 +519,16 @@ class SessionRuntime:
         
         # Update timestamp
         if session_id in self._sessions:
-            updated_session = SessionMetadata(
-                **self._sessions[session_id].__dict__,
-                updated_at=self._clock(),
-            )
+            updated_session = replace(self._sessions[session_id], updated_at=self._clock())
             self._sessions[session_id] = updated_session
+            self._schedule_persist(session_id)
+
+    def _schedule_persist(self, session_id: str) -> None:
+        """Persist a synchronous state mutation without blocking the caller."""
+        try:
+            asyncio.get_running_loop().create_task(self._persist_session(session_id))
+        except RuntimeError:
+            log.debug("session %s will persist at its next lifecycle transition", session_id)
 
     def add_session_event(self, session_id: str, event_type: str, data: dict[str, Any]) -> SessionEvent:
         """Add an event to a session."""
@@ -510,6 +545,7 @@ class SessionRuntime:
             self._session_events[session_id] = []
         
         self._session_events[session_id].append(event)
+        self._schedule_persist(session_id)
         
         # Emit event
         if self._on_event:
@@ -536,6 +572,7 @@ class SessionRuntime:
             self._session_artifacts[session_id] = []
         
         self._session_artifacts[session_id].append(artifact)
+        self._schedule_persist(session_id)
         
         # Emit artifact event
         if self._on_event:
@@ -560,14 +597,15 @@ class SessionRuntime:
         if model_name not in models_used:
             models_used.append(model_name)
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             current_model=model_name,
             models_used=tuple(models_used),
             updated_at=self._clock(),
         )
         
         self._sessions[session_id] = updated_session
+        await self._persist_session(session_id)
 
     async def add_routing_decision(self, session_id: str, routing: RoutingResult) -> None:
         """Add a routing decision to a session."""
@@ -584,13 +622,14 @@ class SessionRuntime:
             "timestamp": self._clock(),
         })
         
-        updated_session = SessionMetadata(
-            **session.__dict__,
+        updated_session = replace(
+            session,
             routing_decisions=tuple(routing_decisions),
             updated_at=self._clock(),
         )
         
         self._sessions[session_id] = updated_session
+        await self._persist_session(session_id)
 
     async def cleanup_old_sessions(self) -> int:
         """Clean up old sessions that have timed out."""

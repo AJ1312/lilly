@@ -77,7 +77,7 @@ class Completed:
 
 
 class Completer(Protocol):
-    """Anything that can run a completion on the best permitted model (implemented by ModelRouter)."""
+    """Anything that can run a completion through Lilly's unified model broker."""
 
     async def complete(self, req: CompletionRequest, *, need: Cap = Cap.NONE, label: Label = Label.PUBLIC,
                        task_id: str | None = None, payload_hash: str | None = None, mode: Mode = Mode.ASK,

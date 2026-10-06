@@ -322,12 +322,14 @@ class System1Engine:
         engine_settings: Callable[[], EngineSettings] | EngineSettings | None = None,
         on_decision: Callable[[DecisionType, System1Decision], None] | None = None,
         on_missing_laya: Callable[[], None] | None = None,
+        laya_enabled: Callable[[], bool] | bool | None = None,
     ) -> None:
         self._laya_decider = laya_decider
         self._fallback_deciders = fallback_deciders or {}
         self._engine_settings = engine_settings
         self._on_decision = on_decision
         self._on_missing_laya = on_missing_laya
+        self._laya_enabled = laya_enabled
         
         # Telemetry
         self._decision_counts: dict[DecisionType, int] = {dt: 0 for dt in DecisionType}
@@ -350,6 +352,10 @@ class System1Engine:
         """Set the engine settings provider."""
         self._engine_settings = engine_settings
 
+    def set_laya_enabled(self, enabled: Callable[[], bool] | bool) -> None:
+        """Update the owner's Laya switch without rebuilding the engine."""
+        self._laya_enabled = enabled
+
     async def decide(self, request: System1Request) -> System1Decision:
         """Make a System 1 decision based on the request.
         
@@ -360,10 +366,8 @@ class System1Engine:
         self._decision_counts[decision_type] += 1
         
         # Try Laya first if available and appropriate for this decision type
-        if (self.laya_available and 
-            self._should_use_laya(decision_type) and
-            self._engine_settings and 
-            (settings := self._engine_settings() if callable(self._engine_settings) else self._engine_settings).decisions.laya_enabled):
+        enabled = self._laya_enabled() if callable(self._laya_enabled) else self._laya_enabled
+        if (self.laya_available and self._should_use_laya(decision_type) and enabled is not False):
             try:
                 self._laya_usage_counts[decision_type] += 1
                 decision = await self._make_laya_decision(request)

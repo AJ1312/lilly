@@ -149,6 +149,8 @@ class ModelBroker:
     - User permission management
     - Observability and telemetry
     """
+
+    supports_system1_routing = True
     
     def __init__(
         self,
@@ -388,6 +390,18 @@ class ModelBroker:
         """Get list of all available model names."""
         return [e.name for e in self.pool.entries if e.spec.enabled and self.has_key(e)]
 
+    def status(self) -> list[dict[str, object]]:
+        """Return the provider-neutral model status used by the admin UI."""
+        rows = self.pool.snapshot()
+        for row, entry in zip(rows, self.pool.entries, strict=True):
+            row.update(
+                provider=entry.spec.provider,
+                model_id=entry.spec.model_id,
+                local=entry.spec.local,
+                has_key=self.has_key(entry),
+            )
+        return rows
+
     def get_model_health_status(self, model_name: str) -> ModelHealthStatus | None:
         """Get the current health status for a specific model."""
         entry = self.pool.get(model_name)
@@ -411,8 +425,8 @@ class ModelBroker:
         """Get a snapshot of the current broker state for observability."""
         available = tuple(e.name for e in self.pool.entries if e.spec.enabled and self.has_key(e))
         enabled = tuple(e.name for e in self.pool.entries if e.spec.enabled)
-        healthy = tuple(e.name for e in self.pool.entries 
-                      if e.spec.enabled and self.has_key(e) and entry.breaker.ready())
+        healthy = tuple(e.name for e in self.pool.entries
+                      if e.spec.enabled and self.has_key(e) and e.breaker.ready())
         
         health_status = {e.name: self.get_model_health_status(e.name) 
                         for e in self.pool.entries if e.name}
@@ -498,17 +512,6 @@ class ModelBroker:
                     )
             
             # Check if model can be used (rate limits, quotas, circuit breaker)
-            if not pinned_entry.try_begin():
-                return RoutingResult(
-                    model_entry=None,
-                    decision=RoutingDecision.FALLBACK,
-                    reason=f"Pinned model '{pin}' is currently unavailable (rate limited, over quota, or down)",
-                    candidates_tried=(pin,),
-                )
-            
-            if grant and grants:
-                grants.consume(grant)
-            
             return RoutingResult(
                 model_entry=pinned_entry,
                 decision=RoutingDecision.FORCED,
@@ -541,13 +544,6 @@ class ModelBroker:
                         and (label is not Label.SECRET or not entry.local) and (mode is Mode.ASK or entry.trains)):
                     grantable.append(entry.name)
                 continue
-            
-            # Check if model can be used
-            if not entry.try_begin():
-                continue
-            
-            if grant and grants:
-                grants.consume(grant)
             
             # Found a suitable model
             return RoutingResult(
@@ -617,7 +613,7 @@ class ModelBroker:
                                    "(a free key works), or turn on a local model.")
         
         # Perform model selection
-        routing = self.select_model(
+        routing = await self.select_model(
             need=need,
             label=label,
             pin=pin,
@@ -636,7 +632,7 @@ class ModelBroker:
         if routing.model_entry is None:
             if routing.decision == RoutingDecision.NEEDS_PERMISSION:
                 from lilly.domain.errors import NeedsGrant
-                raise NeedsGrant(routing.reason, routing.grantable_models)
+                raise NeedsGrant(list(routing.grantable_models), int(label))
             else:
                 raise NoModelAvailable(routing.reason)
         
@@ -740,7 +736,7 @@ class ModelBroker:
             except NoModelAvailable:
                 # Try selection again with updated skip list
                 if not pin:
-                    routing = self.select_model(
+                    routing = await self.select_model(
                         need=need,
                         label=label,
                         pin=pin,
@@ -759,7 +755,7 @@ class ModelBroker:
                     if routing.model_entry is None:
                         if routing.decision == RoutingDecision.NEEDS_PERMISSION:
                             from lilly.domain.errors import NeedsGrant
-                            raise NeedsGrant(routing.reason, routing.grantable_models)
+                            raise NeedsGrant(list(routing.grantable_models), int(label))
                         else:
                             raise NoModelAvailable(routing.reason)
                     continue

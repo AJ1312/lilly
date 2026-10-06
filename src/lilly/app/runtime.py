@@ -42,7 +42,6 @@ from lilly.engine.runner import EngineDeps
 from lilly.engine.scheduler import Scheduler
 from lilly.providers.http import create_http_client, create_local_client
 from lilly.providers.keys import open_key_store
-from lilly.providers.router import ModelRouter
 from lilly.providers.model_broker import ModelBroker
 from lilly.store import agents, conversations, memory, retention, routines, snapshot, spaces
 from lilly.store import mcp as mcp_store
@@ -97,8 +96,12 @@ class Runtime:
         self.started_at = clock()
         self.bus = EventBus()
         self.grants = GrantStore()
-        self.router = ModelRouter(settings, keys, client, db, self.grants, local_client)
-        self.model_broker = ModelBroker(settings, keys, client, db, self.grants, local_client, clock, on_event=self.bus.event)
+        self.model_broker = ModelBroker(
+            settings, keys, client, db, self.grants, local_client, clock,
+            on_event=lambda kind, payload: self.bus.publish({"type": kind, **payload}),
+        )
+        # Compatibility name for older integrations. There is only one inference implementation.
+        self.router = self.model_broker
         self.approvals = ApprovalService(db, self.bus, clock)
         self.scope = self._build_scope(settings)
         self.mcp = McpManager(self._secret)
@@ -108,8 +111,15 @@ class Runtime:
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
-        self.system1_engine = System1Engine(laya_decider=None, engine_settings=lambda: settings.engine)
-        self.session_runtime = SessionRuntime(db, self.model_broker, self.system1_engine, clock, on_event=self.bus.event)
+        self.system1_engine = System1Engine(
+            laya_decider=None,
+            engine_settings=lambda: settings.engine,
+            laya_enabled=lambda: settings.decisions.laya_enabled,
+        )
+        self.session_runtime = SessionRuntime(
+            db, self.model_broker, self.system1_engine, clock,
+            on_event=lambda kind, payload: self.bus.publish({"type": kind, **payload}),
+        )
         
         # Quick Actions setup
         self.app_index = AppIndex(clock=clock, ttl_s=settings.engine.quick_index_ttl_s)
@@ -133,7 +143,8 @@ class Runtime:
             grounding_settings=lambda: self.settings.grounding,
             read_cache=self.read_cache,
             quick=self.quick_router,
-            standing=self.standing))
+            standing=self.standing,
+            system1=self.system1_engine))
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()
@@ -151,7 +162,7 @@ class Runtime:
         local = next((m.name for m in self.settings.models if m.local and m.enabled), None)
         if local is not None:
             if self._small is None or self._small[0] != local:
-                self._small = (local, SmallModelDecider(self.router, local))
+                self._small = (local, SmallModelDecider(self.model_broker, local))
             found["small_model"] = self._small[1]
         if (laya := self.laya.decider) is not None:
             found["laya"] = laya
@@ -167,7 +178,6 @@ class Runtime:
                  client or create_http_client(), local_client or client or create_local_client(),
                  owns_clients, clock, settings, problems)
         try:
-            await rt.router.start()
             await rt.model_broker.start()
             await rt.session_runtime.start()
             await rt.reload_mcp()
@@ -185,7 +195,7 @@ class Runtime:
         return PathScope(settings.file_roots, deny=(str(self.paths.root), *SENSITIVE_DIRS))
 
     def _build_tools(self, settings: Settings) -> dict[str, Tool]:
-        return build_tools(settings, scope=self.scope, db=self.db, router=self.router, keys=self.keys,
+        return build_tools(settings, scope=self.scope, db=self.db, router=self.model_broker, keys=self.keys,
                            client=self.client, clock=self.clock,
                            browser=(self.browser, lambda: self.settings.browser), devbox=self.devbox,
                            delegate_fn=self._delegate)
@@ -225,9 +235,9 @@ class Runtime:
         self.app_index = AppIndex(clock=self.clock, ttl_s=new.engine.quick_index_ttl_s)
         self.quick_router = QuickRouter(load_intents(), self.app_index, lambda: new.engine)
         
-        await self.router.configure(new)
         await self.model_broker.configure(new)
         self.system1_engine.set_engine_settings(lambda: new.engine)
+        self.system1_engine.set_laya_enabled(lambda: new.decisions.laya_enabled)
         self.orchestrator.configure(new)
         self._sync_power()
         for observe in self._observers:
@@ -372,4 +382,3 @@ class Runtime:
             await self.client.aclose()
             await self.local_client.aclose()
         self.db.close()
-

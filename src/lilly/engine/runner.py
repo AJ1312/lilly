@@ -31,6 +31,7 @@ from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettin
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS, check_skill, instantiate
 from lilly.domain.tasks import TERMINAL, TaskState
+from lilly.decide.system1 import System1Engine
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.agent_loop import AgentLoop
 from lilly.engine.approvals import ApprovalService
@@ -90,6 +91,7 @@ class EngineDeps:
     read_cache: ReadCache | None = None
     quick: QuickRouter | None = None
     standing: StandingStore | None = None
+    system1: System1Engine | None = None
 
 
 class TaskRunner:
@@ -196,6 +198,7 @@ class TaskRunner:
             stop_reason=lambda: self.stop_reason,
             role_models=role_models,
             grounding_settings=self._d.grounding_settings,
+            system1_engine=self._d.system1,
             sheet=self._spec.sheet,
             profile=self._spec.profile,
         )
@@ -288,8 +291,7 @@ class TaskRunner:
         return PlanInputs(self._spec.goal, shown, history, self._spec.agent_instructions, self._d.file_roots())
 
     async def _shortlisted(self, specs: Mapping[str, ToolSpec]) -> Mapping[str, ToolSpec]:
-        """The tools the planner is shown. Advice only narrows what is shown, never what a plan may be checked
-        against, and a replan sees the whole catalog."""
+        """Use ranking only to control prompt size; replans always receive the full catalog."""
         pipeline = self._d.decisions
         if pipeline is None or self._spec.skill:
             return specs

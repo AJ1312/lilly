@@ -13,6 +13,7 @@ from typing import Any
 
 from lilly.core.shortlist import CONTROL_TOOLS, tool_options
 from lilly.decide.rules import SearchRanker
+from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
 from lilly.domain.decisions import Context, Kind, Request
 from lilly.domain.labels import Verdict
@@ -88,6 +89,7 @@ class AgentLoop:
         grounding_settings: Callable[[], GroundingSettings] | GroundingSettings | None = None,
         sheet: PetSheet | None = None,
         profile: TaskProfile | None = None,
+        system1_engine: System1Engine | None = None,
     ) -> None:
         self._rec = rec
         self._completer = completer
@@ -109,6 +111,9 @@ class AgentLoop:
         self._tool_allowlist = tool_allowlist
         self._sheet = sheet
         self._profile = profile
+        self._system1 = system1_engine
+        self._task_complexity = 0.5
+        self._system1_requires_vision = False
         self._outputs: dict[str, str] = {}
         self._steps.loop_mode = True
         self._ranked: list[str] | None = None  # P2-C-2: ranked tools, computed once per task
@@ -122,6 +127,33 @@ class AgentLoop:
         if callable(self._stop_reason):
             return self._stop_reason()
         return str(self._stop_reason)
+
+    async def _prepare_system1(self) -> None:
+        """Make one cheap typed assessment before the first generative turn."""
+        if self._system1 is None:
+            return
+        models = tuple(getattr(self._completer, "get_available_models", lambda: ())())
+        tools = tuple(self._tools().keys())
+        classification, complexity = await self._system1.assess_task(self._goal, self._rec.task_id)
+        tier, capability, tool_family = await self._system1.determine_routing(
+            self._goal, models, tools, self._rec.task_id
+        )
+        self._task_complexity = {
+            "TRIVIAL": 0.1, "SIMPLE": 0.3, "MODERATE": 0.6,
+            "COMPLEX": 0.8, "EXPERT": 0.95,
+        }.get(complexity.level.name, 0.5)
+        self._system1_requires_vision = capability.needs_vision
+        verification = await self._system1.assess_verification(
+            self._rec.task_id, self._goal, self._task_complexity, classification.task_class
+        )
+        await self._rec.event("system1", {
+            "classification": classification.task_class.name,
+            "complexity": complexity.level.name,
+            "model_tier": tier.tier.name,
+            "tool_family": tool_family.primary_family.name,
+            "verification": verification.level.name,
+            "reasoning": complexity.reasoning[:300],
+        })
 
     def _get_visible_tools(self) -> dict[str, Tool]:
         all_tools = dict(self._tools())
@@ -319,6 +351,7 @@ class AgentLoop:
     async def run(self) -> str:
         """Run the dynamic agent loop to completion, returning the candidate answer."""
         limits = self._limits()
+        await self._prepare_system1()
         system_text = self._build_system_prompt(limits, role="plan")
         messages: list[Message] = [Message(role="system", content=system_text)]
         messages.extend(self._load_history())
@@ -448,6 +481,11 @@ class AgentLoop:
                     payload_hash=digest,
                     mode=self._rec.ctx.mode,
                     pin=p,
+                    **({
+                        "task_complexity": self._task_complexity,
+                        "requires_tools": bool(r.tools),
+                        "requires_vision": self._system1_requires_vision,
+                    } if getattr(self._completer, "supports_system1_routing", False) else {}),
                 )
                 self._rec.models.append(done.model)
                 return done

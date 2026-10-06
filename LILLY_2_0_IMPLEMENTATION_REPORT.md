@@ -59,8 +59,8 @@ The existing Lilly codebase had several architectural issues:
 - **Session States**: CREATED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
 - **Session Types**: INTERACTIVE, BACKGROUND, SCHEDULED, ROUTINE
 
-#### D. AgentLoopV2 (`src/lilly/engine/agent_loop_v2.py`)
-- **Purpose**: Clean, iterative agent loop with System 1 integration
+#### D. Unified AgentLoop (`src/lilly/engine/agent_loop.py`)
+- **Purpose**: The single production agent loop with System 1 integration
 - **Key Features**:
   - System 1 decisions for task classification and routing
   - ModelBroker integration for intelligent model selection
@@ -125,7 +125,7 @@ The Lilly 2.0 architecture follows these principles:
 - `src/lilly/providers/model_broker.py` (36KB) - ModelBroker implementation
 - `src/lilly/decide/system1.py` (28KB) - System1 Engine with typed decisions
 - `src/lilly/engine/session_runtime.py` (22KB) - Persistent session management
-- `src/lilly/engine/agent_loop_v2.py` (34KB) - Clean agent loop implementation
+- `src/lilly/engine/agent_loop.py` - Unified production agent loop
 - `tests/unit/test_model_broker.py` (8KB) - ModelBroker tests
 - `docs/ARCHITECTURE_MIGRATION.md` - Migration documentation
 
@@ -145,7 +145,7 @@ The Lilly 2.0 architecture follows these principles:
 1. Task arrives
 2. System1 Engine makes fast decisions (classification, complexity, routing)
 3. ModelBroker selects best model based on System1 decisions + current state
-4. AgentLoopV2 executes with selected model
+4. AgentLoop executes with the selected model
 5. Tool execution as needed
 6. Verification if required (based on System1 assessment)
 
@@ -187,7 +187,7 @@ The Lilly 2.0 architecture follows these principles:
 - **Events**: Full event log for replay and debugging
 - **Recovery**: Session state can be restored after restart
 
-### Context Assembly (AgentLoopV2)
+### Context Assembly (AgentLoop)
 - System prompts dynamically generated
 - Conversation history integration
 - System1 context injection when available
@@ -338,6 +338,6 @@ This implementation provides a solid foundation for Lilly 2.0, addressing the co
 1. **Unified model interface** through ModelBroker
 2. **System 1/2 architecture** with System1Engine
 3. **Persistent sessions** through SessionRuntime
-4. **Clean agent loop** through AgentLoopV2
+4. **One production agent loop** through AgentLoop
 
 The existing system continues to work unchanged, while the new architecture is available for gradual adoption. The implementation demonstrates that the core Lilly 2.0 principles are achievable and provides a clear path forward for completing the migration.
