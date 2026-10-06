@@ -35,6 +35,7 @@ from lilly.engine.bus import EventBus
 from lilly.engine.decisions import DatabaseSink, DecisionPipeline
 from lilly.engine.delegate import DelegateHandler, DelegationContext
 from lilly.engine.orchestrator import Orchestrator
+from lilly.engine.quick import QuickRouter, load_intents
 from lilly.engine.runner import EngineDeps
 from lilly.engine.scheduler import Scheduler
 from lilly.providers.http import create_http_client, create_local_client
@@ -45,7 +46,9 @@ from lilly.store import mcp as mcp_store
 from lilly.store.connection import open_reader
 from lilly.store.db import Database
 from lilly.store.readcache import ReadCache
+from lilly.store.standing import StandingStore
 from lilly.tools import Tool, build_tools
+from lilly.tools.appindex import AppIndex
 from lilly.tools.browser.manager import BrowserManager
 from lilly.tools.devbox.engines import CliEngine, find_engine
 from lilly.tools.devbox.manager import DevboxManager
@@ -101,17 +104,25 @@ class Runtime:
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
+        
+        # Quick Actions setup
+        self.app_index = AppIndex(clock=clock, ttl_s=settings.engine.quick_index_ttl_s)
+        intents = load_intents()
+        self.quick_router = QuickRouter(intents, self.app_index, lambda: settings.engine)
         self._static_deciders: dict[str, Decider] = {"search": SearchRanker(), "loop": LoopRule(),
                                                      "rules": RulesDecider(), "match": MatchRule()}
         self._small: tuple[str, SmallModelDecider] | None = None
         self.read_cache = ReadCache()
+        self.standing = StandingStore(db)
         self.decisions = DecisionPipeline(lambda: self.settings.decisions, self._deciders, DatabaseSink(db), clock)
         self.orchestrator = Orchestrator(EngineDeps(
             db, self.router, lambda: self.tools, lambda: self.scope, lambda: self.settings.file_roots, self.bus,
             self.approvals, self.grants, clock, lambda: self.settings.limits, self.decisions,
             engine_settings=lambda: self.settings.engine,
             grounding_settings=lambda: self.settings.grounding,
-            read_cache=self.read_cache))
+            read_cache=self.read_cache,
+            quick=self.quick_router,
+            standing=self.standing))
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()
@@ -196,6 +207,11 @@ class Runtime:
         self.settings, self.settings_problems = new, []
         self.scope = self._build_scope(new)
         self.tools = {**self._build_tools(new), **self.mcp.tools()}
+        
+        # Update QuickRouter with new engine settings
+        self.app_index = AppIndex(clock=self.clock, ttl_s=new.engine.quick_index_ttl_s)
+        self.quick_router = QuickRouter(load_intents(), self.app_index, lambda: new.engine)
+        
         await self.router.configure(new)
         self.orchestrator.configure(new)
         self._sync_power()

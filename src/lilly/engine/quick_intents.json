@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "verbs": {
+    "open_app_or_site": ["open", "launch", "start", "run", "go to", "goto", "visit", "take me to"]
+  },
+  "polite_prefixes": ["please", "can you", "could you", "hey lilly", "lilly"],
+  "suffix_words": ["app", "application", "website", "site", "page"],
+  "reject_if_contains": [" and ", " then ", " after ", ";", "&", ",", "\n", " also ", " plus "],
+  "max_words": 5,
+  "aliases": {
+    "chrome": "Google Chrome",
+    "whatsapp": "WhatsApp",
+    "vscode": "Visual Studio Code",
+    "code": "Visual Studio Code",
+    "terminal": "Terminal",
+    "settings": "System Settings"
+  },
+  "site_aliases": {
+    "gmail": "https://mail.google.com",
+    "youtube": "https://www.youtube.com"
+  },
+  "file_extensions": ["md", "txt", "py", "js", "ts", "json", "csv", "pdf", "docx", "xlsx", "png", "jpg", "zip", "sh", "html", "css"]
+}

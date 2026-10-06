@@ -56,17 +56,38 @@ def _opener() -> str:
 class OpenUrlTool(Tool):
     name = "computer.open_url"
 
+    def summary(self, args: Mapping[str, object], output: str) -> str:
+        """The sentence shown as the answer when this tool ends a task."""
+        url = str(args.get("url", ""))
+        return f"Opened {url}."
+
+    def standing_target(self, args: Mapping[str, object]) -> str | None:
+        """Return the standing approval target for this tool."""
+        url = str(args.get("url", "")).strip()
+        parts = urlparse(url)
+        return parts.hostname.lower() if parts.hostname else None
+
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         url = str_arg(args, "url", max_len=2000).strip()
         parts = urlparse(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise ValidationFailed("only http and https links can be opened")
         await asyncio.to_thread(_spawn_detached, [_opener(), url])
-        return ToolResult(f"Opened {url} in your default browser.", Label.PUBLIC, False)
+        return ToolResult(f"Opened {url}.", Label.PUBLIC, False)
 
 
 class OpenAppTool(Tool):
     name = "computer.open_app"
+
+    def summary(self, args: Mapping[str, object], output: str) -> str:
+        """The sentence shown as the answer when this tool ends a task."""
+        app = str(args.get("name", ""))
+        return f"Opened {app}."
+
+    def standing_target(self, args: Mapping[str, object]) -> str | None:
+        """Return the standing approval target for this tool."""
+        app = str(args.get("name", "")).strip()
+        return app.lower() if app else None
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         app = str_arg(args, "name", max_len=60).strip()
@@ -80,7 +101,7 @@ class OpenAppTool(Tool):
                 raise ToolError(f"'{app}' is not installed or not on the PATH")
             argv = [program]
         await asyncio.to_thread(_spawn_detached, argv)
-        return ToolResult(f"Started {app}.", Label.PUBLIC, False)
+        return ToolResult(f"Opened {app}.", Label.PUBLIC, False)
 
 
 class ProcessesTool(Tool):

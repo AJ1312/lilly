@@ -12,7 +12,8 @@ from lilly.domain.errors import ValidationFailed
 from lilly.domain.labels import Label
 from lilly.domain.plan import FINAL_TOOL, MAX_STEPS, validate_plan
 from lilly.domain.ports import Completed, CompletionRequest, Message
-from lilly.domain.text import extract_json, fence_untrusted
+from lilly.domain.text import extract_json
+from lilly.engine.fence import fence
 from lilly.domain.tools_registry import ToolSpec
 
 MAX_REPAIRS = 2
@@ -68,7 +69,7 @@ def render_history(history: Sequence[HistoryItem], budget: int = HISTORY_CHARS) 
     for item in reversed(history):
         text = item.content.strip()
         if item.untrusted:
-            text = fence_untrusted(text)
+            text, _ = fence(text)
         line = f"{item.role}: {text}"
         if used + len(line) > budget:
             line = line[: max(0, budget - used)]
@@ -166,7 +167,7 @@ async def replan(complete: Complete, inputs: PlanInputs, progress: str, *, taint
     """After a step failed, plan again with what has been learned. The new plan goes through the same checks.
     When outside content has been involved, what was learned is shown to the model as data."""
     if tainted:
-        progress = fence_untrusted(progress)
+        progress, _ = fence(progress)
     follow_up = replace_goal(inputs, f"{inputs.goal}\n\nProgress so far (a step failed; choose a different "
                                      f"approach or explain what is not possible):\n{progress}")
     return await generate_plan(complete, follow_up, temperature=0.4)

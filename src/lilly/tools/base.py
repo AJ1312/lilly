@@ -31,6 +31,14 @@ class Tool(ABC):
         return at once and never fail."""
         return None
 
+    def summary(self, args: Mapping[str, object], output: str) -> str:
+        """The sentence shown as the answer when this tool ends a task. Default: the tool's own output."""
+        return output
+
+    def standing_target(self, args: Mapping[str, object]) -> str | None:
+        """Return the standing approval target for this tool, or None if not applicable."""
+        return None
+
     @abstractmethod
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         """Run with the already-resolved arguments. Raises ToolError, ValidationFailed or PolicyDenied."""

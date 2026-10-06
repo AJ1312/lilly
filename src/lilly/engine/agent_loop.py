@@ -51,7 +51,8 @@ from lilly.engine.messages import (
     OBS_OK,
     OBS_UNAVAILABLE,
 )
-from lilly.engine.outcome import StepDeclined, StepFailed, Stop, clip
+from lilly.engine.fence import fence
+from lilly.engine.outcome import StepDeclined, StepFailed, StepOutcome, Stop, clip
 from lilly.engine.record import TaskRecord
 from lilly.engine.steps import StepExecutor
 from lilly.store import conversations, tasks
@@ -110,6 +111,8 @@ class AgentLoop:
         self._profile = profile
         self._outputs: dict[str, str] = {}
         self._steps.loop_mode = True
+        self._ranked: list[str] | None = None  # P2-C-2: ranked tools, computed once per task
+        self._used_tools: set[str] = set()     # P2-C-2: tools used this task, never hidden
         gs = grounding_settings() if callable(grounding_settings) else (grounding_settings or GroundingSettings())
         self._grounding = GroundingVerifier(file_roots=self._file_roots(), enabled=gs.enabled)
         self._context_mgr = ContextManager(self._engine_settings, self._completer)
@@ -123,19 +126,59 @@ class AgentLoop:
     def _get_visible_tools(self) -> dict[str, Tool]:
         all_tools = dict(self._tools())
         visible: dict[str, Tool] = {}
+        ALWAYS_VISIBLE = frozenset({"agent.ask"})   # the one tool a pet needs even with everything else off
+        
         for name, tool in all_tools.items():
-            # Control tools are always visible if available in tools dict
-            if name in ("agent.ask", "agent.plan", "result.read", "agent.delegate"):
-                visible[name] = tool
-            elif self._tool_allowlist is not None and name not in self._tool_allowlist:
-                continue
-            elif self._sheet is not None and not self._sheet.allows(name):
-                continue
-            elif self._profile is not None and name in self._profile.tools_off:
-                continue
-            else:
-                visible[name] = tool
+            if name not in ALWAYS_VISIBLE:
+                if self._tool_allowlist is not None and name not in self._tool_allowlist: continue
+                if self._sheet is not None and not self._sheet.allows(name): continue
+                if self._profile is not None and name in self._profile.tools_off: continue
+            visible[name] = tool
         return visible
+
+    async def _shortlist(self, visible: dict[str, Tool]) -> dict[str, Tool]:
+        """P2-C-2: Shortlist tools, computed once per task and reused every turn."""
+        cfg = self._engine_settings()
+        if len(visible) <= cfg.shortlist_min:
+            return visible
+        if self._ranked is None:                                  # rank ONCE per task, reuse every turn
+            self._ranked = await self._rank_tools(visible)        # the existing decisions/SearchRanker code, moved here
+        always = [n for n in sorted(CONTROL_TOOLS) if n in visible]
+        keep = set(always) | self._used_tools                     # never hide a tool already used this task
+        ranked = [n for n in self._ranked if n in visible and n not in keep]
+        keep |= set(ranked[: max(0, cfg.shortlist_size - len(keep))])
+        return {n: t for n, t in visible.items() if n in keep}
+
+    async def _rank_tools(self, visible: dict[str, Tool]) -> list[str]:
+        """Existing ranking logic moved from the main loop."""
+        specs_map = {name: t.spec for name, t in visible.items()}
+        ans_ranking: tuple[str, ...] | None = None
+        if self._decisions is not None and self._decisions.active(Kind.TOOLS):
+            outcome = await self._decisions.decide(
+                Kind.TOOLS,
+                self._rec.task_id,
+                tool_options(specs_map),
+                Context(text=self._goal),
+            )
+            if outcome.ranking:
+                ans_ranking = outcome.ranking
+        if ans_ranking is None:
+            ranker = SearchRanker()
+            req_obj = Request(
+                Kind.TOOLS,
+                self._rec.task_id,
+                tool_options(specs_map),
+                Context(text=self._goal),
+                1000,
+                5.0,
+            )
+            ans = await ranker.decide(req_obj)
+            if ans is not None and ans.ranking:
+                ans_ranking = ans.ranking
+
+        if ans_ranking:
+            return list(dict.fromkeys(ans_ranking))
+        return []
 
     def _build_system_prompt(self, limits: LimitSettings, role: str = "act") -> str:
         roots = self._file_roots()
@@ -174,10 +217,7 @@ class AgentLoop:
             "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order."
         )
 
-        # Caveman token efficiency rule
-        parts.append(
-            "Token minimization: Communicate with high information density. Omit conversational filler, pleasantries, and hedging. Output exact code, paths, commands, and numbers with minimal tokens."
-        )
+        # P2-F: Caveman line removed, style text will be added later
 
         return "\n\n".join(parts)
 
@@ -197,11 +237,13 @@ class AgentLoop:
         args: Mapping[str, Any],
         tc: ModelToolCall,
         tools_dict: Mapping[str, Tool],
-    ) -> Message:
+    ) -> tuple[Message, StepOutcome]:
         tool = tools_dict.get(name)
         if tool is None:
-            return Message("tool", OBS_ERROR.format(step_id=step_id, tool=name, reason="tool unavailable"),
-                           tool_call_id=tc.id or tc.name)
+            outcome = StepOutcome(step_id=step_id, tool=name, kind="unavailable", reason="tool unavailable")
+            msg = Message("tool", OBS_ERROR.format(step_id=step_id, tool=name, reason="tool unavailable"),
+                          tool_call_id=tc.id or tc.name)
+            return msg, outcome
 
         spec = tool.spec
         args_dict = dict(args)
@@ -212,8 +254,10 @@ class AgentLoop:
         if verdict is Verdict.DENY:
             await self._rec.step_status(step_id, "failed", error=f"blocked: {why}")
             await self._rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=step_id)
-            return Message("tool", OBS_BLOCKED.format(step_id=step_id, tool=name, why=why),
-                           tool_call_id=tc.id or tc.name)
+            outcome = StepOutcome(step_id=step_id, tool=name, kind="blocked", reason=why)
+            msg = Message("tool", OBS_BLOCKED.format(step_id=step_id, tool=name, why=why),
+                          tool_call_id=tc.id or tc.name)
+            return msg, outcome
 
         try:
             output = await self._steps.run(
@@ -228,17 +272,15 @@ class AgentLoop:
 
             # Format successful observation
             untrusted = spec.untrusted or self._rec.ctx.tainted
-            body = output
-            if untrusted:
-                body = f"<untrusted_data>\n{body}\n</untrusted_data>"
             obs_chars = self._engine_settings().observation_chars
-            shown_suffix = ""
-            truncated_suffix = ""
-            if len(output) > obs_chars:
-                shown = obs_chars
-                shown_suffix = f", showing the first {shown}"
-                body = body[:shown]
-                truncated_suffix = f'\n[truncated: call result.read with {{"step": "{step_id}", "offset": {shown}}} for more]'
+            if untrusted:
+                body, cut = fence(output, obs_chars)
+            else:
+                cut = len(output) > obs_chars
+                body = output[:obs_chars] if cut else output
+            shown_suffix = f", showing the first {obs_chars}" if cut else ""
+            truncated_suffix = (f'\n[truncated: call result.read with {{"step": "{step_id}", "offset": {obs_chars}}} for more]'
+                                if cut else "")
 
             obs = OBS_OK.format(
                 step_id=step_id,
@@ -248,19 +290,31 @@ class AgentLoop:
                 body=body,
                 truncated_suffix=truncated_suffix,
             )
-            return Message("tool", obs, tool_call_id=tc.id or tc.name)
+            # Use the tool's terminal flag and summary method
+            outcome = StepOutcome(
+                step_id=step_id, 
+                tool=name, 
+                kind="ok", 
+                output=output,
+                terminal=spec.terminal,
+                summary=tool.summary(args, output)
+            )
+            return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
         except StepDeclined as dec:
             if dec.user_reason:
                 obs = OBS_DECLINED_REASON.format(step_id=step_id, tool=name, reason=dec.user_reason)
             else:
                 obs = OBS_DECLINED.format(step_id=step_id, tool=name)
-            return Message("tool", obs, tool_call_id=tc.id or tc.name)
+            outcome = StepOutcome(step_id=step_id, tool=name, kind="declined", reason=dec.user_reason or "declined by the user")
+            return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
         except StepFailed as failed:
             if failed.kind == "policy":
                 obs = OBS_BLOCKED.format(step_id=step_id, tool=name, why=failed.reason)
+                outcome = StepOutcome(step_id=step_id, tool=name, kind="blocked", reason=failed.reason)
             else:
                 obs = OBS_ERROR.format(step_id=step_id, tool=name, reason=failed.reason)
-            return Message("tool", obs, tool_call_id=tc.id or tc.name)
+                outcome = StepOutcome(step_id=step_id, tool=name, kind="failed", reason=failed.reason)
+            return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
 
     async def run(self) -> str:
         """Run the dynamic agent loop to completion, returning the candidate answer."""
@@ -296,41 +350,17 @@ class AgentLoop:
             else:
                 role = "act"
 
-            # 2. Visible tools and L4 tool shortlisting
+            # 2. Visible tools and L4 tool shortlisting (P2-C-2)
             visible_tools = self._get_visible_tools()
-            shown_tools = visible_tools
-            if len(visible_tools) > 12 and not last_turn_failed:
-                specs_map = {name: t.spec for name, t in visible_tools.items()}
-                ans_ranking: tuple[str, ...] | None = None
-                if self._decisions is not None and self._decisions.active(Kind.TOOLS):
-                    outcome = await self._decisions.decide(
-                        Kind.TOOLS,
-                        self._rec.task_id,
-                        tool_options(specs_map),
-                        Context(text=self._goal),
-                    )
-                    if outcome.ranking:
-                        ans_ranking = outcome.ranking
-                if ans_ranking is None:
-                    ranker = SearchRanker()
-                    req_obj = Request(
-                        Kind.TOOLS,
-                        self._rec.task_id,
-                        tool_options(specs_map),
-                        Context(text=self._goal),
-                        1000,
-                        5.0,
-                    )
-                    ans = await ranker.decide(req_obj)
-                    if ans is not None and ans.ranking:
-                        ans_ranking = ans.ranking
-
-                if ans_ranking:
-                    always = [n for n in sorted(CONTROL_TOOLS) if n in specs_map]
-                    ranked = [n for n in dict.fromkeys(ans_ranking) if n in specs_map and n not in always]
-                    rest = [n for n in specs_map if n not in ranked and n not in always]
-                    chosen_names = set((ranked + rest)[:10] + always)
-                    shown_tools = {name: t for name, t in visible_tools.items() if name in chosen_names}
+            shown_tools = await self._shortlist(visible_tools)
+            
+            # After a failed turn, widen by +cfg.shortlist_size // 2 more ranked names
+            if last_turn_failed and self._ranked:
+                cfg = self._engine_settings()
+                extra = cfg.shortlist_size // 2
+                if extra > 0:
+                    additional = [n for n in self._ranked if n in visible_tools and n not in shown_tools][:extra]
+                    shown_tools = {**shown_tools, **{n: visible_tools[n] for n in additional if n in visible_tools}}
 
             tool_schemas = [
                 ToolSchema(name=name, description=t.spec.doc, parameters=dict(t.spec.schema))
@@ -478,6 +508,7 @@ class AgentLoop:
             all_invalid = True
             valid_calls: list[tuple[str, str, dict[str, Any], ModelToolCall]] = []
             obs_by_sid: dict[str, Message] = {}
+            outcomes: dict[str, StepOutcome] = {}
 
             for i, tc in enumerate(done.result.tool_calls, start=1):
                 step_id = f"t{turn}c{i}"
@@ -565,18 +596,21 @@ class AgentLoop:
                         cur_batch = batch
                         cur_tools = visible_tools
                         cur_obs = obs_by_sid
+                        cur_outcomes = outcomes
 
                         async def run_one(
                             st: Mapping[str, Any],
                             b: list[tuple[str, str, dict[str, Any], ModelToolCall]] = cur_batch,
                             vt: dict[str, Tool] = cur_tools,
                             om: dict[str, Message] = cur_obs,
+                            oc: dict[str, StepOutcome] = cur_outcomes,
                         ) -> str:
                             sid_st, name_st, args_st = str(st["id"]), str(st["tool"]), st.get("args") or {}
                             args_map = dict(args_st) if isinstance(args_st, Mapping) else {}
                             tc_obj = next(tco for s, _, _, tco in b if s == sid_st)
-                            msg = await self._execute_step(sid_st, name_st, args_map, tc_obj, vt)
+                            msg, outcome = await self._execute_step(sid_st, name_st, args_map, tc_obj, vt)
                             om[sid_st] = msg
+                            oc[sid_st] = outcome
                             return self._outputs.get(sid_st, "")
 
                         await lanes.run(
@@ -587,8 +621,9 @@ class AgentLoop:
                         )
                     else:
                         sid, name, args, tc_obj = batch[0]
-                        msg = await self._execute_step(sid, name, args, tc_obj, visible_tools)
+                        msg, outcome = await self._execute_step(sid, name, args, tc_obj, visible_tools)
                         obs_by_sid[sid] = msg
+                        outcomes[sid] = outcome
 
                 # Loop guard advisory: inject notice on first LOOPING
                 if self._steps.seen_looping == 1 and not seen_looping_notice:
@@ -599,9 +634,25 @@ class AgentLoop:
             all_sids = [f"t{turn}c{i}" for i in range(1, len(done.result.tool_calls) + 1)]
             messages.extend([obs_by_sid[sid] for sid in all_sids if sid in obs_by_sid])
 
+            # Early finish for terminal tools (P2-Bc)
+            text_with_calls = (done.result.content or "").strip()
+            if (self._engine_settings().finish_on_terminal
+                    and outcomes
+                    and not text_with_calls                       # the model said nothing else this turn
+                    and all(o.ok and o.terminal for o in outcomes.values())
+                    and len(outcomes) == len(done.result.tool_calls)):   # every call was valid and terminal
+                candidate_answer = " ".join(o.summary for o in outcomes.values())
+                # Leave the loop through the same exit used when the model returns an answer with no tool calls
+                break
+
+            # Update used tools from outcomes (P2-C-2)
+            for outcome in outcomes.values():
+                if outcome.kind != "unavailable":  # only count tools that were actually available
+                    self._used_tools.add(outcome.tool)
+
             # Check whether any step on this turn failed or had schema error
-            if obs_by_sid:
-                last_turn_failed = any(" ok (" not in msg.content for msg in obs_by_sid.values())
+            if outcomes:
+                last_turn_failed = any(not o.ok for o in outcomes.values())
             else:
                 last_turn_failed = False
 

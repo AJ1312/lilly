@@ -51,6 +51,7 @@ from lilly.engine.record import TaskRecord
 from lilly.engine.stream import TextStream
 from lilly.engine.verify import check_output
 from lilly.store.readcache import ReadCache
+from lilly.store.standing import StandingStore
 from lilly.tools.base import Tool
 
 log = logging.getLogger("lilly.steps")
@@ -61,6 +62,24 @@ PREVIEW_CHARS = 1500
 APPROVAL_CHARS = 8000   # how much of each argument an approval card shows: enough for a whole note an agent wrote
 SCAN_CHARS = 20_000    # how much of a step's output is looked at for instructions aimed at the agent
 DOUBT = "Laya doubts this step matches your request"
+
+
+def why_allows_standing(why: str, rec: TaskRecord) -> bool:
+    """Check if the only reason for approval was spec.confirm and not taint, doubt, or policy.
+    
+    According to spec: only when the **only** reason for asking was `spec.confirm` — 
+    not taint, not a doubt from `_doubted`, not a policy reason such as an untrusted source.
+    In practice: skip standing if `rec.ctx.tainted` is true.
+    """
+    # Skip standing if the task context is tainted
+    if rec.ctx.tainted:
+        return False
+    # Skip standing if doubt was added by Laya (the plan check)
+    if why == DOUBT:
+        return False
+    # Only allow standing if the reason is exactly the confirmation requirement
+    # From policy.py: call.confirm -> "always needs your approval, in every mode"
+    return why == "always needs your approval, in every mode"
 
 
 def add_doubt(verdict: Verdict, why: str, plan_choice: str | None) -> tuple[Verdict, str]:
@@ -77,7 +96,8 @@ class StepExecutor:
                  decisions: DecisionPipeline | None = None, brief: Brief | None = None,
                  loop_mode: bool = False,
                  engine_settings: Callable[[], EngineSettings] | None = None,
-                 read_cache: ReadCache | None = None) -> None:
+                 read_cache: ReadCache | None = None,
+                 standing: StandingStore | None = None) -> None:
         self._rec, self._approvals, self._grants = rec, approvals, grants
         self._scope, self._limits, self._pin, self._decisions = scope, limits, pin_model, decisions
         self._brief = brief or Brief("")      # what the user asked and the agent's standing instructions, for the plan check
@@ -86,6 +106,7 @@ class StepExecutor:
         self._seen_looping = 0
         self._engine_settings = engine_settings
         self._read_cache = read_cache
+        self._standing = standing
 
     @property
     def seen_looping(self) -> int:
@@ -110,6 +131,10 @@ class StepExecutor:
         """Whether a finished step's result can come back more tainted than its tool declares (the decision layer
         flags output that reads as instructions). The lane scheduler plans for that."""
         return self._decisions is not None and self._decisions.active(Kind.INSTRUCTIONS)
+
+    def _standing_enabled(self) -> bool:
+        """Whether standing approvals are enabled for this task."""
+        return self._standing is not None
 
     async def run(self, st: Mapping[str, Any], row_id: str, outputs: Mapping[str, str],
                   tools: Mapping[str, Tool], decline_continues: bool = False) -> str:
@@ -136,7 +161,13 @@ class StepExecutor:
         payload = {"tool": name, "args": args}
         digest = payload_hash(rec.task_id, row_id, "step", payload)
         if verdict is Verdict.NEEDS_APPROVAL:
-            await self._approve(row_id, name, args, payload, why, decline_continues=decline_continues)
+            target = tool.standing_target(args) if spec.standing_ok and self._standing_enabled() else None
+            grant = await self._standing.find(name, target) if target and self._standing else None
+            if grant is not None and why_allows_standing(why, rec):
+                await self._standing.touch(grant.id)
+                await rec.event("standing_grant_used", {"step": row_id, "tool": name, "target": target, "grant": grant.id}, "tool")
+            else:
+                await self._approve(row_id, name, args, payload, why, decline_continues=decline_continues)
         await rec.step_status(row_id, "running", args_json=canonical(clip(args)))
         await rec.thought(Layer.ACT, f"Running {name}" + (f" to get {st['expect']}" if st.get("expect") else ""),
                           step=row_id)

@@ -22,7 +22,7 @@ from lilly.domain.labels import Mode
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.domain.settings import CrewSettings, LimitSettings
 from lilly.domain.sheet import TaskProfile
-from lilly.domain.text import fence_untrusted
+from lilly.engine.fence import fence
 from lilly.engine.bus import EventBus
 from lilly.engine.orchestrator import Orchestrator, SubmitRequest
 from lilly.engine.runner import EngineDeps
@@ -138,7 +138,7 @@ class DelegateHandler:
 
         # Format observation 4A.9:
         # RESULT {step_id} agent.delegate ok (from {pet_name}, {calls} model calls)\n<untrusted_data>\n{child_final}\n</untrusted_data>
-        fenced_final = fence_untrusted(child_final)
+        fenced_final, _ = fence(child_final)
         body = (
             f"RESULT {ctx.step_id} agent.delegate ok (from {child_agent.name}, {calls_count} model calls)\n"
             f"{fenced_final}"

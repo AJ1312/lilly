@@ -5,7 +5,8 @@ from __future__ import annotations
 from lilly.domain.decisions import ASSIST_KINDS, Answer, Request, valid_confidence
 from lilly.domain.labels import Label
 from lilly.domain.ports import Completer, CompletionRequest, Message
-from lilly.domain.text import extract_json, fence_untrusted
+from lilly.domain.text import extract_json
+from lilly.engine.fence import fence
 
 REPLY_TOKENS = 60
 TEXT_CHARS = 1500
@@ -44,7 +45,8 @@ class SmallModelDecider:
         options = request.options[:OPTIONS_SHOWN]
         listing = "\n".join(f"{o.id}: {o.label[:100]}" if o.label else o.id for o in options)
         chars = ASSIST_TEXT_CHARS if request.kind in ASSIST_KINDS else TEXT_CHARS
-        prompt = (f"Question: {_QUESTIONS[request.kind.value]}\n\nText:\n{fence_untrusted(request.context.text[:chars])}"
+        fenced_text, _ = fence(request.context.text[:chars])
+        prompt = (f"Question: {_QUESTIONS[request.kind.value]}\n\nText:\n{fenced_text}"
                   f"\n\nIds:\n{listing}")
         if request.tokens_left < len(prompt) // 3 + REPLY_TOKENS:     # rough: three characters to a token
             return None                                                # the task's small-model budget is spent

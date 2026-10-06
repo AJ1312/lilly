@@ -43,9 +43,16 @@ from lilly.engine.receipt import ReceiptBuilder
 from lilly.engine.record import TaskRecord
 from lilly.engine.replycheck import ReplyChecker
 from lilly.engine.steps import StepExecutor
+# Import for type hints - avoid circular import issues
+try:
+    from lilly.engine.quick import QuickAction, QuickRouter
+except ImportError:
+    QuickAction = Any  # type: ignore
+    QuickRouter = Any  # type: ignore
 from lilly.store import conversations, decisions, tasks
 from lilly.store.db import Database
 from lilly.store.readcache import ReadCache
+from lilly.store.standing import StandingStore
 from lilly.tools.base import Tool
 
 log = logging.getLogger("lilly.runner")
@@ -81,6 +88,8 @@ class EngineDeps:
     engine_settings: Callable[[], EngineSettings] = EngineSettings
     grounding_settings: Callable[[], GroundingSettings] = GroundingSettings
     read_cache: ReadCache | None = None
+    quick: QuickRouter | None = None
+    standing: StandingStore | None = None
 
 
 class TaskRunner:
@@ -93,7 +102,7 @@ class TaskRunner:
                                 TaskState(task.state))
         self._steps = StepExecutor(self._rec, deps.approvals, deps.grants, deps.scope, deps.limits, spec.pin_model,
                                    deps.decisions, self._brief, engine_settings=deps.engine_settings,
-                                   read_cache=deps.read_cache)
+                                   read_cache=deps.read_cache, standing=deps.standing)
 
     @property
     def agent_id(self) -> str | None:
@@ -152,6 +161,17 @@ class TaskRunner:
         if self._spec.skill or self._d.engine_settings().mode == "plan":
             await self._execute_plan()
             return
+
+        # Quick Actions hook (P2-A)
+        if self._d.quick is not None and not self._spec.skill:
+            tools = dict(self._d.tools())
+            allowed = self._spec.sheet.allowed_tools(tools) if self._spec.sheet else None
+            allowed_names = {n for n in tools if allowed is None or n in allowed}
+            found = self._d.quick.match(self._spec.goal, allowed_names)
+            if isinstance(found, QuickAction):
+                await self._run_quick(found, tools)
+                return
+            # Ambiguous: fall through to the normal loop
 
         self._prepare_assist()
         await self._rec.state(TaskState.PLANNING)
@@ -351,6 +371,29 @@ class TaskRunner:
         if not answer:
             raise Stop(TaskState.FAILED, "the final reply was empty")
         return answer
+
+    async def _run_quick(self, qa: QuickAction, tools: dict[str, Tool]) -> None:
+        """Execute a quick action without model calls."""
+        import json
+        from lilly.engine.outcome import StepDeclined, StepFailed
+        from lilly.store import tasks
+        
+        await self._rec.state(TaskState.PLANNING)
+        await self._rec.event("quick", {"tool": qa.tool, "target": qa.shown, "by": qa.matched_by,
+                                        "confidence": round(qa.confidence, 2)}, "engine")
+        step_id = "q1"
+        await self._d.db.write(lambda con: tasks.create_steps(con, self._task.id,
+                               [(step_id, qa.tool, json.dumps(qa.args))]))
+        await self._rec.state(TaskState.RUNNING)
+        self._steps.loop_mode = True
+        try:
+            out = await self._steps.run({"tool": qa.tool, "args": qa.args}, step_id, {}, tools, decline_continues=True)
+        except StepDeclined:
+            # For now, use a simple message since we don't have access to copy
+            await self._answer(f"Quick action declined: {qa.shown}"); return
+        except StepFailed as failed:
+            await self._finish(TaskState.FAILED, error=failed.reason); return
+        await self._answer(tools[qa.tool].summary(qa.args, out))      # code-written; no model text
 
     async def _answer(self, text: str) -> None:
         if not text:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from lilly.domain.errors import (
@@ -22,6 +23,24 @@ from lilly.domain.errors import (
 from lilly.domain.plan import REF
 from lilly.domain.tasks import TaskState
 from lilly.engine.messages import RATE_LIMITED_PROVIDER_ERROR
+
+
+OutcomeKind = Literal["ok", "declined", "blocked", "failed", "invalid", "unavailable"]
+
+
+@dataclass(frozen=True, slots=True)
+class StepOutcome:
+    step_id: str
+    tool: str
+    kind: OutcomeKind
+    output: str = ""          # the tool's output when kind == "ok"
+    reason: str = ""          # why, when it is not ok
+    terminal: bool = False    # the tool's spec says a successful call can end the task
+    summary: str = ""         # code-written one-liner for the answer (from Tool.summary)
+
+    @property
+    def ok(self) -> bool:
+        return self.kind == "ok"
 
 
 class Stop(Exception):
