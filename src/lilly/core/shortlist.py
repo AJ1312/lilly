@@ -9,7 +9,7 @@ from lilly.domain.tools_registry import ToolSpec
 
 SHOW_ALL_UP_TO = 25
 DEFAULT_K = 10
-CONTROL_TOOLS = frozenset({"agent.plan", "agent.ask", "agent.delegate", "result.read"})
+CONTROL_TOOLS = frozenset({"agent.plan", "agent.ask", "agent.delegate", "agent.discover", "result.read"})
 
 
 def tool_options(specs: Mapping[str, ToolSpec]) -> tuple[Option, ...]:
@@ -32,3 +32,20 @@ def shortlist(specs: Mapping[str, ToolSpec], ranking: Sequence[str] = (), k: int
     rest = [n for n in names if n not in ranked and n not in always]
     chosen = (ranked + rest)[:k]
     return chosen + always
+
+
+def discover(specs: Mapping[str, ToolSpec], query: str, *, namespace: str | None = None,
+             limit: int = 12) -> list[str]:
+    """Find capabilities in the already policy-filtered catalog."""
+    terms = {part for part in query.lower().replace(".", " ").split() if part}
+    prefix = namespace.strip().lower() if namespace else ""
+    scored: list[tuple[int, str]] = []
+    for name, spec in specs.items():
+        if name in CONTROL_TOOLS or (prefix and not name.lower().startswith(prefix + ".")):
+            continue
+        haystack = " ".join((name, spec.doc, spec.module or "")).lower()
+        score = sum(3 if term in name.lower() else 1 for term in terms if term in haystack)
+        if score:
+            scored.append((score, name))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [name for _, name in scored[:max(1, min(limit, 32))]]

@@ -52,6 +52,7 @@ from lilly.store.standing import StandingStore
 from lilly.tools import Tool, build_tools
 from lilly.tools.appindex import AppIndex
 from lilly.tools.browser.manager import BrowserManager
+from lilly.tools.computer_runtime import ComputerRuntime
 from lilly.tools.devbox.engines import CliEngine, find_engine
 from lilly.tools.devbox.manager import DevboxManager
 from lilly.tools.mcp import McpManager
@@ -108,6 +109,7 @@ class Runtime:
         self.browser = BrowserManager(lambda: self.settings.browser)
         self.devbox = DevboxManager(lambda: self.settings.devbox, lambda: self.scope,
                                     lambda cfg: _engine_for(cfg.runtime), self.clock)
+        self.computer = ComputerRuntime(paths.root / "computer", devbox=self.devbox)
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
@@ -198,6 +200,7 @@ class Runtime:
         return build_tools(settings, scope=self.scope, db=self.db, router=self.model_broker, keys=self.keys,
                            client=self.client, clock=self.clock,
                            browser=(self.browser, lambda: self.settings.browser), devbox=self.devbox,
+                           computer_runtime=self.computer,
                            delegate_fn=self._delegate)
 
     async def _delegate(self, target_agent: str, task_instruction: str, ctx: ToolContext) -> ToolResult:

@@ -167,7 +167,7 @@ class Orchestrator:
                         continue
                     if name.startswith("computer.") and not agent.computer_allowed:
                         continue
-                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "result.read", "agent.delegate"):
+                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "agent.discover", "result.read", "agent.delegate"):
                     continue
                 available_tool_names.add(name)
 
@@ -210,6 +210,33 @@ class Orchestrator:
         self._d.bus.publish({"type": "task", "task_id": task_id, "state": row.state.value})
         return row
 
+    async def redrive(self, task_id: str, *, confirm_ambiguous: bool = False) -> tasks.TaskRow:
+        """Safely restart a task whose process died, retaining the original audit trail."""
+        original = tasks.get_task(self._d.db.reader, task_id)
+        if original is None:
+            raise NotFound(task_id)
+        if original.state is not TaskState.FAILED or original.error != "interrupted by a restart":
+            raise ConflictError("only a task interrupted by a restart can be resumed")
+        interrupted_steps = [step for step in tasks.list_steps(self._d.db.reader, task_id)
+                             if step.error == "interrupted" and step.status == "failed"]
+        if interrupted_steps and not confirm_ambiguous:
+            raise ConflictError("an interrupted action may have taken effect; confirm before resuming")
+        profile = None
+        try:
+            profile = TaskProfile.from_dict(json.loads(original.profile_json))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            profile = None
+        child = await self.submit(SubmitRequest(
+            goal=original.goal, conversation_id=original.conversation_id, agent_id=original.agent_id,
+            skill=original.skill, pin_model=original.pinned_model, outside=original.tainted,
+            profile=profile, parent_task_id=original.id, depth=original.depth + 1,
+            mode=Mode(original.mode)))
+        now = self._d.clock()
+        await self._d.db.write(lambda con: append_event(
+            con, original.id, "recovery", {"child_task_id": child.id, "confirmed_ambiguous": confirm_ambiguous},
+            "user", now))
+        return child
+
     def _narrowed_since(self, agent: agent_store.AgentRow) -> bool:
         now = agent_store.get_agent(self._d.db.reader, agent.id)
         return now is None or agent_store.narrows(agent, now)
@@ -235,7 +262,7 @@ class Orchestrator:
                         continue
                     if name.startswith("computer.") and not agent.computer_allowed:
                         continue
-                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "result.read", "agent.delegate"):
+                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "agent.discover", "result.read", "agent.delegate"):
                     continue
                 if profile is not None and name in profile.tools_off:
                     continue

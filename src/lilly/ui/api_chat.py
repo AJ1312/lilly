@@ -163,6 +163,13 @@ async def cancel_task(request: Request) -> Response:
     return ok()
 
 
+async def resume_task(request: Request) -> Response:
+    data = await json_body(request)
+    confirmed = flag(data, "confirm_ambiguous") is True
+    row = await runtime(request).orchestrator.redrive(request.path_params["task_id"], confirm_ambiguous=confirmed)
+    return JSONResponse({"task": task_json(row)}, 202)
+
+
 async def get_receipt(request: Request) -> Response:
     rt = runtime(request)
     task_id = request.path_params.get("task_id") or request.path_params.get("id") or ""

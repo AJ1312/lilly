@@ -1,2 +1,5 @@
-"""lilly: local-first personal AI OS."""
-__version__ = "1.8.4"
+"""Lilly: local-first personal AI OS."""
+
+from lilly.version import __version__
+
+__all__ = ["__version__"]

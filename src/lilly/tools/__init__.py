@@ -13,11 +13,15 @@ from lilly.domain.ports import Completer, KeyStore, ToolContext, ToolResult
 from lilly.domain.settings import Settings
 from lilly.domain.tools_registry import DEFAULT_TOOLS
 from lilly.store.db import Database
-from lilly.tools.agent import AgentAskTool, AgentDelegateTool, AgentPlanTool, SkillLoadTool
+from lilly.tools.agent import AgentAskTool, AgentDelegateTool, AgentDiscoverTool, AgentPlanTool, SkillLoadTool
 from lilly.tools.base import Tool
 from lilly.tools.browser.actions import browser_tools
 from lilly.tools.browser.manager import BrowserManager
 from lilly.tools.computer import (
+    ComputerClickTool,
+    ComputerObserveTool,
+    ComputerPressTool,
+    ComputerTypeTool,
     NotifyTool,
     OpenAppTool,
     OpenUrlTool,
@@ -43,6 +47,7 @@ def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: C
                 client: httpx.AsyncClient, clock: Clock,
                 browser: tuple[BrowserManager, Callable[[], BrowserSettings]] | None = None,
                 devbox: DevboxManager | None = None,
+                computer_runtime: object | None = None,
                 delegate_fn: Callable[[str, str, ToolContext], Awaitable[ToolResult]] | None = None) -> dict[str, Tool]:
     """Every tool the enabled modules provide, keyed by name. Nothing is registered that does not exist,
     and every tool's name must be in DEFAULT_TOOLS, where its risk is pinned."""
@@ -63,6 +68,12 @@ def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: C
         *(browser_tools(*browser) if browser else []),
         *([DevboxRunTool(devbox)] if devbox else []),
     ]
+    if computer_runtime is not None:
+        from lilly.tools.computer_runtime import ComputerRuntime
+        if not isinstance(computer_runtime, ComputerRuntime):
+            raise ConfigurationError("computer_runtime must be a ComputerRuntime")
+        every.extend([ComputerObserveTool(computer_runtime), ComputerClickTool(computer_runtime),
+                      ComputerTypeTool(computer_runtime), ComputerPressTool(computer_runtime)])
     tools: dict[str, Tool] = {}
     for tool in every:
         spec = DEFAULT_TOOLS.get(tool.name)
@@ -70,4 +81,9 @@ def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: C
             raise ConfigurationError(f"tool {tool.name!r} is not in the registry")
         if spec.module is None or spec.module in settings.modules:
             tools[tool.name] = tool
+    catalog = {name: tool.spec for name, tool in tools.items()}
+    if "agent.discover" not in tools and "agent.discover" in DEFAULT_TOOLS:
+        discovery = AgentDiscoverTool(lambda: catalog)
+        if DEFAULT_TOOLS[discovery.name].module is None:
+            tools[discovery.name] = discovery
     return tools

@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lilly.core.shortlist import CONTROL_TOOLS, tool_options
+from lilly.core.shortlist import CONTROL_TOOLS, discover, tool_options
 from lilly.decide.rules import SearchRanker
 from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
@@ -121,6 +121,7 @@ class AgentLoop:
         self._steps.loop_mode = True
         self._ranked: list[str] | None = None  # P2-C-2: ranked tools, computed once per task
         self._used_tools: set[str] = set()     # P2-C-2: tools used this task, never hidden
+        self._discovered_tools: set[str] = set()
         gs = grounding_settings() if callable(grounding_settings) else (grounding_settings or GroundingSettings())
         self._grounding = GroundingVerifier(file_roots=self._file_roots(), enabled=gs.enabled)
         self._context_mgr = ContextManager(self._engine_settings, self._completer)
@@ -185,7 +186,7 @@ class AgentLoop:
         if self._ranked is None:                                  # rank ONCE per task, reuse every turn
             self._ranked = await self._rank_tools(visible)        # the existing decisions/SearchRanker code, moved here
         always = [n for n in sorted(CONTROL_TOOLS) if n in visible]
-        keep = set(always) | self._used_tools                     # never hide a tool already used this task
+        keep = set(always) | self._used_tools | self._discovered_tools  # never hide known capabilities
         ranked = [n for n in self._ranked if n in visible and n not in keep]
         keep |= set(ranked[: max(0, cfg.shortlist_size - len(keep))])
         return {n: t for n, t in visible.items() if n in keep}
@@ -255,7 +256,8 @@ class AgentLoop:
 
         # Parallelism guidance to optimize success per token/call
         parts.append(
-            "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order."
+            "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order. "
+            "If the capability you need is not listed, call agent.discover with descriptive words and use the discovered tool on the next turn."
         )
 
         # P2-F: Caveman line removed, style text will be added later
@@ -696,6 +698,24 @@ class AgentLoop:
             for outcome in outcomes.values():
                 if outcome.kind != "unavailable":  # only count tools that were actually available
                     self._used_tools.add(outcome.tool)
+
+            # Expand the next turn from the existing, policy-filtered catalog. Discovery
+            # cannot grant access or alter a tool's risk; it only removes prompt hiding.
+            for sid, outcome in outcomes.items():
+                if outcome.tool != "agent.discover" or not outcome.ok:
+                    continue
+                call = next((tc for step_id, _, _, tc in valid_calls if step_id == sid), None)
+                if call is None:
+                    continue
+                args = dict(call.arguments or {}) if isinstance(call.arguments, Mapping) else {}
+                raw_limit = args.get("limit", 12)
+                limit = raw_limit if isinstance(raw_limit, int) and not isinstance(raw_limit, bool) else 12
+                self._discovered_tools.update(discover(
+                    {name: tool.spec for name, tool in visible_tools.items()},
+                    str(args.get("query", "")),
+                    namespace=str(args.get("namespace", "")) or None,
+                    limit=limit,
+                ))
 
             # Check whether any step on this turn failed or had schema error
             if outcomes:

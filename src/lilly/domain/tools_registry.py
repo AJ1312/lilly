@@ -339,6 +339,58 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
             "additionalProperties": False,
         },
     ),
+    "computer.observe": ToolSpec(
+        Risk.R0, reads_label=_P, untrusted=True, path_args=(), module="computer", serial=True,
+        doc="Capture a fresh desktop observation with frame id, frontmost app/window and available accessibility elements.",
+        args="{}",
+        schema={"type": "object", "properties": {}, "additionalProperties": False},
+    ),
+    "computer.click": ToolSpec(
+        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        doc="Click one target from a fresh computer.observe frame, then capture and return a new frame.",
+        args='{"frame_id": "fresh observation id", "target": "accessible label or @x=10,y=20", "expected": "optional text to verify"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "frame_id": {"type": "string"},
+                "target": {"type": "string"},
+                "expected": {"type": "string"},
+            },
+            "required": ["frame_id", "target"],
+            "additionalProperties": False,
+        },
+    ),
+    "computer.type": ToolSpec(
+        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        doc="Click an accessibility target and type text, then capture and return a new frame. Never type secrets.",
+        args='{"frame_id": "fresh observation id", "target": "accessible label or coordinates", "text": "text", "expected": "optional text to verify"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "frame_id": {"type": "string"},
+                "target": {"type": "string"},
+                "text": {"type": "string", "maxLength": 2000},
+                "expected": {"type": "string"},
+            },
+            "required": ["frame_id", "target", "text"],
+            "additionalProperties": False,
+        },
+    ),
+    "computer.press": ToolSpec(
+        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        doc="Press a non-destructive key using a fresh observation frame, then capture and return a new frame.",
+        args='{"frame_id": "fresh observation id", "key": "Enter, Tab, Escape or arrow key", "expected": "optional text to verify"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "frame_id": {"type": "string"},
+                "key": {"type": "string"},
+                "expected": {"type": "string"},
+            },
+            "required": ["frame_id", "key"],
+            "additionalProperties": False,
+        },
+    ),
     "computer.processes": ToolSpec(
         Risk.R0, reads_label=_P, path_args=(), module="computer",
         doc="List the user's running programs by memory or CPU use.",
@@ -607,6 +659,21 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
                 },
             },
             "required": ["question"],
+            "additionalProperties": False,
+        },
+    ),
+    "agent.discover": ToolSpec(
+        Risk.R0, path_args=(),
+        doc="Discover available capabilities by words such as music, browser, files, or notes. Discovered tools are exposed on the next turn.",
+        args='{"query": "capability words", "namespace": "optional namespace", "limit": "optional number"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Words describing the capability needed"},
+                "namespace": {"type": "string", "description": "Optional namespace such as browser or computer"},
+                "limit": {"type": "integer", "description": "Maximum results", "minimum": 1, "maximum": 32},
+            },
+            "required": ["query"],
             "additionalProperties": False,
         },
     ),

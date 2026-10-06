@@ -8,6 +8,7 @@ from lilly.domain.errors import ToolError, ValidationFailed
 from lilly.domain.labels import Label
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.domain.sheet import PetSheet
+from lilly.domain.tools_registry import ToolSpec
 from lilly.store import agents as agent_store
 from lilly.store import tasks
 from lilly.store.db import Database
@@ -85,6 +86,29 @@ class AgentAskTool(Tool):
         return ToolResult(output=f"The user answered: {answer}", label=Label.PUBLIC, untrusted=False)
 
 
+class AgentDiscoverTool(Tool):
+    """Discover capabilities without exposing the entire tool catalog."""
+
+    name = "agent.discover"
+
+    def __init__(self, catalog: Callable[[], Mapping[str, ToolSpec]]) -> None:
+        self._catalog = catalog
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        from lilly.core.shortlist import discover
+
+        query = str_arg(args, "query")
+        namespace = str_arg(args, "namespace", required=False)
+        raw_limit = args.get("limit", 12)
+        limit = raw_limit if isinstance(raw_limit, int) and not isinstance(raw_limit, bool) else 12
+        catalog = self._catalog()
+        names = discover(catalog, query, namespace=namespace or None, limit=limit)
+        if not names:
+            return ToolResult("No matching capabilities found.", Label.PUBLIC, False)
+        return ToolResult("Matching capabilities:\n" + "\n".join(f"{n}: {catalog[n].doc}" for n in names),
+                          Label.PUBLIC, False)
+
+
 class AgentDelegateTool(Tool):
     """Hand a self-contained job to another agent in the user's crew and get back its answer."""
 
@@ -133,5 +157,3 @@ class SkillLoadTool(Tool):
 
         available = ", ".join(repr(k) for k in sheet.skills.keys())
         raise ToolError(f"skill '{skill_name}' not found. Available skills: {available}")
-
-

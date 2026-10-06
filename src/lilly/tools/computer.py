@@ -26,6 +26,7 @@ from lilly.domain.labels import Label
 from lilly.domain.policy import PathScope
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.tools.base import Tool, bool_arg, int_arg, resolve_in_scope, str_arg
+from lilly.tools.computer_runtime import ComputerFrame, ComputerRuntime
 
 MAX_OUTPUT_BYTES = 64_000
 MAX_RUN_S = 120.0
@@ -34,6 +35,57 @@ _BLOCKED_PROGRAMS = frozenset({"sudo", "su", "doas", "pkexec", "shutdown", "rebo
                                "fdisk", "diskutil", "launchctl", "csrutil", "nvram"})
 _SHELLS = frozenset({"sh", "bash", "zsh", "fish", "dash", "ksh"})
 _SAFE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR")
+
+
+def _frame_result(runtime: ComputerRuntime, frame: ComputerFrame) -> ToolResult:
+    return ToolResult(runtime.render(frame), Label.PERSONAL, True)
+
+
+class ComputerObserveTool(Tool):
+    name = "computer.observe"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        return _frame_result(self._runtime, await self._runtime.observe(ctx.task_id))
+
+
+class ComputerClickTool(Tool):
+    name = "computer.click"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        frame = await self._runtime.click(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "target"),
+                                          str_arg(args, "expected", required=False))
+        return _frame_result(self._runtime, frame)
+
+
+class ComputerTypeTool(Tool):
+    name = "computer.type"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        frame = await self._runtime.type_text(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "target"),
+                                              str_arg(args, "text", max_len=2000),
+                                              str_arg(args, "expected", required=False))
+        return _frame_result(self._runtime, frame)
+
+
+class ComputerPressTool(Tool):
+    name = "computer.press"
+
+    def __init__(self, runtime: ComputerRuntime) -> None:
+        self._runtime = runtime
+
+    async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
+        frame = await self._runtime.press(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "key"),
+                                          str_arg(args, "expected", required=False))
+        return _frame_result(self._runtime, frame)
 
 
 def _spawn_detached(argv: list[str]) -> None:

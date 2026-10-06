@@ -161,6 +161,9 @@ class TaskRunner:
 
     # ---- the work -----------------------------------------------------------------------------------
     async def _execute(self) -> None:
+        # Explicit plan mode remains a compatibility contract for deterministic
+        # skills and callers that require preflight/replan semantics. Normal
+        # requests use the unified AgentLoop below.
         if self._spec.skill or self._d.engine_settings().mode == "plan":
             await self._execute_plan()
             return

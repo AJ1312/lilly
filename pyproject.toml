@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lilly"
-version = "1.8.4"
+dynamic = ["version"]
 description = "Lilly: a private AI assistant that runs on your own computer, with permissions you control."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -38,6 +38,9 @@ lilly = "lilly.daemon.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lilly"]
+
+[tool.hatch.version]
+path = "src/lilly/version.py"
 
 [tool.ruff]
 line-length = 120

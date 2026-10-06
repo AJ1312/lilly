@@ -16,7 +16,7 @@ Imports go strictly downward; `tests/unit/test_import_boundaries.py` enforces it
 | 0 | `obs` | Logging with secret redaction. |
 | 1 | `core` | Rate limiters, daily quotas, circuit breaker, model pool and routing. |
 | 2 | `store` | SQLite: schema and migrations, single writer, tasks, events (hash-chained), approvals, memory, spaces/notes, agents, retention and backup. |
-| 3 | `providers` | Mistral, OpenAI, OpenRouter, Gemini and Ollama adapters (streaming where the provider supports it); key stores (Keychain / `0600` file); the model router; the local-model gate. |
+| 3 | `providers` | Mistral, OpenAI, OpenRouter, Gemini and Ollama adapters (streaming where the provider supports it); key stores (Keychain / `0600` file); the `ModelBroker`; the local-model gate. |
 | 3 | `tools` | Built-in tools: files, data, web, memory, notes (read, and `notes.write`, which always asks), system, llm, computer control, the agent browser (`tools/browser`), MCP clients (`tools/mcp`) and the devbox (`tools/devbox`). |
 | 3 | `decide` | Quick deciders (rules, search ranker, small local model, Laya) and the Laya installer and worker. Advice only. |
 | 4 | `engine` | Planner, runner, lane executor, orchestrator (submit, cancel, Stop all, and `cancel_agent_tasks`, called when an agent is narrowed or deleted: see `store.agents.narrows`), approval service, decision pipeline, streaming throttle, event bus. |
@@ -45,6 +45,8 @@ The interface source is in `web/` (React 19, Vite, TypeScript, zustand); `npm ru
 ### Legacy plan path
 
 Tasks configured with skills or `engine.mode == "plan"` use the pre-2.0 ahead-of-time planner (`_execute_plan()`). The planner generates a static JSON plan (`llm.work` as final step), validates references, pre-flights policy, and executes steps through `LaneScheduler`.
+
+This is an explicit compatibility mode for deterministic skills and existing callers. Normal interactive tasks use the unified `AgentLoop`; `providers/router.py` is only a compatibility import for `ModelBroker`, not a second implementation. Tool ranking is bounded by policy-filtered capabilities, and `agent.discover` lazily exposes matching capabilities on the next loop turn.
 
 ## Data
 

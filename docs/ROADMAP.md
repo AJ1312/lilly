@@ -16,7 +16,7 @@ computer control that always asks · live Resources screen with limits · backup
 | --- | --- |
 | Browser take-over (you type a password in the agent's browser) | Needs a visible window and a hand-back protocol. |
 | Agent-built extensions (manifest, protected paths, install, test, enable, roll back) | Lets an agent change Lilly itself; needs the devbox verified on a real engine first. |
-| Learned playbooks, model-per-step routing, read cache, failover across keys, an eval set | The planned token and free-limit savings. Nothing is measured yet. |
+| Learned playbooks, trajectory-aware routing, failover across keys, an eval set | Per-turn capability and health routing exists; these learning and multi-credential policies need measurements before they can safely change selection. |
 | Desktop and phone screen view | Needs OS screen capture that cannot be tested on Linux, and a safe way to reach Lilly from a phone. |
 | Pets: lit 3D models that move and react, and a range of allowed models per pet (today one pinned model) | Started and paused: a small WebGL renderer is the plan, with a still fallback and a frame-time guard for the 2019 Mac. Today's pets are layered SVG with a CSS tilt. |
 | Desktop notification when an approval or routine needs you | Small, but the macOS path must be tested on a Mac first. |
