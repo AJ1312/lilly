@@ -99,6 +99,10 @@ class TaskRunner:
     def agent_id(self) -> str | None:
         return self._task.agent_id
 
+    @property
+    def steps(self) -> StepExecutor:
+        return self._steps
+
     def request_cancel(self, reason: str = "stopped") -> None:
         """Tell worker threads (which asyncio cannot interrupt) to stop at their next check. The first reason given
         is the one the task shows."""

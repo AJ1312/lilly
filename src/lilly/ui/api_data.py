@@ -51,28 +51,41 @@ def _label(data: dict[str, Any]) -> Label | None:
     return Label[raw]
 
 
+def _tags(data: dict[str, Any]) -> list[str] | None:
+    raw = data.get("tags")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValidationFailed("tags must be a list")
+    return raw
+
+
 # ---- memory ------------------------------------------------------------------------------------
 async def list_memory(request: Request) -> Response:
     rt = runtime(request)
     query = request.query_params.get("q", "").strip()
+    tag = request.query_params.get("tag", "").strip() or None
     rows = (memory.search_memory(rt.db.reader, query, limit=limit_param(request, 50)) if query
             else memory.list_memory(rt.db.reader, limit_param(request, 200, 1000)))
+    if tag:
+        wanted = " ".join(tag.lower().split())
+        rows = [row for row in rows if wanted in row.tags]
     return JSONResponse({"memory": [memory_json(m) for m in rows]})
 
 
 async def add_memory(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    body, label, now = text(data, "text") or "", _label(data) or Label.PERSONAL, rt.clock()
-    row = await rt.db.write(lambda con: memory.add_memory(con, body, now, label=label, source="user"))
+    body, label, tags, now = text(data, "text") or "", _label(data) or Label.PERSONAL, _tags(data), rt.clock()
+    row = await rt.db.write(lambda con: memory.add_memory(con, body, now, label=label, source="user", tags=tags or ()))
     return JSONResponse({"memory": memory_json(row)}, 201)
 
 
 async def update_memory(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    memory_id, body, label = _memory_id(request), text(data, "text", required=False), _label(data)
-    row = await rt.db.write(lambda con: memory.update_memory(con, memory_id, text=body, label=label))
+    memory_id, body, label, tags = _memory_id(request), text(data, "text", required=False), _label(data), _tags(data)
+    row = await rt.db.write(lambda con: memory.update_memory(con, memory_id, text=body, label=label, tags=tags))
     return JSONResponse({"memory": memory_json(row)})
 
 

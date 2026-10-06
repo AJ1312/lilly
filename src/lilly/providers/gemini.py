@@ -27,17 +27,19 @@ _TYPE_MAP = {
 def to_gemini_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
     """Convert JSON Schema to the subset accepted by Google Gemini function declarations.
     
-    Verified against ai.google.dev/api/rest/v1beta/models/generateContent on 2026-09-24:
+    Verified against ai.google.dev/api/rest/v1beta/models/generateContent:
     - Types must be uppercase: STRING, INTEGER, NUMBER, BOOLEAN, ARRAY, OBJECT
     - Supported fields: type, description, properties, required, items, enum
     - Drops unsupported keywords: $schema, additionalProperties, minimum, maximum, etc.
+    - CRITICAL: 'items' is ONLY accepted if 'type' is ARRAY. If type is not ARRAY, items must NOT be included.
     """
     out: dict[str, Any] = {}
     raw_type = schema.get("type")
-    if isinstance(raw_type, str):
+    if "items" in schema and isinstance(raw_type, (list, tuple)) and "array" in [str(x).lower() for x in raw_type]:
+        out["type"] = "ARRAY"
+    elif isinstance(raw_type, str):
         out["type"] = _TYPE_MAP.get(raw_type.lower(), "STRING")
     elif isinstance(raw_type, (list, tuple)) and raw_type:
-        # Take first mapped type
         first = str(raw_type[0]).lower()
         out["type"] = _TYPE_MAP.get(first, "STRING")
     else:
@@ -59,8 +61,12 @@ def to_gemini_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
     if "required" in schema and isinstance(schema["required"], (list, tuple)):
         out["required"] = [str(r) for r in schema["required"]]
 
-    if "items" in schema and isinstance(schema["items"], Mapping):
-        out["items"] = to_gemini_schema(schema["items"])
+    # Gemini strictly requires 'items' when type is ARRAY, and rejects 'items' when type is not ARRAY
+    if out.get("type") == "ARRAY":
+        if "items" in schema and isinstance(schema["items"], Mapping):
+            out["items"] = to_gemini_schema(schema["items"])
+        else:
+            out["items"] = {"type": "STRING"}
 
     return out
 

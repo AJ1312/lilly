@@ -206,7 +206,7 @@ function Conversation({ id, onDeleted }: { id: string; onDeleted: () => void }) 
                     <div className="bubble bubble-lilly">
                       <Markdown text={reply.content} />
                       {reply.untrusted && <p className="hint">Based partly on web content. Check important facts.</p>}
-                      <ReplyCheck taskId={t.id} watch={t.id === v.tasks[v.tasks.length - 1]?.id} />
+                      <ReplyCheck verdict={t.reply_check} />
                     </div>
                   )}
                 </div>

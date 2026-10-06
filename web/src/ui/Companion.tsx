@@ -42,11 +42,13 @@ export function Companion({ go }: { go: (hash: string) => void }) {
     subject = justEnded
   }
   const agent = agents.data?.agents.find((a) => a.id === subject?.agent_id)
+  const unavailableModel = subject?.state === 'FAILED' && subject.error?.includes('unavailable') ? subject.pinned_model : null
+  const caption = unavailableModel ? `${unavailableModel} is unavailable` : CAPTION[state]
 
   return (
-    <button type="button" className="companion" onClick={() => go(waiting ? '/approvals' : '/talk')} aria-label={`${CAPTION[state]}. Open ${waiting ? 'approvals' : 'talk'}`}>
+    <button type="button" className="companion" onClick={() => go(waiting ? '/approvals' : '/talk')} aria-label={`${caption}. Open ${waiting ? 'approvals' : 'talk'}`}>
       <Pet id={agent?.pet ?? 'lily'} look={agent?.look} state={state} size={64} />
-      <span className="companion-text" aria-live="polite">{CAPTION[state]}</span>
+      <span className="companion-text" aria-live="polite">{caption}</span>
     </button>
   )
 }

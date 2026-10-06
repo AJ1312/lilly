@@ -12,9 +12,11 @@ Implements Part 5 delegation rules:
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from lilly.domain.decisions import step_sig
 from lilly.domain.errors import ToolError
 from lilly.domain.labels import Mode
 from lilly.domain.ports import ToolContext, ToolResult
@@ -117,6 +119,18 @@ class DelegateHandler:
         child_row = await self._d.orchestrator.submit(req)
         # Wait for child task to complete
         child_final_row = await self._wait_task(child_row.id)
+
+        # Forward child task steps to parent runner for loop detection (Part 6 L2)
+        parent_entry = self._d.orchestrator._active.get(ctx.task_id)
+        if parent_entry is not None:
+            parent_runner = parent_entry[1]
+            finished_steps = tasks.list_steps(self._d.db.reader, child_final_row.id)
+            for cs in finished_steps:
+                try:
+                    cs_args = json.loads(cs.args_json) if cs.args_json else {}
+                except Exception:
+                    cs_args = {}
+                parent_runner.steps.add_finished(step_sig(cs.tool, cs_args))
 
         # 7. Get model calls count
         calls_count = self._count_model_calls(child_final_row.id)

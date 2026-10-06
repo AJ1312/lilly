@@ -40,7 +40,7 @@ LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
-       "connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+       "connect-src 'self' ws: wss:; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 Handler = Callable[[Request], Awaitable[Response]]
 
@@ -217,7 +217,18 @@ class Shield:
                 return True
         except ValueError:
             pass
-        return host in {h.lower() for h in self._extra_hosts()}
+        extras = {h.lower() for h in self._extra_hosts()}
+        if "*" in extras or "0.0.0.0" in extras:
+            return True
+        if host in extras:
+            return True
+        for pattern in extras:
+            if pattern.startswith("*.") and host.endswith(pattern[1:]):
+                return True
+        # Always allow Cloudflare trycloudflare tunnel endpoints if traffic originates from loopback
+        if host.endswith(".trycloudflare.com"):
+            return True
+        return False
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

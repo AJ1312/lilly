@@ -20,6 +20,7 @@ export interface Task {
   created_at: number
   updated_at: number
   finished_at: number | null
+  reply_check?: 'follows' | 'drifts' | null
 }
 
 export interface Step {
@@ -65,7 +66,7 @@ export type Verdict = 'ALLOW' | 'NEEDS_APPROVAL' | 'DENY'
 export interface PlanStep { id: string; tool: string; expect: string; args: Record<string, unknown>; deps: string[]; verdict: Verdict; why: string }
 /** `reply_check` is Laya's advice on the finished reply: null when it was not asked, was only watching, or had no answer. */
 export interface TaskDetail { task: Task; steps: Step[]; approvals: Approval[]; plan_steps: PlanStep[]; reply_check: 'follows' | 'drifts' | null }
-export interface MemoryItem { id: number; text: string; label: 'PUBLIC' | 'PERSONAL' | 'SECRET'; source: string; at: number }
+export interface MemoryItem { id: number; text: string; label: 'PUBLIC' | 'PERSONAL' | 'SECRET'; source: string; at: number; tags: string[] }
 export interface Space { id: string; name: string; description: string }
 export interface Page { id: string; space_id: string; title: string; content?: string; revision: number; updated_at: number }
 export const PET_ACCESSORIES = ['none', 'bow', 'glasses', 'hat', 'scarf', 'crown', 'headphones'] as const
@@ -274,11 +275,12 @@ export interface OllamaCheck {
 }
 
 export type DecisionKind = 'tools' | 'loop' | 'instructions' | 'pick' | 'plan' | 'reply' | 'route'
-export interface KindSettings { enabled: boolean; shadow: boolean; chain: string[]; min_confidence: Record<string, number>; timeout_s: Record<string, number> }
+export interface KindSettings { enabled: boolean; shadow: boolean; chain: string[]; min_confidence: Record<string, number>; timeout_s: Record<string, number>; min_samples: number; min_precision: number }
 export interface DecisionSettings {
   enabled: boolean
   max_per_task: number
   max_model_tokens_per_task: number
+  min_free_mb: number
   tools: KindSettings
   loop: KindSettings
   instructions: KindSettings

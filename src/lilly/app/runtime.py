@@ -20,7 +20,7 @@ import httpx
 from lilly.app.laya import LayaService
 from lilly.app.paths import LillyPaths
 from lilly.app.power import Caffeinate
-from lilly.decide.rules import InstructionRules, LoopRule, MatchRule, SearchRanker
+from lilly.decide.rules import InstructionRules, LoopRule, MatchRule, RulesDecider, SearchRanker
 from lilly.decide.small_model import SmallModelDecider
 from lilly.domain.clock import Clock
 from lilly.domain.decisions import Decider
@@ -102,7 +102,7 @@ class Runtime:
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
         self._static_deciders: dict[str, Decider] = {"search": SearchRanker(), "loop": LoopRule(),
-                                                     "rules": InstructionRules(), "match": MatchRule()}
+                                                     "rules": RulesDecider(), "match": MatchRule()}
         self._small: tuple[str, SmallModelDecider] | None = None
         self.read_cache = ReadCache()
         self.decisions = DecisionPipeline(lambda: self.settings.decisions, self._deciders, DatabaseSink(db), clock)

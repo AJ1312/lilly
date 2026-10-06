@@ -45,8 +45,14 @@ python3 -m venv .venv && . .venv/bin/activate
 make install   # editable install with dev tools
 make check     # ruff + mypy --strict + bandit + vulture + deptry + pytest with a coverage floor
 make web       # rebuild src/lilly/web from web/ (Node 20+)
+make release-check  # validate launchers and the installable wheel, including bundled web assets
 cd web && npm run dev   # interface with hot reload, proxying the API on :8787
 ```
+
+Before publishing a release, run `make check`, rebuild the interface with `make web`, and run `make release-check`.
+The release gate checks the shell launchers and builds a wheel without dependencies, then verifies that the package
+contains the Python module, the interface entry point and compiled web assets. CI runs this gate separately from the
+source and browser checks so a passing test tree cannot hide a broken install artifact.
 
 Tests need no network and no real models: the integration suite builds a real `Runtime` against a stand-in model served through `httpx.MockTransport`.
 

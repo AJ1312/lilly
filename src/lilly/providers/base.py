@@ -111,12 +111,26 @@ def map_http_error(
         if g_delay is not None and retry_after is None:
             retry_after = g_delay
 
+    err_msg: str | None = None
+    if isinstance(body_obj, Mapping):
+        err_sub = body_obj.get("error")
+        if isinstance(err_sub, Mapping) and "message" in err_sub:
+            err_msg = str(err_sub["message"]).strip()
+        elif isinstance(err_sub, str):
+            err_msg = err_sub.strip()
+        elif "message" in body_obj:
+            err_msg = str(body_obj["message"]).strip()
+        elif "detail" in body_obj:
+            err_msg = str(body_obj["detail"]).strip()
+    elif body_text:
+        err_msg = body_text[:300].strip()
+
     if status == 429:
         scope = _classify_scope(body_text, reset_token_hdr, retry_after)
-        return RateLimited(scope=scope, retry_after=retry_after, status=status)
+        return RateLimited(scope=scope, retry_after=retry_after, status=status, message=err_msg)
     if status >= 500:
-        return ProviderError(retryable=True, retry_after=retry_after, status=status)
-    return ProviderError(retryable=False, status=status)  # 401/403 bad key, 404 bad model, other client errors
+        return ProviderError(retryable=True, retry_after=retry_after, status=status, message=err_msg)
+    return ProviderError(retryable=False, status=status, message=err_msg)  # 401/403 bad key, 404 bad model, other client errors
 
 
 TRANSIENT = frozenset({502, 503, 504})

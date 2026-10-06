@@ -72,8 +72,10 @@ def _weights_sha() -> str:
 class LayaDecider:
     name = "laya"
 
-    def __init__(self, command: Sequence[str], env: Mapping[str, str], idle_s: float = IDLE_S) -> None:
+    def __init__(self, command: Sequence[str], env: Mapping[str, str], idle_s: float = IDLE_S,
+                 min_free_mb: int = 0) -> None:
         self._command, self._env, self._idle_s = tuple(command), dict(env), idle_s
+        self._min_free_mb = min_free_mb
         self._proc: asyncio.subprocess.Process | None = None
         self._ready = False
         self._warming: asyncio.Task[None] | None = None
@@ -84,7 +86,7 @@ class LayaDecider:
         self._answers: OrderedDict[str, Answer] = OrderedDict()
 
     @classmethod
-    def from_install(cls, addon: Path) -> LayaDecider | None:
+    def from_install(cls, addon: Path, min_free_mb: int = 1000) -> LayaDecider | None:
         """The decider for a finished install, or None when the add-on is not installed."""
         if not laya_install.is_installed(addon):
             return None
@@ -93,7 +95,7 @@ class LayaDecider:
                "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "OMP_NUM_THREADS": THREADS,
                "MKL_NUM_THREADS": THREADS, "TOKENIZERS_PARALLELISM": "false"}
         return cls([str(laya_install.python_of(addon)), str(worker), str(laya_install.model_dir(addon)),
-                    _weights_sha()], env)
+                    _weights_sha()], env, min_free_mb=min_free_mb)
 
     @property
     def state(self) -> str:
@@ -102,8 +104,21 @@ class LayaDecider:
             return "ready"
         return "loading" if self._warming is not None and not self._warming.done() else "off"
 
+    def _is_memory_low(self) -> bool:
+        if self._min_free_mb <= 0:
+            return False
+        try:
+            import psutil
+            available_mb = psutil.virtual_memory().available // (1024 * 1024)
+            return available_mb < self._min_free_mb
+        except Exception:
+            return False
+
     # ---- the question -----------------------------------------------------------------------------
     async def decide(self, request: Request) -> Answer | None:
+        if self._is_memory_low():
+            log.info("laya abstains: available memory is below min_free_mb (%d MB)", self._min_free_mb)
+            return None
         built = _question(request)
         if built is None or self._slow >= GIVE_UP_AFTER:
             return None

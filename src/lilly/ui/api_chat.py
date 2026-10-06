@@ -56,8 +56,15 @@ async def get_thread(request: Request) -> Response:
         raise NotFound(thread_id)
     msgs = conversations.list_messages(rt.db.reader, thread_id, limit=1000)
     runs = tasks.list_tasks(rt.db.reader, conversation_id=thread_id, limit=50)
+    thread_tasks = []
+    for task in reversed(runs):
+        checked = latest(rt.db.reader, task.id, "reply_check")
+        verdict = checked.payload.get("choice") if checked else None
+        item = task_json(task)
+        item["reply_check"] = verdict if verdict in (FOLLOWS, DRIFTS) else None
+        thread_tasks.append(item)
     return JSONResponse({"thread": conversation_json(conv), "messages": [message_json(m) for m in msgs],
-                         "tasks": [task_json(t) for t in reversed(runs)]})
+                         "tasks": thread_tasks})
 
 
 async def update_thread(request: Request) -> Response:

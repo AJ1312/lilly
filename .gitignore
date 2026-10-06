@@ -27,3 +27,9 @@ web/node_modules/
 *.db-shm
 
 .DS_Store
+*.log
+addons/
+web/test-results/
+web/playwright-report/
+.vscode/
+.idea/

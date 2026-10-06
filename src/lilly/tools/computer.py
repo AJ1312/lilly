@@ -189,6 +189,17 @@ class RunCommandTool(Tool):
             raise ValidationFailed(f"cannot read that command: {exc}") from exc
         if not argv:
             raise ValidationFailed("the command is empty")
+        if not Path(argv[0]).is_file() and " " in command:
+            # Keep an unquoted executable path with spaces intact; execution remains shell-free.
+            for end in range(len(command), 0, -1):
+                candidate = command[:end].rstrip()
+                rest = command[end:].lstrip()
+                if rest and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+                    try:
+                        argv = [candidate, *shlex.split(rest)]
+                    except ValueError as exc:
+                        raise ValidationFailed(f"cannot read that command: {exc}") from exc
+                    break
         program = Path(argv[0]).name
         if program in _BLOCKED_PROGRAMS or program.startswith("mkfs"):
             raise ToolError(f"'{program}' is not allowed")

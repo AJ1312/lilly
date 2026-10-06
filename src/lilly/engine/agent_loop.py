@@ -11,7 +11,10 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from lilly.core.shortlist import CONTROL_TOOLS, tool_options
+from lilly.decide.rules import SearchRanker
 from lilly.domain.caps import Cap
+from lilly.domain.decisions import Context, Kind, Request
 from lilly.domain.labels import Verdict
 from lilly.domain.payload import canonical, payload_hash
 from lilly.domain.plan import tool_call
@@ -171,6 +174,11 @@ class AgentLoop:
             "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order."
         )
 
+        # Caveman token efficiency rule
+        parts.append(
+            "Token minimization: Communicate with high information density. Omit conversational filler, pleasantries, and hedging. Output exact code, paths, commands, and numbers with minimal tokens."
+        )
+
         return "\n\n".join(parts)
 
     def _load_history(self) -> list[Message]:
@@ -273,6 +281,7 @@ class AgentLoop:
         self._grounding.record_user_message(self._goal)
 
         candidate_answer: str | None = None
+        last_turn_failed = False
 
         while True:
             if self._rec.cancelled:
@@ -287,11 +296,45 @@ class AgentLoop:
             else:
                 role = "act"
 
-            # 2. Visible tools
+            # 2. Visible tools and L4 tool shortlisting
             visible_tools = self._get_visible_tools()
+            shown_tools = visible_tools
+            if len(visible_tools) > 12 and not last_turn_failed:
+                specs_map = {name: t.spec for name, t in visible_tools.items()}
+                ans_ranking: tuple[str, ...] | None = None
+                if self._decisions is not None and self._decisions.active(Kind.TOOLS):
+                    outcome = await self._decisions.decide(
+                        Kind.TOOLS,
+                        self._rec.task_id,
+                        tool_options(specs_map),
+                        Context(text=self._goal),
+                    )
+                    if outcome.ranking:
+                        ans_ranking = outcome.ranking
+                if ans_ranking is None:
+                    ranker = SearchRanker()
+                    req_obj = Request(
+                        Kind.TOOLS,
+                        self._rec.task_id,
+                        tool_options(specs_map),
+                        Context(text=self._goal),
+                        1000,
+                        5.0,
+                    )
+                    ans = await ranker.decide(req_obj)
+                    if ans is not None and ans.ranking:
+                        ans_ranking = ans.ranking
+
+                if ans_ranking:
+                    always = [n for n in sorted(CONTROL_TOOLS) if n in specs_map]
+                    ranked = [n for n in dict.fromkeys(ans_ranking) if n in specs_map and n not in always]
+                    rest = [n for n in specs_map if n not in ranked and n not in always]
+                    chosen_names = set((ranked + rest)[:10] + always)
+                    shown_tools = {name: t for name, t in visible_tools.items() if name in chosen_names}
+
             tool_schemas = [
                 ToolSchema(name=name, description=t.spec.doc, parameters=dict(t.spec.schema))
-                for name, t in sorted(visible_tools.items(), key=lambda item: item[0])
+                for name, t in sorted(shown_tools.items(), key=lambda item: item[0])
             ]
 
             # 3. Check budgets
@@ -555,6 +598,12 @@ class AgentLoop:
             # Append all observations from this turn to messages in original call order
             all_sids = [f"t{turn}c{i}" for i in range(1, len(done.result.tool_calls) + 1)]
             messages.extend([obs_by_sid[sid] for sid in all_sids if sid in obs_by_sid])
+
+            # Check whether any step on this turn failed or had schema error
+            if obs_by_sid:
+                last_turn_failed = any(" ok (" not in msg.content for msg in obs_by_sid.values())
+            else:
+                last_turn_failed = False
 
         if not candidate_answer:
             raise Stop(TaskState.FAILED, "there was no answer to give")

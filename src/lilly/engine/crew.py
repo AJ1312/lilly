@@ -121,8 +121,12 @@ async def choose_pet(
     # 3. Laya PICK if active
     if pipeline is not None and pipeline.active(Kind.PICK):
         try:
-            options = tuple(Option(id=p.id, label=f"{p.name}: {p.pet}") for p in pets)
-            decision = await pipeline.decide(Kind.PICK, "route_preview", options, Context(text=goal))
+            pet_options: list[Option] = []
+            for p in pets:
+                sheet = parsed_sheet_for(p)
+                desc = sheet.description if sheet and sheet.description else (p.instructions or p.pet)
+                pet_options.append(Option(id=p.id, label=desc))
+            decision = await pipeline.decide(Kind.PICK, "route_preview", tuple(pet_options), Context(text=goal))
             if decision.choice and decision.confidence is not None and decision.confidence >= min_confidence:
                 matching = [p for p in pets if p.name == decision.choice or p.id == decision.choice]
                 if matching:

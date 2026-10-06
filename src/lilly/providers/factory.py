@@ -47,6 +47,11 @@ def build_provider(spec: ModelSpec, client: httpx.AsyncClient, keys: KeyStore,
     elif spec.provider == "ollama":
         p = OllamaProvider(local_client or client, spec.model_id, spec.base_url, gate,
                            keep_alive_s or (lambda: DEFAULT_KEEP_ALIVE_S))
+    elif spec.provider == "omniroute":
+        target_client = local_client or client if spec.local else client
+        p = OpenAICompatProvider("omniroute", target_client, keys, ref, spec.model_id,
+                                 spec.base_url or "http://127.0.0.1:20128/v1",
+                                 {"X-Title": "Lilly"}, json_mode=json_ok)
     else:
         raise ConfigurationError(f"unknown provider {spec.provider!r}")
 

@@ -40,9 +40,16 @@ class ToolError(LillyError):
 class ProviderError(LillyError):
     public = "The model provider failed"
 
-    def __init__(self, retryable: bool, retry_after: float | None = None, status: int | None = None) -> None:
-        super().__init__(retryable, retry_after, status)
-        self.retryable, self.retry_after, self.status = retryable, retry_after, status
+    def __init__(self, retryable: bool, retry_after: float | None = None, status: int | None = None,
+                 message: str | None = None) -> None:
+        super().__init__(retryable, retry_after, status, message)
+        self.retryable, self.retry_after, self.status, self.message = retryable, retry_after, status, message
+
+    def __str__(self) -> str:
+        base = f"HTTP {self.status}" if self.status else "error"
+        if self.message:
+            return f"{base}: {self.message}"
+        return f"status={self.status}, retryable={self.retryable}"
 
 
 RateLimitScope = Literal["minute", "day", "tokens", "unknown"]
@@ -61,8 +68,9 @@ class RateLimited(QuotaExhausted):
         retry_after: float | None = None,
         status: int = 429,
         model: str | None = None,
+        message: str | None = None,
     ) -> None:
-        super().__init__(retryable=True, retry_after=retry_after, status=status)
+        super().__init__(retryable=True, retry_after=retry_after, status=status, message=message)
         self.scope: RateLimitScope = scope
         self.model: str | None = model
 

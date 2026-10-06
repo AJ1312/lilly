@@ -23,7 +23,7 @@ from lilly.domain.decisions import DecisionSettings, decisions_to_dict, parse_de
 from lilly.domain.devbox import DevboxSettings, devbox_to_dict, parse_devbox
 from lilly.domain.labels import Label, Mode
 
-PROVIDERS = frozenset({"mistral", "openrouter", "gemini", "ollama", "openai"})
+PROVIDERS = frozenset({"mistral", "openrouter", "gemini", "ollama", "openai", "omniroute"})
 # Optional features. Each decides which tools or endpoints exist at all.
 MODULES = frozenset({"files", "web", "memory", "notes", "skills", "computer", "browser", "devbox"})
 SEARCH_ENGINES = frozenset({"duckduckgo", "brave", "searxng"})

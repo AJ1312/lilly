@@ -252,11 +252,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     "memory.write": ToolSpec(
         Risk.R1, module="memory",
         doc="Remember a short fact about the user.",
-        args='{"text": "the fact"}',
+        args='{"text": "the fact", "tags": ["preference"]}',
         schema={
             "type": "object",
             "properties": {
                 "text": {"type": "string", "description": "Short fact about the user to remember"},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional short tags"},
             },
             "required": ["text"],
             "additionalProperties": False,

@@ -187,5 +187,32 @@
     "source_url": "https://openrouter.ai/blog/tutorials/free-llm-apis-compared/",
     "verified_on": "2026-09-24",
     "confidence": "documented"
+  },
+  {
+    "id": "omniroute-auto",
+    "name": "omniroute",
+    "provider": "omniroute",
+    "model_id": "auto",
+    "base_url": "http://127.0.0.1:20128/v1",
+    "openai_compatible": true,
+    "starter": false,
+    "enabled": false,
+    "local": false,
+    "lane": 1,
+    "tags": ["gateway", "failover", "compression"],
+    "caps": ["JSON", "LONG_CONTEXT", "TOOLS"],
+    "key_ref": "omniroute",
+    "free_tier": {
+      "rpm": null,
+      "rpd": null,
+      "tpm": null,
+      "tpd": null,
+      "notes": "OmniRoute local AI gateway (routes across 300+ providers with Caveman/RTK compression)"
+    },
+    "tools": "native",
+    "max_context_tokens": 128000,
+    "source_url": "https://github.com/diegosouzapw/OmniRoute",
+    "verified_on": "2026-10-06",
+    "confidence": "documented"
   }
 ]

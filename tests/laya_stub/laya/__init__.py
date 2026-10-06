@@ -19,7 +19,15 @@ class Agent:
             yes = "ignore" in state.lower() or any(lines.count(line) >= 3 for line in lines)   # or a step repeated
             return {"answers": {"q": {"noul": 0.92 if yes else 0.08, "confidence": 0.9}}}
         keys = list(q["criteria"])
-        pick = next((k for k in keys if q["criteria"][k].lower() in state.lower()), keys[0])
+        state_lower = state.lower()
+        pick = next((k for k in keys if q["criteria"][k].lower() in state_lower), None)
+        if pick is None:
+            state_words = {w.strip(",.!?\"'()") for w in state_lower.split() if len(w) > 2}
+            def word_score(k: str) -> int:
+                crit_words = {w.strip(",.!?\"'()") for w in q["criteria"][k].lower().split() if len(w) > 2}
+                return len(crit_words & state_words)
+            scored = sorted(keys, key=word_score, reverse=True)
+            pick = scored[0] if scored and word_score(scored[0]) > 0 else keys[0]
         return {"answers": {"q": {"choice": pick, "confidence": 0.88}}}
 
 

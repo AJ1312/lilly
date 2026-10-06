@@ -35,7 +35,8 @@ class MemoryWriteTool(Tool):
         text = str_arg(args, "text", max_len=MAX_TEXT).strip()
         if not text:
             raise ValidationFailed("nothing to remember")
-        row = await self._db.write(lambda con: add_memory_if_new(con, text, self._clock(), source="agent"))
+        raw_tags = args.get("tags", ())
+        row = await self._db.write(lambda con: add_memory_if_new(con, text, self._clock(), source="agent", tags=raw_tags))
         if row is None:
             return ToolResult("Already remembered.", Label.PUBLIC, False)
         return ToolResult(f"Remembered (#{row.id}).", Label.PUBLIC, False)

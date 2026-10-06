@@ -140,7 +140,8 @@ def message_json(m: conversations.MessageRow) -> dict[str, Any]:
 
 
 def memory_json(m: memory.MemoryRow) -> dict[str, Any]:
-    return {"id": m.id, "text": m.text, "label": m.label.name, "source": m.source, "at": m.created_at}
+    return {"id": m.id, "text": m.text, "label": m.label.name, "source": m.source, "at": m.created_at,
+            "tags": list(m.tags)}
 
 
 def space_json(s: spaces.SpaceRow) -> dict[str, Any]:

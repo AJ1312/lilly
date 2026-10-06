@@ -236,9 +236,12 @@ async def test_model_test_reports_success_and_failure(api: Api) -> None:
 
 async def test_memory_notes_and_agents_behave(api: Api) -> None:
     await api.sign_in()
-    m = (await api.send("POST", "/api/memory", {"text": "Prefers metric units"})).json()["memory"]
+    m = (await api.send("POST", "/api/memory", {"text": "Prefers metric units", "tags": ["Preference", "home"]})).json()["memory"]
+    assert m["tags"] == ["preference", "home"]
     assert (await api.get("/api/memory?q=metric")).json()["memory"][0]["id"] == m["id"]
-    assert (await api.send("PATCH", f"/api/memory/{m['id']}", {"text": "Prefers imperial"})).json()["memory"]["text"] == "Prefers imperial"
+    assert (await api.get("/api/memory?tag=home")).json()["memory"][0]["id"] == m["id"]
+    changed = (await api.send("PATCH", f"/api/memory/{m['id']}", {"text": "Prefers imperial", "tags": ["units"]})).json()["memory"]
+    assert changed["text"] == "Prefers imperial" and changed["tags"] == ["units"]
     assert (await api.send("DELETE", f"/api/memory/{m['id']}")).status_code == 200
     assert (await api.send("DELETE", f"/api/memory/{m['id']}")).status_code == 404
     assert (await api.send("POST", "/api/memory/clear", {})).status_code == 400

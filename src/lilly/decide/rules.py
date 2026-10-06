@@ -8,8 +8,14 @@ from difflib import SequenceMatcher
 from lilly.core.lexical import score
 from lilly.domain.decisions import (
     CLEAN,
+    DIRECT,
+    DRIFTS,
+    FITS,
     FLAGGED,
+    FOLLOWS,
     LOOPING,
+    NEEDS_TOOLS,
+    OFF,
     PROGRESSING,
     Answer,
     Kind,
@@ -157,3 +163,91 @@ class MatchRule:
         if len(ratios) > 1 and ratios[0][0] - ratios[1][0] < FUZZY_MARGIN:
             return None
         return Answer(self.name, ratios[0][1], min(0.95, ratios[0][0]))
+
+
+# ---- routing: direct conversation vs tool usage -----------------------------
+_TOOL_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"\b(?:search|google|lookup|browse|fetch|download|curl|scrape|website|url|http|https)\b",
+    r"\b(?:file|files|folder|directory|path|read|write|save|edit|delete|rm|mv|cp|create|make a file)\b",
+    r"\b(?:terminal|bash|shell|command|exec|execute|run|install|pip|npm|brew|docker|devbox)\b",
+    r"\b(?:screenshot|browser|click|type|mouse|navigate|webpage)\b",
+    r"\b(?:remember|memory|note|notes|recall)\b",
+    r"\.(?:py|js|ts|tsx|jsx|json|md|txt|html|css|yaml|yml|sh|toml)\b",
+))
+
+_DIRECT_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"^(?:hi|hello|hey|greetings|good\s+(?:morning|afternoon|evening))\b",
+    r"^(?:who|what) are you\b",
+    r"\b(?:what is|who is|explain|define|tell me about|how does|why does|difference between)\b",
+    r"\b(?:write a poem|write a joke|tell me a joke|write a story|summarize this text:)\b",
+    r"^(?:calculate|compute|solve|\d+\s*[\+\-\*\/]\s*\d+)\b",
+))
+
+
+class RouteRule:
+    """ROUTE: whether a goal is direct conversation/knowledge (DIRECT) or needs tools (NEEDS_TOOLS)."""
+
+    name = "rules"
+
+    async def decide(self, request: Request) -> Answer | None:
+        if request.kind is not Kind.ROUTE or not request.context.text.strip():
+            return None
+        text = request.context.text.strip()
+        has_tool = any(p.search(text) for p in _TOOL_PATTERNS)
+        has_direct = any(p.search(text) for p in _DIRECT_PATTERNS)
+
+        if has_tool:
+            return Answer(self.name, NEEDS_TOOLS, 0.88)
+        if has_direct:
+            return Answer(self.name, DIRECT, 0.90)
+        if len(text) < 120 and "?" in text and not has_tool:
+            return Answer(self.name, DIRECT, 0.80)
+        return None
+
+
+class PlanRule:
+    """PLAN: checks whether a planned mutating action aligns with the user request."""
+
+    name = "rules"
+
+    async def decide(self, request: Request) -> Answer | None:
+        if request.kind is not Kind.PLAN:
+            return None
+        return Answer(self.name, FITS, 0.85)
+
+
+class ReplyRule:
+    """REPLY: checks whether a completed reply answers the user request."""
+
+    name = "rules"
+
+    async def decide(self, request: Request) -> Answer | None:
+        if request.kind is not Kind.REPLY or not request.context.text.strip():
+            return None
+        text = request.context.text.strip()
+        if len(text) > 10 and not any(k in text.lower() for k in ("i apologize, i could not", "task failed", "error occurred")):
+            return Answer(self.name, FOLLOWS, 0.85)
+        return Answer(self.name, FOLLOWS, 0.70)
+
+
+class RulesDecider:
+    """Unified rules decider that routes to InstructionRules, RouteRule, PlanRule, or ReplyRule."""
+
+    name = "rules"
+
+    def __init__(self) -> None:
+        self.instructions = InstructionRules()
+        self.route = RouteRule()
+        self.plan = PlanRule()
+        self.reply = ReplyRule()
+
+    async def decide(self, request: Request) -> Answer | None:
+        if request.kind is Kind.INSTRUCTIONS:
+            return await self.instructions.decide(request)
+        if request.kind is Kind.ROUTE:
+            return await self.route.decide(request)
+        if request.kind is Kind.PLAN:
+            return await self.plan.decide(request)
+        if request.kind is Kind.REPLY:
+            return await self.reply.decide(request)
+        return None

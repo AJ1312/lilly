@@ -234,7 +234,7 @@ DEFAULT_CHAIN: Mapping[Kind, tuple[str, ...]] = {Kind.TOOLS: ("search",), Kind.L
                                                  Kind.PLAN: (), Kind.REPLY: (), Kind.ROUTE: ()}   # assist is never asked unless switched on
 TIMEOUT_BOUNDS = (0.05, 30.0)
 MAX_CHAIN = 4
-CAP_BOUNDS = {"max_per_task": (1, 10_000), "max_model_tokens_per_task": (0, 100_000)}
+CAP_BOUNDS = {"max_per_task": (1, 10_000), "max_model_tokens_per_task": (0, 100_000), "min_free_mb": (0, 128_000)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +253,8 @@ class KindSettings:
     enabled: bool = True
     shadow: bool = False                  # run and log, but tell the caller "no decision"
     chain: tuple[ChainStep, ...] = ()
+    min_samples: int = 0
+    min_precision: float = 0.8
 
 
 ASSIST_KINDS = (Kind.PLAN, Kind.REPLY, Kind.ROUTE)
@@ -271,9 +273,10 @@ class DecisionSettings:
     max_per_task: int = 200               # questions one task may ask
     max_model_tokens_per_task: int = 2000  # small-model tokens one task may spend
     kinds: Mapping[str, KindSettings] = field(default_factory=_default_kinds)
+    min_free_mb: int = 1000               # minimum free memory required for Laya to load
 
     def for_kind(self, kind: Kind) -> KindSettings:
-        return self.kinds[kind.value]
+        return self.kinds.get(kind.value, KindSettings(enabled=False))
 
 
 LAYA_KINDS = (Kind.LOOP, Kind.INSTRUCTIONS, Kind.PICK)
@@ -338,13 +341,21 @@ def _kind(kind: Kind, raw: object, errs: list[str]) -> KindSettings:
     if not isinstance(raw, dict):
         errs.append(f"{where} must be an object")
         return KindSettings()
-    for key in raw.keys() - {"enabled", "shadow", "chain", "min_confidence", "timeout_s"}:
+    for key in raw.keys() - {"enabled", "shadow", "chain", "min_confidence", "timeout_s", "min_samples", "min_precision"}:
         errs.append(f"{where}: unknown setting {key!r}")
     flags = {}
     for key, default in (("enabled", True), ("shadow", kind in ASSIST_KINDS)):
         flags[key] = raw.get(key, default)
         if not isinstance(flags[key], bool):
             errs.append(f"{where}.{key} must be true or false")
+    min_samples = raw.get("min_samples", 0)
+    if not isinstance(min_samples, int) or min_samples < 0 or min_samples > 100_000:
+        errs.append(f"{where}.min_samples must be a positive number")
+        min_samples = 0
+    min_precision = raw.get("min_precision", 0.8)
+    if not isinstance(min_precision, (int, float)) or min_precision < 0.0 or min_precision > 1.0:
+        errs.append(f"{where}.min_precision must be between 0.0 and 1.0")
+        min_precision = 0.8
     names = raw.get("chain", DEFAULT_CHAIN[kind])
     if not isinstance(names, list | tuple) or not all(isinstance(n, str) for n in names):
         errs.append(f"{where}.chain must be a list of decider names")
@@ -362,7 +373,7 @@ def _kind(kind: Kind, raw: object, errs: list[str]) -> KindSettings:
     times = _per_decider(raw.get("timeout_s", {}), chain, f"{where}.timeout_s", TIMEOUT_BOUNDS,
                          DEFAULT_TIMEOUT_S, errs)
     steps = tuple(ChainStep(n, mins[n], times[n]) for n in chain if n in DECIDERS)
-    return KindSettings(bool(flags["enabled"]), bool(flags["shadow"]), steps)
+    return KindSettings(bool(flags["enabled"]), bool(flags["shadow"]), steps, min_samples=min_samples, min_precision=float(min_precision))
 
 
 def parse_decisions(raw: object) -> tuple[DecisionSettings | None, list[str]]:
@@ -390,11 +401,13 @@ def parse_decisions(raw: object) -> tuple[DecisionSettings | None, list[str]]:
 
 def decisions_to_dict(d: DecisionSettings) -> dict[str, Any]:
     out: dict[str, Any] = {"enabled": d.enabled, "max_per_task": d.max_per_task,
-                           "max_model_tokens_per_task": d.max_model_tokens_per_task}
+                           "max_model_tokens_per_task": d.max_model_tokens_per_task,
+                           "min_free_mb": d.min_free_mb}
     for name, k in d.kinds.items():
         out[name] = {"enabled": k.enabled, "shadow": k.shadow, "chain": [s.decider for s in k.chain],
                      "min_confidence": {s.decider: s.min_confidence for s in k.chain},
-                     "timeout_s": {s.decider: s.timeout_s for s in k.chain}}
+                     "timeout_s": {s.decider: s.timeout_s for s in k.chain},
+                     "min_samples": k.min_samples, "min_precision": k.min_precision}
     return out
 
 

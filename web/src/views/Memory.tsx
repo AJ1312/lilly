@@ -9,6 +9,7 @@ import { ago } from '../ui/format'
 function Row({ item, onChanged }: { item: MemoryItem; onChanged: () => void }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(item.text)
+  const [tags, setTags] = useState(item.tags.join(', '))
   const toast = useApp((s) => s.toast)
   const run = async (fn: () => Promise<unknown>) => {
     try {
@@ -23,15 +24,17 @@ function Row({ item, onChanged }: { item: MemoryItem; onChanged: () => void }) {
       {editing ? (
         <div className="memory-edit">
           <textarea aria-label="Edit memory" value={text} rows={2} onChange={(e) => setText(e.target.value)} />
+          <input aria-label="Memory tags" value={tags} placeholder="Tags, separated by commas" onChange={(e) => setTags(e.target.value)} />
           <div className="row">
-            <Button small kind="primary" onClick={() => void run(async () => { await api.patch(`/api/memory/${item.id}`, { text }); setEditing(false) })}>Save</Button>
-            <Button small onClick={() => { setText(item.text); setEditing(false) }}>Cancel</Button>
+            <Button small kind="primary" onClick={() => void run(async () => { await api.patch(`/api/memory/${item.id}`, { text, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) }); setEditing(false) })}>Save</Button>
+            <Button small onClick={() => { setText(item.text); setTags(item.tags.join(', ')); setEditing(false) }}>Cancel</Button>
           </div>
         </div>
       ) : (
         <>
           <p>{item.text}</p>
           <div className="row">
+            {item.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
             <Pill tone={item.label === 'PERSONAL' ? 'warn' : 'mute'}>{item.label === 'PERSONAL' ? 'private' : 'shareable'}</Pill>
             <span className="hint">{item.source === 'agent' ? 'Lilly noted this' : 'You added this'} · {ago(item.at)}</span>
             <span className="grow" />
@@ -50,6 +53,7 @@ function Row({ item, onChanged }: { item: MemoryItem; onChanged: () => void }) {
 export function Memory() {
   const [query, setQuery] = useState('')
   const [text, setText] = useState('')
+  const [tags, setTags] = useState('')
   const [wipe, setWipe] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const list = useLoad<{ memory: MemoryItem[] }>(`/api/memory${query ? `?q=${encodeURIComponent(query)}` : ''}`, true)
@@ -57,8 +61,9 @@ export function Memory() {
 
   const add = async () => {
     try {
-      await api.post('/api/memory', { text })
+      await api.post('/api/memory', { text, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) })
       setText('')
+      setTags('')
       setError(null)
       list.reload()
     } catch (e) {
@@ -76,6 +81,7 @@ export function Memory() {
       <form className="inline-form" onSubmit={(e) => { e.preventDefault(); void add() }}>
         <label className="sr-only" htmlFor="new-memory">Add a memory</label>
         <input id="new-memory" placeholder="For example: I prefer metric units" value={text} maxLength={8000} onChange={(e) => setText(e.target.value)} />
+        <input aria-label="Memory tags" placeholder="Tags, separated by commas" value={tags} onChange={(e) => setTags(e.target.value)} />
         <Button type="submit" kind="primary" icon="plus" disabled={!text.trim()}>Remember</Button>
       </form>
       <ErrorNote text={error ?? list.error} />

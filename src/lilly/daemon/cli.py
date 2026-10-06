@@ -101,6 +101,55 @@ def cmd_open(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_share(args: argparse.Namespace) -> int:
+    """Start Lilly if needed and establish a public HTTPS tunnel accessible from outside the network."""
+    import shutil
+    paths, port = init_paths(), _port(args)
+    if not _is_up(port):
+        print("Starting Lilly...")
+        _start_in_background(paths, port)
+    auth = Auth(paths.token, paths.secret)
+    cf_path = shutil.which("cloudflared") or str(Path.home() / ".local/bin/cloudflared")
+    if not os.path.exists(cf_path):
+        raise ConfigurationError(f"cloudflared was not found at {cf_path}. Install it to enable remote sharing.")
+    print(f"Opening secure HTTPS tunnel for Lilly on port {port}...")
+    proc = subprocess.Popen(
+        [cf_path, "tunnel", "--url", f"http://{HOST}:{port}"],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        text=True,
+    )
+    url: str | None = None
+    deadline = time.monotonic() + 30.0
+    try:
+        assert proc.stderr is not None
+        while time.monotonic() < deadline and proc.poll() is None:
+            line = proc.stderr.readline()
+            if "trycloudflare.com" in line:
+                for part in line.split():
+                    if part.startswith("https://") and "trycloudflare.com" in part:
+                        url = part.strip()
+                        break
+                if url:
+                    break
+        if not url:
+            proc.terminate()
+            raise ConfigurationError("could not get a public tunnel URL from cloudflared")
+        login_url = f"{url}/login?token={auth.token}"
+        print("\n" + "=" * 68)
+        print("  Lilly is accessible from anywhere outside your network at:")
+        print(f"  {login_url}")
+        print("=" * 68 + "\n")
+        print("Press Ctrl-C to stop remote access.", flush=True)
+        webbrowser.open(login_url)
+        proc.wait()
+        return 0
+    except KeyboardInterrupt:
+        proc.terminate()
+        print("\nRemote tunnel closed.")
+        return 0
+
+
 def cmd_token(args: argparse.Namespace) -> int:
     paths = init_paths()
     print(Auth(paths.token, paths.secret).token)
@@ -322,6 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, fn, help_ in (
         ("run", cmd_run, "run Lilly in this terminal (the default)"),
         ("open", cmd_open, "start Lilly if needed and open it, signed in, in your browser"),
+        ("share", cmd_share, "share Lilly securely over a public HTTPS tunnel to access outside your network"),
         ("token", cmd_token, "print the access token"),
         ("doctor", cmd_doctor, "check this installation and say what to fix"),
         ("status", cmd_status, "say whether Lilly is running"),

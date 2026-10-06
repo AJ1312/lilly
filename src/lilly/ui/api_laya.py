@@ -64,6 +64,23 @@ async def set_assist(request: Request) -> Response:
         raise ValidationFailed("kind must be plan, reply or route, and enabled and act must be true or false")
     if on and not rt.laya.status()["installed"]:
         raise ConflictError("Laya is not installed yet")
+    if on and act:
+        kind_settings = rt.settings.decisions.for_kind(kind)
+        if kind_settings.min_samples > 0:
+            from lilly.store import decisions as dec_store
+            summaries = dec_store.summary(rt.db.reader)
+            matching = [s for s in summaries if s.kind == kind.value and s.decider == "laya"]
+            accepted = sum(s.accepted for s in matching)
+            corrected = sum(s.corrected for s in matching)
+            n = accepted + corrected
+            precision = (accepted / n) if n > 0 else 0.0
+            if n < kind_settings.min_samples or precision < kind_settings.min_precision:
+                p = round(precision * 100, 1)
+                p_val = int(p) if p.is_integer() else p
+                raise ConflictError(
+                    f"Laya's answers on this question have not been checked enough yet "
+                    f"({n} of {kind_settings.min_samples} marked, {p_val} % right). Keep it on watch only."
+                )
     await rt.apply_settings(replace(rt.settings, decisions=with_assist(rt.settings.decisions, kind, on, act)))
     return JSONResponse(_view(rt))
 

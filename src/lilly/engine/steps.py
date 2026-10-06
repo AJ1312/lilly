@@ -99,6 +99,13 @@ class StepExecutor:
     def loop_mode(self, val: bool) -> None:
         self._loop_mode = val
 
+    def add_finished(self, sig: StepSig) -> None:
+        self._finished.append(sig)
+
+    @property
+    def finished(self) -> list[StepSig]:
+        return self._finished
+
     def may_taint(self) -> bool:
         """Whether a finished step's result can come back more tainted than its tool declares (the decision layer
         flags output that reads as instructions). The lane scheduler plans for that."""
