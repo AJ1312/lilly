@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useApp } from '../store'
-import { LIVE_STATES, type Task, type TaskDetail } from '../types'
+import { APPROVAL_MODES, LIVE_STATES, type Settings, type Task, type TaskDetail } from '../types'
 import { Icon } from '../ui/Icon'
 import { Markdown } from '../ui/Markdown'
 import { RunCard } from '../ui/RunCard'
-import { Button, ErrorNote, StatePill } from '../ui/kit'
+import { Button, ErrorNote, Segmented, StatePill } from '../ui/kit'
 import { ago } from '../ui/format'
 
 const statusLabel: Record<string, string> = {
@@ -18,6 +18,10 @@ function TaskComposer({ onCreated }: { onCreated: (task: Task) => void }) {
   const [goal, setGoal] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [approvalBusy, setApprovalBusy] = useState(false)
+  const [approvalError, setApprovalError] = useState<string | null>(null)
+  const settings = useLoad<{ settings: Settings; problems: string[] }>('/api/settings')
+  const approvalMode = settings.data?.settings.approval_mode ?? 'MANUAL'
   const submit = async () => {
     if (!goal.trim() || busy) return
     setBusy(true); setError(null)
@@ -26,12 +30,30 @@ function TaskComposer({ onCreated }: { onCreated: (task: Task) => void }) {
       setGoal(''); onCreated(result.task)
     } catch (err) { setError(errorText(err)) } finally { setBusy(false) }
   }
+  const changeApprovalMode = async (mode: Settings['approval_mode']) => {
+    if (!settings.data || mode === approvalMode || approvalBusy) return
+    setApprovalBusy(true); setApprovalError(null)
+    try {
+      settings.replace(await api.put('/api/settings', { ...settings.data.settings, approval_mode: mode }))
+    } catch (err) { setApprovalError(errorText(err)) } finally { setApprovalBusy(false) }
+  }
   return (
     <section className="task-composer" aria-label="New task">
       <textarea value={goal} rows={3} maxLength={4000} placeholder="What should Lilly get done?" aria-label="Task description"
         onChange={(event) => setGoal(event.target.value)} onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void submit() }
         }} />
+      <div className="task-composer-approval">
+        <span className="label">Approval</span>
+        <Segmented
+          label="Approval mode for tasks"
+          value={approvalMode}
+          onChange={(value) => void changeApprovalMode(value)}
+          options={APPROVAL_MODES.map((mode) => ({ value: mode.value, label: mode.name, hint: mode.blurb }))}
+        />
+        <span className="hint">{APPROVAL_MODES.find((mode) => mode.value === approvalMode)?.blurb}</span>
+      </div>
+      <ErrorNote text={approvalError} />
       <div className="task-composer-footer"><span className="hint">Lilly will plan, act, verify, and keep you posted.</span><Button kind="primary" icon="arrow-right" busy={busy} disabled={!goal.trim()} onClick={() => void submit()}>Start task</Button></div>
       <ErrorNote text={error} />
     </section>

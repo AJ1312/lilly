@@ -203,6 +203,10 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .task-composer { margin: 0 16px 22px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .task-composer textarea { min-height: 82px; border: 0; padding: 3px 2px; background: transparent; resize: none; }
 .task-composer textarea:focus { outline: none; }
+.task-composer-approval { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); }
+.task-composer-approval .label { font-size: .74rem; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+.task-composer-approval .segmented { width: fit-content; }
+.task-composer-approval .hint { font-size: .74rem; }
 .task-composer-footer { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .task-composer-footer .hint { flex: 1; font-size: .76rem; }
 .workspace-section-head { display: flex; justify-content: space-between; padding: 0 24px 8px; color: var(--ink-3); font-size: .74rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }

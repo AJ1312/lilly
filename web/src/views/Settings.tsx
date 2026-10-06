@@ -34,7 +34,7 @@ const MODULES: { id: string; label: string; hint: string }[] = [
   { id: 'skills', label: 'Skills', hint: 'Ready-made routines such as research and file organiser.' },
   { id: 'browser', label: 'Browser', hint: 'Let agents open pages in their own separate browser (your installed Chrome, Chromium, Edge or Brave, with an empty profile that holds none of your sign-ins). Page text is always treated as untrusted. Choose below how much it may do without asking.' },
   { id: 'devbox', label: 'Devbox', hint: 'Let agents you allow run commands and code in a sealed container: no network, and it can only see the one folder you share with it. Set it up under Devbox.' },
-  { id: 'computer', label: 'Computer control', hint: 'Let agents you allow open links and apps, list and stop programs, show notifications and run commands in a shared folder. Every use asks for your approval, whatever the agent\'s mode.' },
+  { id: 'computer', label: 'Computer control', hint: 'Let agents you allow open links and apps, control the pointer and keyboard, and run commands in a shared folder. MANUAL asks, AUTO permits policy-safe actions, and OFF suppresses prompts without bypassing policy.' },
 ]
 
 function General({ d }: { d: SettingsDraft }) {
