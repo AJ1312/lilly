@@ -22,7 +22,7 @@ from lilly.domain.labels import Mode
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.domain.settings import CrewSettings, LimitSettings
 from lilly.domain.sheet import TaskProfile
-from lilly.engine.fence import fence
+from lilly.domain.text import fence
 from lilly.engine.bus import EventBus
 from lilly.engine.orchestrator import Orchestrator, SubmitRequest
 from lilly.engine.runner import EngineDeps

@@ -5,8 +5,7 @@ from __future__ import annotations
 from lilly.domain.decisions import ASSIST_KINDS, Answer, Request, valid_confidence
 from lilly.domain.labels import Label
 from lilly.domain.ports import Completer, CompletionRequest, Message
-from lilly.domain.text import extract_json
-from lilly.engine.fence import fence
+from lilly.domain.text import extract_json, fence
 
 REPLY_TOKENS = 60
 TEXT_CHARS = 1500

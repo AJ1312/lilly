@@ -13,7 +13,7 @@ from lilly.domain.labels import Label
 from lilly.domain.plan import FINAL_TOOL, MAX_STEPS, validate_plan
 from lilly.domain.ports import Completed, CompletionRequest, Message
 from lilly.domain.text import extract_json
-from lilly.engine.fence import fence
+from lilly.domain.text import fence
 from lilly.domain.tools_registry import ToolSpec
 
 MAX_REPAIRS = 2

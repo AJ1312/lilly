@@ -22,6 +22,7 @@ from lilly.app.paths import LillyPaths
 from lilly.app.power import Caffeinate
 from lilly.decide.rules import InstructionRules, LoopRule, MatchRule, RulesDecider, SearchRanker
 from lilly.decide.small_model import SmallModelDecider
+from lilly.decide.system1 import System1Engine
 from lilly.domain.clock import Clock
 from lilly.domain.decisions import Decider
 from lilly.domain.devbox import Engine, Engines
@@ -34,6 +35,7 @@ from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
 from lilly.engine.decisions import DatabaseSink, DecisionPipeline
 from lilly.engine.delegate import DelegateHandler, DelegationContext
+from lilly.engine.session_runtime import SessionRuntime
 from lilly.engine.orchestrator import Orchestrator
 from lilly.engine.quick import QuickRouter, load_intents
 from lilly.engine.runner import EngineDeps
@@ -41,6 +43,7 @@ from lilly.engine.scheduler import Scheduler
 from lilly.providers.http import create_http_client, create_local_client
 from lilly.providers.keys import open_key_store
 from lilly.providers.router import ModelRouter
+from lilly.providers.model_broker import ModelBroker
 from lilly.store import agents, conversations, memory, retention, routines, snapshot, spaces
 from lilly.store import mcp as mcp_store
 from lilly.store.connection import open_reader
@@ -95,6 +98,7 @@ class Runtime:
         self.bus = EventBus()
         self.grants = GrantStore()
         self.router = ModelRouter(settings, keys, client, db, self.grants, local_client)
+        self.model_broker = ModelBroker(settings, keys, client, db, self.grants, local_client, clock, on_event=self.bus.event)
         self.approvals = ApprovalService(db, self.bus, clock)
         self.scope = self._build_scope(settings)
         self.mcp = McpManager(self._secret)
@@ -104,6 +108,8 @@ class Runtime:
         self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
+        self.system1_engine = System1Engine(laya_decider=None, engine_settings=lambda: settings.engine)
+        self.session_runtime = SessionRuntime(db, self.model_broker, self.system1_engine, clock, on_event=self.bus.event)
         
         # Quick Actions setup
         self.app_index = AppIndex(clock=clock, ttl_s=settings.engine.quick_index_ttl_s)
@@ -115,6 +121,11 @@ class Runtime:
         self.read_cache = ReadCache()
         self.standing = StandingStore(db)
         self.decisions = DecisionPipeline(lambda: self.settings.decisions, self._deciders, DatabaseSink(db), clock)
+        
+        # Set Laya decider for System1 engine when Laya is available
+        if self.laya.decider:
+            self.system1_engine.set_laya_decider(self.laya.decider)
+        
         self.orchestrator = Orchestrator(EngineDeps(
             db, self.router, lambda: self.tools, lambda: self.scope, lambda: self.settings.file_roots, self.bus,
             self.approvals, self.grants, clock, lambda: self.settings.limits, self.decisions,
@@ -157,6 +168,8 @@ class Runtime:
                  owns_clients, clock, settings, problems)
         try:
             await rt.router.start()
+            await rt.model_broker.start()
+            await rt.session_runtime.start()
             await rt.reload_mcp()
             rt.orchestrator.configure(settings)
             await rt.orchestrator.start()
@@ -213,6 +226,8 @@ class Runtime:
         self.quick_router = QuickRouter(load_intents(), self.app_index, lambda: new.engine)
         
         await self.router.configure(new)
+        await self.model_broker.configure(new)
+        self.system1_engine.set_engine_settings(lambda: new.engine)
         self.orchestrator.configure(new)
         self._sync_power()
         for observe in self._observers:

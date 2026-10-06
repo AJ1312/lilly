@@ -51,7 +51,7 @@ from lilly.engine.messages import (
     OBS_OK,
     OBS_UNAVAILABLE,
 )
-from lilly.engine.fence import fence
+from lilly.domain.text import fence
 from lilly.engine.outcome import StepDeclined, StepFailed, StepOutcome, Stop, clip
 from lilly.engine.record import TaskRecord
 from lilly.engine.steps import StepExecutor
@@ -635,7 +635,7 @@ class AgentLoop:
             messages.extend([obs_by_sid[sid] for sid in all_sids if sid in obs_by_sid])
 
             # Early finish for terminal tools (P2-Bc)
-            text_with_calls = (done.result.content or "").strip()
+            text_with_calls = (done.result.text or "").strip()
             if (self._engine_settings().finish_on_terminal
                     and outcomes
                     and not text_with_calls                       # the model said nothing else this turn

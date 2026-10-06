@@ -10,6 +10,20 @@ _FENCE = re.compile(r"^\s*```[a-zA-Z0-9]*\s*|\s*```\s*$")
 
 _FENCE_TAG = re.compile(r"<\s*(/?)\s*untrusted_data\s*>", re.IGNORECASE)
 
+OPEN, CLOSE = "<untrusted_data>", "</untrusted_data>"
+	
+
+def neutralise(text: str) -> str:
+    """Break any fence-like tag inside the text. It stays readable ('&lt;/untrusted_data>') but cannot close ours."""
+    return _FENCE_TAG.sub(lambda m: m.group(0).replace("<", "&lt;", 1), text)
+
+
+def fence(text: str, limit: int | None = None) -> tuple[str, bool]:
+    """Truncate FIRST, neutralise, then wrap. Returns (fenced, was_truncated). The closing tag is always present."""
+    cut = limit is not None and len(text) > limit
+    body = neutralise(text[:limit] if cut else text)
+    return f"{OPEN}\n{body}\n{CLOSE}", cut
+
 
 def fence_untrusted(text: str) -> str:
     """Wrap text that came from outside so a model reads it as data. A closing tag inside the text is defused,
