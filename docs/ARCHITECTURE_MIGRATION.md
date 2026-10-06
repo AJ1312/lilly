@@ -3,6 +3,14 @@
 This document records the completed migration boundaries. It is not a second
 runtime design: the active implementation is AgentLoop, Laya System-1,
 ModelBroker, SessionRuntime, and the policy-bound tool registry. The explicit
+Tool ranking is advisory telemetry only. The AgentLoop receives the complete
+policy-filtered capability catalog and uses agent.discover for lazy namespace
+discovery; a ranked shortlist can no longer hide a required capability.
+
+Approval is a separate setting from private-data access: MANUAL waits for a
+user decision, AUTO permits ordinary safe changes while deterministic policy
+still applies, and OFF never prompts and denies anything that would require
+approval.
 `mode="plan"` path remains only as a deprecated compatibility path for callers
 that require deterministic skill plans.
 

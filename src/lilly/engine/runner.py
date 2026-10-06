@@ -15,14 +15,23 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from lilly.core.shortlist import shortlist, tool_options
 from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
 from lilly.domain.clock import Clock
-from lilly.domain.decisions import ASSIST_KINDS, DIRECT, ROUTE_OPTIONS, Brief, Context, Kind, Outcome, route_state
+from lilly.domain.decisions import (
+    ASSIST_KINDS,
+    DIRECT,
+    ROUTE_OPTIONS,
+    Brief,
+    Context,
+    Kind,
+    Option,
+    Outcome,
+    route_state,
+)
 from lilly.domain.errors import ConflictError, LillyError, ValidationFailed
 from lilly.domain.grants import GrantStore
-from lilly.domain.labels import Label, Mode, TaskCtx, Verdict
+from lilly.domain.labels import ApprovalMode, Label, Mode, TaskCtx, Verdict
 from lilly.domain.payload import canonical, payload_hash
 from lilly.domain.plan import preflight
 from lilly.domain.policy import PathScope
@@ -93,6 +102,8 @@ class EngineDeps:
     quick: QuickRouter | None = None
     standing: StandingStore | None = None
     system1: System1Engine | None = None
+    approval_mode: Callable[[], ApprovalMode] = lambda: ApprovalMode.MANUAL
+    session_runtime: Any | None = None
 
 
 class TaskRunner:
@@ -101,7 +112,8 @@ class TaskRunner:
         self.stop_reason = "stopped"      # what a cancelled task shows as its reason
         self._brief = Brief(spec.goal, spec.agent_instructions)
         self._route: Outcome | None = None     # the route question of this task, until it is labelled
-        self._rec = TaskRecord(deps.db, deps.bus, deps.clock, task.id, TaskCtx(task.label, task.tainted, Mode(task.mode)),
+        self._rec = TaskRecord(deps.db, deps.bus, deps.clock, task.id,
+                                TaskCtx(task.label, task.tainted, Mode(task.mode), deps.approval_mode()),
                                 TaskState(task.state))
         self._steps = StepExecutor(self._rec, deps.approvals, deps.grants, deps.scope, deps.limits, spec.pin_model,
                                    deps.decisions, self._brief, engine_settings=deps.engine_settings,
@@ -295,12 +307,16 @@ class TaskRunner:
         return PlanInputs(self._spec.goal, shown, history, self._spec.agent_instructions, self._d.file_roots())
 
     async def _shortlisted(self, specs: Mapping[str, ToolSpec]) -> Mapping[str, ToolSpec]:
-        """Use ranking only to control prompt size; replans always receive the full catalog."""
+        """Record optional ranking advice, but never hide a capability from the planner."""
         pipeline = self._d.decisions
-        if pipeline is None or self._spec.skill:
-            return specs
-        advice = await pipeline.decide(Kind.TOOLS, self._task.id, tool_options(specs), Context(self._spec.goal))
-        return {n: specs[n] for n in shortlist(specs, advice.ranking)}
+        if pipeline is not None and not self._spec.skill:
+            await pipeline.decide(
+                Kind.TOOLS,
+                self._task.id,
+                tuple(Option(name, spec.doc) for name, spec in specs.items()),
+                Context(self._spec.goal),
+            )
+        return specs
 
     async def _make_plan(self, inputs: PlanInputs, specs: Mapping[str, ToolSpec]) -> dict[str, Any]:
         if self._spec.skill:

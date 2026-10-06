@@ -21,7 +21,7 @@ from lilly.domain.browser_policy import BrowserSettings, browser_to_dict, parse_
 from lilly.domain.caps import Cap
 from lilly.domain.decisions import DecisionSettings, decisions_to_dict, parse_decisions
 from lilly.domain.devbox import DevboxSettings, devbox_to_dict, parse_devbox
-from lilly.domain.labels import Label, Mode
+from lilly.domain.labels import ApprovalMode, Label, Mode
 
 PROVIDERS = frozenset({"mistral", "openrouter", "gemini", "ollama", "openai", "omniroute"})
 # Optional features. Each decides which tools or endpoints exist at all.
@@ -196,6 +196,7 @@ class Settings:
     models: tuple[ModelSpec, ...] = ()
     modules: frozenset[str] = frozenset({"files", "web", "memory", "notes", "skills"})
     default_mode: Mode = Mode.ASK
+    approval_mode: ApprovalMode = ApprovalMode.MANUAL
     file_roots: tuple[str, ...] = ()             # folders agents may touch; empty means no file access
     retention_days: int = 90
     network: NetworkSettings = NetworkSettings()
@@ -474,6 +475,11 @@ def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     except (KeyError, TypeError):
         errs.append("default_mode must be LOCKED, ASK or OPEN")
         mode = Mode.ASK
+    try:
+        approval_mode = ApprovalMode[str(raw.get("approval_mode", "MANUAL")).upper()]
+    except (KeyError, TypeError):
+        errs.append("approval_mode must be MANUAL, AUTO or OFF")
+        approval_mode = ApprovalMode.MANUAL
     days = raw.get("retention_days", 90)
     if not isinstance(days, int) or isinstance(days, bool) or not 0 <= days <= 3650:
         errs.append("retention_days must be a whole number from 0 (keep forever) to 3650")
@@ -511,7 +517,7 @@ def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     errs += devbox_errs
     if errs:
         return None, errs
-    return Settings(tuple(specs), mods, mode, roots, days,
+    return Settings(tuple(specs), mods, mode, approval_mode, roots, days,
                     NetworkSettings(hosts), SearchSettings(engine, url), stay, limits, decisions or DecisionSettings(),
                     browser or BrowserSettings(), bridges or BridgeSettings(), devbox or DevboxSettings(),
                     capacity, engine_settings, grounding, crew), []
@@ -521,6 +527,7 @@ def settings_to_dict(s: Settings) -> dict[str, Any]:
     return {
         "modules": sorted(s.modules),
         "default_mode": s.default_mode.name,
+        "approval_mode": s.approval_mode.value,
         "file_roots": list(s.file_roots),
         "retention_days": s.retention_days,
         "network": {"allowed_hosts": list(s.network.allowed_hosts)},

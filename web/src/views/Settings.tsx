@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useApp, type ThemePref } from '../store'
-import { MODES, type BrowserMode, type SystemInfo } from '../types'
+import { APPROVAL_MODES, MODES, type BrowserMode, type SystemInfo } from '../types'
 import { Button, ErrorNote, Field, IconButton, PageHead, Segmented, Switch } from '../ui/kit'
 import { ago, bytes, duration } from '../ui/format'
 import { ChatAppsSection } from './ChatAppsSection'
@@ -48,6 +48,16 @@ function General({ d }: { d: SettingsDraft }) {
         <span className="label">Appearance</span>
         <Segmented<ThemePref> label="Appearance" value={theme} onChange={setTheme} options={[{ value: 'system', label: 'Match my device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
         <p className="hint">Saved in this browser only.</p>
+      </div>
+      <div className="field">
+        <span className="label">Approval mode</span>
+        <Segmented
+          label="Approval mode"
+          value={s.approval_mode}
+          onChange={(v) => d.edit((x) => ({ ...x, approval_mode: v }))}
+          options={APPROVAL_MODES.map((m) => ({ value: m.value, label: m.name, hint: m.blurb }))}
+        />
+        <p className="hint">OFF never bypasses policy, permissions, sandboxing, or hard denials.</p>
       </div>
       <div className="field">
         <span className="label">Default freedom for new chats</span>
@@ -267,4 +277,3 @@ export function Settings({ section, go }: { section: string; go: (h: string) => 
     </div>
   )
 }
-

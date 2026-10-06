@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 
 class Label(IntEnum):
@@ -31,15 +31,23 @@ class Mode(IntEnum):
     OPEN = 2    # no prompts for private data or irreversible actions; the floor still applies
 
 
+class ApprovalMode(StrEnum):
+    """How approval-required actions are handled."""
+    MANUAL = "MANUAL"
+    AUTO = "AUTO"
+    OFF = "OFF"
+
+
 @dataclass(frozen=True, slots=True)
 class TaskCtx:
     label: Label = Label.PUBLIC
     tainted: bool = False
     mode: Mode = Mode.ASK
+    approval_mode: ApprovalMode = ApprovalMode.MANUAL
 
     def absorb(self, label: Label, untrusted: bool) -> TaskCtx:
         """Join with a new input: label is a max-lattice, taint is OR."""
-        return TaskCtx(max(self.label, label), self.tainted or untrusted, self.mode)
+        return TaskCtx(max(self.label, label), self.tainted or untrusted, self.mode, self.approval_mode)
 
 
 @dataclass(frozen=True, slots=True)

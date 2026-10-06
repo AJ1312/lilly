@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, cast
 
 from lilly.domain.caps import Cap
-from lilly.domain.decisions import Answer, Context, Kind, Request
+from lilly.domain.decisions import Answer, Context, Kind, Option, Request
 from lilly.domain.settings import EngineSettings
 
 log = logging.getLogger("lilly.system1")
@@ -342,7 +342,7 @@ class System1Engine:
         """Check if Laya decider is available."""
         return self._laya_decider is not None
 
-    def set_laya_decider(self, laya_decider: Any) -> None:
+    def set_laya_decider(self, laya_decider: Any | None) -> None:
         """Set the Laya decider instance."""
         self._laya_decider = laya_decider
         log.info("Laya decider set")
@@ -398,6 +398,7 @@ class System1Engine:
         laya_friendly = {
             DecisionType.TASK_CLASSIFICATION,
             DecisionType.COMPLEXITY_ESTIMATION,
+            DecisionType.MODEL_TIER_SELECTION,
             DecisionType.CAPABILITY_ROUTING,
             DecisionType.TOOL_FAMILY_SELECTION,
             DecisionType.MEMORY_RELEVANCE,
@@ -442,10 +443,22 @@ class System1Engine:
         
         kind = kind_mapping.get(request.decision_type, Kind.ROUTE)
         
+        enum_options: dict[DecisionType, tuple[Option, ...]] = {
+            DecisionType.TASK_CLASSIFICATION: tuple(Option(v.value, v.value) for v in TaskClass),
+            DecisionType.COMPLEXITY_ESTIMATION: tuple(Option(v.value, v.value) for v in ComplexityLevel),
+            DecisionType.MODEL_TIER_SELECTION: tuple(Option(v.value, v.value) for v in ModelTier),
+            DecisionType.CAPABILITY_ROUTING: tuple(
+                Option((v.name or '').lower(), (v.name or '').lower()) for v in Cap if v != Cap.NONE
+            ),
+            DecisionType.TOOL_FAMILY_SELECTION: tuple(Option(v.value, v.value) for v in ToolFamily),
+            DecisionType.VERIFICATION_NECESSITY: tuple(Option(v.value, v.value) for v in VerificationLevel),
+        }
+        supplied = request.available_models if request.decision_type is DecisionType.MODEL_TIER_SELECTION else request.available_tools
+        options = tuple(Option(value, value) for value in supplied) if supplied else enum_options.get(request.decision_type, ())
         return Request(
             kind=kind,
             task_id=request.task_id or "",
-            options=(),  # Will be populated based on decision type
+            options=options,
             context=Context(
                 text=request.user_request or "",
             ),
@@ -511,6 +524,8 @@ class System1Engine:
                 tier = ModelTier.VISION
             elif "quick" in (answer.choice or "").lower():
                 tier = ModelTier.QUICK
+            elif "special" in (answer.choice or "").lower():
+                tier = ModelTier.SPECIALIZED
             else:
                 tier = ModelTier.STANDARD
             
@@ -518,6 +533,28 @@ class System1Engine:
                 tier=tier,
                 confidence=answer.confidence or 0.7,
                 reasoning="Laya tier selection"
+            )
+
+        elif decision_type == DecisionType.CAPABILITY_ROUTING:
+            choice = (answer.choice or "").lower()
+            primary = next((cap for cap in Cap if cap != Cap.NONE and cap.name and cap.name.lower() in choice), Cap.NONE)
+            return CapabilityRouting(
+                primary_capability=primary,
+                secondary_capabilities=(),
+                required_model_capabilities=(primary,) if primary is not Cap.NONE else (),
+                needs_tool_use=primary is Cap.TOOLS,
+                needs_vision=primary is Cap.VISION,
+                reasoning="Laya capability routing",
+            )
+
+        elif decision_type == DecisionType.TOOL_FAMILY_SELECTION:
+            choice = (answer.choice or "").lower()
+            family = next((item for item in ToolFamily if item.value in choice), ToolFamily.NONE)
+            return ToolFamilyDecision(
+                primary_family=family,
+                secondary_families=(),
+                confidence=answer.confidence or 0.7,
+                reasoning="Laya tool-family selection",
             )
         
         # Add more conversions for other decision types...

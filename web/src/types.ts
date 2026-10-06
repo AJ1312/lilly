@@ -130,6 +130,7 @@ export interface ModelSpec {
 export interface Settings {
   modules: string[]
   default_mode: 'LOCKED' | 'ASK' | 'OPEN'
+  approval_mode: 'MANUAL' | 'AUTO' | 'OFF'
   file_roots: string[]
   retention_days: number
   network: { allowed_hosts: string[] }
@@ -230,6 +231,12 @@ export const MODES = [
   { value: 0, key: 'LOCKED', name: 'Locked', blurb: 'Never reads your private files or memory.' },
   { value: 1, key: 'ASK', name: 'Ask', blurb: 'Asks you before touching anything private or changing anything.' },
   { value: 2, key: 'OPEN', name: 'Open', blurb: 'Works without asking inside your shared folders. Hard limits still apply.' },
+] as const
+
+export const APPROVAL_MODES = [
+  { value: 'MANUAL', name: 'Manual', blurb: 'Ask before approval-required actions.' },
+  { value: 'AUTO', name: 'Auto', blurb: 'Run safe changes directly; hard policy and risky actions still stop.' },
+  { value: 'OFF', name: 'Off', blurb: 'Never prompt; approval-required actions are denied.' },
 ] as const
 
 export interface Resources {

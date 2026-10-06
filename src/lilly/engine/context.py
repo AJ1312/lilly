@@ -102,6 +102,10 @@ def make_digest(msg: Message) -> str:
         digest = f'result: {len(raw):,} chars, starts: "{first_120}"'
 
     if is_untrusted:
+        # Do not carry arbitrary web/MCP text into a compacted prompt. Keep
+        # provenance and size only; the original result remains available via
+        # result.read.
+        digest = re.sub(r', starts: ".*"$', "", digest)
         return f"{UNTRUSTED_OPEN}\n{digest}\n{UNTRUSTED_CLOSE}"
     return digest
 
@@ -136,7 +140,9 @@ class ContextManager:
                 result.append(m)
         return result
 
-    async def prepare(self, messages: list[Message], budget: int | None = None) -> list[Message]:
+    async def prepare(self, messages: list[Message], budget: int | None = None,
+                      *, label: Label = Label.PUBLIC, mode: Mode = Mode.ASK,
+                      task_id: str | None = None) -> list[Message]:
         """Prepare messages before a model call: truncate observations and compact if over budget."""
         if not messages:
             return []
@@ -241,7 +247,8 @@ class ContextManager:
 
         # Pass 2: If still over soft limit -> produce "Working notes" (max 400 tokens)
         if total_tokens(compacted) > soft_limit:
-            compacted = await self._summarize_notes(compacted, protected_indices)
+            compacted = await self._summarize_notes(compacted, protected_indices,
+                                                    label=label, mode=mode, task_id=task_id)
 
         return compacted
 
@@ -249,6 +256,10 @@ class ContextManager:
         self,
         messages: list[Message],
         protected_indices: set[int],
+        *,
+        label: Label = Label.PUBLIC,
+        mode: Mode = Mode.ASK,
+        task_id: str | None = None,
     ) -> list[Message]:
         """Produce cached Working notes (<= 400 tokens) using a quick summarize model call."""
         unprotected_middle = [
@@ -258,7 +269,10 @@ class ContextManager:
         if not unprotected_middle:
             return messages
 
-        corpus = "\n".join(f"{m.role}: {m.content}" for _, m in unprotected_middle)
+        corpus = "\n".join(
+            f"{m.role}: {make_digest(m) if UNTRUSTED_OPEN in m.content else m.content}"
+            for _, m in unprotected_middle
+        )
         content_hash = hashlib.sha256(corpus.encode()).hexdigest()
 
         notes = self._summary_cache.get(content_hash)
@@ -278,10 +292,10 @@ class ContextManager:
                     completed = await self._completer.complete(
                         req,
                         need=Cap.NONE,
-                        label=Label.PUBLIC,
-                        task_id="summarize",
+                        label=label,
+                        task_id=task_id or "summarize",
                         payload_hash=content_hash,
-                        mode=Mode.OPEN,
+                        mode=mode,
                     )
                     notes = completed.result.text.strip()
                 except Exception:

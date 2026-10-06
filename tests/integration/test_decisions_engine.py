@@ -13,7 +13,6 @@ from lilly.domain.labels import Label
 from lilly.domain.settings import LimitSettings
 from lilly.domain.tasks import TaskState
 from lilly.domain.tools_registry import ToolSpec
-from lilly.engine.planner import MAX_REPAIRS
 from lilly.store import decisions
 from tests.helpers import plan, step
 from tests.integration.lab import READ, SEND, Lab
@@ -21,7 +20,7 @@ from tests.integration.lab import READ, SEND, Lab
 OFF = DecisionSettings(enabled=False)
 
 
-async def test_a_large_catalog_is_narrowed_for_the_planner(lab: Lab) -> None:
+async def test_a_large_catalog_stays_available_to_the_planner(lab: Lab) -> None:
     for i in range(20):
         lab.add(f"probe.tool{i}", ToolSpec(READ.risk, path_args=(), doc=f"does thing number {i} with widgets{i}"))
     lab.engine.completer.replies = ["ok"]
@@ -29,7 +28,7 @@ async def test_a_large_catalog_is_narrowed_for_the_planner(lab: Lab) -> None:
                            goal="please run thing number 3 with widgets3")
     assert (await lab.engine.wait(row.id)).state is TaskState.DONE
     listed = "\n".join(m.content for m in lab.engine.completer.calls[0].messages)
-    assert sum(f"probe.tool{i}" in listed for i in range(20)) <= 10
+    assert sum(f"probe.tool{i}" in listed for i in range(20)) == 20
     assert "probe.tool3" in listed and "llm.work" in listed
 
 
@@ -115,15 +114,15 @@ async def test_laya_joins_the_deciders_only_when_installed_and_is_closed_with_li
     await client.aclose()
 
 
-async def test_when_the_shortlist_hides_the_tool_a_plan_needs_the_planner_is_asked_again_with_everything(lab: Lab) -> None:
+async def test_a_capability_hidden_by_old_shortlisting_needs_no_replan(lab: Lab) -> None:
     for i in range(20):
         lab.add(f"probe.tool{i}", ToolSpec(READ.risk, path_args=(), doc=f"does thing number {i} with widgets{i}"))
     lab.add("probe.hidden", ToolSpec(READ.risk, path_args=(), doc="zzz"))
     needs_it = plan(step("s1", "probe.hidden"), step("s2", "llm.work", task="x", input="$s1.output"))
-    lab.engine.completer.replies = [needs_it] * (MAX_REPAIRS + 1) + ["ok"]   # submit adds one more copy of the plan
+    lab.engine.completer.replies = [needs_it, "ok"]
     row = await lab.submit(step("s1", "probe.hidden"), step("s2", "llm.work", task="x", input="$s1.output"),
                            goal="please run thing number 3 with widgets3")
     done = await lab.engine.wait(row.id)
     assert done.state is TaskState.DONE, done.error
-    first, last = lab.engine.completer.calls[0], lab.engine.completer.calls[MAX_REPAIRS + 1]
-    assert "probe.hidden" not in first.messages[1].content and "probe.hidden" in last.messages[1].content
+    first = lab.engine.completer.calls[0]
+    assert "probe.hidden" in first.messages[1].content

@@ -6,7 +6,7 @@ import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
 
-from lilly.domain.labels import Label, Mode, Risk, TaskCtx, ToolCall, Verdict
+from lilly.domain.labels import ApprovalMode, Label, Mode, Risk, TaskCtx, ToolCall, Verdict
 
 
 def _names(p: Path) -> tuple[str, ...]:
@@ -68,9 +68,9 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
         out.append((Verdict.DENY, "forbidden tool"))
     if call.confirm:
         out.append((Verdict.NEEDS_APPROVAL, "always needs your approval, in every mode"))
-    if call.risk is Risk.R1 and not openm:
+    if call.risk is Risk.R1 and not openm and ctx.approval_mode is not ApprovalMode.AUTO:
         out.append((Verdict.NEEDS_APPROVAL, "changes your files or data"))
-    if call.risk is Risk.R2 and not openm:
+    if call.risk is Risk.R2 and not openm and ctx.approval_mode is not ApprovalMode.AUTO:
         out.append((Verdict.NEEDS_APPROVAL, "external or irreversible"))
     if ctx.tainted and call.risk is Risk.R2:
         out.append((Verdict.NEEDS_APPROVAL, "irreversible action after untrusted content"))
@@ -93,4 +93,7 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
         out.append((Verdict.NEEDS_APPROVAL, "personal data leaving the device"))
     if any(not scope.allows(p) for p in call.paths):
         out.append((Verdict.DENY, "path outside granted roots"))
-    return max(out, key=lambda r: r[0]) if out else (Verdict.ALLOW, "ok")
+    verdict = max(out, key=lambda r: r[0]) if out else (Verdict.ALLOW, "ok")
+    if verdict[0] is Verdict.NEEDS_APPROVAL and ctx.approval_mode is ApprovalMode.OFF:
+        return Verdict.DENY, "approval mode is OFF"
+    return verdict

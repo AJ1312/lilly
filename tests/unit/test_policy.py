@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lilly.domain.labels import Label, Mode, Risk, TaskCtx, ToolCall, Verdict
+from lilly.domain.labels import ApprovalMode, Label, Mode, Risk, TaskCtx, ToolCall, Verdict
 from lilly.domain.policy import PathScope, decide
 
 SCOPE = PathScope(["/tmp"])
@@ -29,6 +29,13 @@ def test_changes_need_approval_unless_open() -> None:
     assert verdict(call, mode=Mode.ASK) is Verdict.NEEDS_APPROVAL
     assert verdict(call, mode=Mode.LOCKED) is Verdict.NEEDS_APPROVAL
     assert verdict(call, mode=Mode.OPEN) is Verdict.ALLOW
+
+
+def test_approval_modes_are_separate_from_private_data_mode() -> None:
+    call = ToolCall("fs.write", Risk.R1)
+    assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.MANUAL) is Verdict.NEEDS_APPROVAL
+    assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.AUTO) is Verdict.ALLOW
+    assert verdict(call, mode=Mode.ASK, approval_mode=ApprovalMode.OFF) is Verdict.DENY
 
 
 def test_untrusted_content_forces_approval_even_in_open_mode() -> None:

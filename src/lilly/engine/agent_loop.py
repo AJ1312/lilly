@@ -11,11 +11,9 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lilly.core.shortlist import CONTROL_TOOLS, discover, tool_options
-from lilly.decide.rules import SearchRanker
+from lilly.core.shortlist import discover
 from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
-from lilly.domain.decisions import Context, Kind, Request
 from lilly.domain.labels import Verdict
 from lilly.domain.payload import canonical, payload_hash
 from lilly.domain.plan import tool_call
@@ -120,8 +118,7 @@ class AgentLoop:
         self._system1_verification: str | None = None
         self._outputs: dict[str, str] = {}
         self._steps.loop_mode = True
-        self._ranked: list[str] | None = None  # P2-C-2: ranked tools, computed once per task
-        self._used_tools: set[str] = set()     # P2-C-2: tools used this task, never hidden
+        self._used_tools: set[str] = set()
         self._discovered_tools: set[str] = set()
         gs = grounding_settings() if callable(grounding_settings) else (grounding_settings or GroundingSettings())
         self._grounding = GroundingVerifier(file_roots=self._file_roots(), enabled=gs.enabled)
@@ -180,48 +177,8 @@ class AgentLoop:
         return visible
 
     async def _shortlist(self, visible: dict[str, Tool]) -> dict[str, Tool]:
-        """P2-C-2: Shortlist tools, computed once per task and reused every turn."""
-        cfg = self._engine_settings()
-        if len(visible) <= cfg.shortlist_min:
-            return visible
-        if self._ranked is None:                                  # rank ONCE per task, reuse every turn
-            self._ranked = await self._rank_tools(visible)        # the existing decisions/SearchRanker code, moved here
-        always = [n for n in sorted(CONTROL_TOOLS) if n in visible]
-        keep = set(always) | self._used_tools | self._discovered_tools  # never hide known capabilities
-        ranked = [n for n in self._ranked if n in visible and n not in keep]
-        keep |= set(ranked[: max(0, cfg.shortlist_size - len(keep))])
-        return {n: t for n, t in visible.items() if n in keep}
-
-    async def _rank_tools(self, visible: dict[str, Tool]) -> list[str]:
-        """Existing ranking logic moved from the main loop."""
-        specs_map = {name: t.spec for name, t in visible.items()}
-        ans_ranking: tuple[str, ...] | None = None
-        if self._decisions is not None and self._decisions.active(Kind.TOOLS):
-            outcome = await self._decisions.decide(
-                Kind.TOOLS,
-                self._rec.task_id,
-                tool_options(specs_map),
-                Context(text=self._goal),
-            )
-            if outcome.ranking:
-                ans_ranking = outcome.ranking
-        if ans_ranking is None:
-            ranker = SearchRanker()
-            req_obj = Request(
-                Kind.TOOLS,
-                self._rec.task_id,
-                tool_options(specs_map),
-                Context(text=self._goal),
-                1000,
-                5.0,
-            )
-            ans = await ranker.decide(req_obj)
-            if ans is not None and ans.ranking:
-                ans_ranking = ans.ranking
-
-        if ans_ranking:
-            return list(dict.fromkeys(ans_ranking))
-        return []
+        """Expose the full policy-filtered catalog; ranking cannot hide capabilities."""
+        return visible
 
     def _build_system_prompt(self, limits: LimitSettings, role: str = "act") -> str:
         roots = self._file_roots()
@@ -386,7 +343,6 @@ class AgentLoop:
         self._grounding.record_user_message(self._goal)
 
         candidate_answer: str | None = None
-        last_turn_failed = False
 
         while True:
             if self._rec.cancelled:
@@ -401,17 +357,9 @@ class AgentLoop:
             else:
                 role = "act"
 
-            # 2. Visible tools and L4 tool shortlisting (P2-C-2)
+            # 2. Visible capability namespaces
             visible_tools = self._get_visible_tools()
             shown_tools = await self._shortlist(visible_tools)
-            
-            # After a failed turn, widen by +cfg.shortlist_size // 2 more ranked names
-            if last_turn_failed and self._ranked:
-                cfg = self._engine_settings()
-                extra = cfg.shortlist_size // 2
-                if extra > 0:
-                    additional = [n for n in self._ranked if n in visible_tools and n not in shown_tools][:extra]
-                    shown_tools = {**shown_tools, **{n: visible_tools[n] for n in additional if n in visible_tools}}
 
             tool_schemas = [
                 ToolSchema(name=name, description=t.spec.doc, parameters=dict(t.spec.schema))
@@ -467,7 +415,9 @@ class AgentLoop:
                 tag = raw_pin.split(":", 1)[1].strip()
             role_pin, _tag_hint = resolve_ref(raw_pin, (), role=role)
 
-            messages = await self._context_mgr.prepare(messages)
+            messages = await self._context_mgr.prepare(
+                messages, label=self._rec.ctx.label, mode=self._rec.ctx.mode, task_id=self._rec.task_id,
+            )
 
             req = CompletionRequest(
                 messages=tuple(messages),
@@ -725,10 +675,6 @@ class AgentLoop:
                 ))
 
             # Check whether any step on this turn failed or had schema error
-            if outcomes:
-                last_turn_failed = any(not o.ok for o in outcomes.values())
-            else:
-                last_turn_failed = False
 
         if not candidate_answer:
             raise Stop(TaskState.FAILED, "there was no answer to give")

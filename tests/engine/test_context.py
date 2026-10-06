@@ -211,7 +211,8 @@ def test_ctx_07_digest_format() -> None:
     digest_untrusted = make_digest(msg_untrusted)
     assert digest_untrusted.startswith("<untrusted_data>\n")
     assert digest_untrusted.endswith("\n</untrusted_data>")
-    assert 't3c1 web.fetch ok, 18,204 chars, starts: "' in digest_untrusted
+    assert 't3c1 web.fetch ok, 18,204 chars' in digest_untrusted
+    assert "prompt injection" not in digest_untrusted
 
 
 # CTX-08: Summarize cached by content hash

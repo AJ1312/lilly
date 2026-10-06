@@ -7,6 +7,7 @@ import { Companion } from './ui/Companion'
 import { Icon, Petals } from './ui/Icon'
 import { Palette } from './ui/Palette'
 import { Button, Confirm, ErrorNote, Field, Toasts } from './ui/kit'
+import { FirstRunWizard } from './ui/FirstRunWizard'
 import { Activity } from './views/Activity'
 import { Agents } from './views/Agents'
 import { Approvals } from './views/Approvals'
@@ -15,7 +16,7 @@ import { Notes } from './views/Notes'
 import { Resources } from './views/Resources'
 import { Routines } from './views/Routines'
 import { Settings } from './views/Settings'
-import { Talk } from './views/Talk'
+import { Workspace } from './views/Workspace'
 
 interface Session { signed_in: boolean; csrf?: string }
 
@@ -78,6 +79,7 @@ function Shell() {
   const toast = useApp((s) => s.toast)
   const [stopAsk, setStopAsk] = useState(false)
   const [jump, setJump] = useState(false)
+  const [wizard, setWizard] = useState(() => localStorage.getItem('lilly.firstRunComplete') !== '2.0')
   const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
   useEffect(() => {
@@ -105,7 +107,7 @@ function Shell() {
       case 'routines': return <Routines />
       case 'resources': return <Resources />
       case 'settings': return <Settings section={rest ?? 'general'} go={go} />
-      default: return <Talk threadId={rest ?? null} go={go} />
+      default: return <Workspace />
     }
   })()
 
@@ -161,6 +163,7 @@ function Shell() {
           }}
         />
       )}
+      {wizard && <FirstRunWizard onDone={() => setWizard(false)} />}
     </div>
   )
 }

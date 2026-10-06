@@ -154,7 +154,9 @@ class Runtime:
             read_cache=self.read_cache,
             quick=self.quick_router,
             standing=self.standing,
-            system1=self.system1_engine))
+            system1=self.system1_engine,
+            approval_mode=lambda: self.settings.approval_mode,
+            session_runtime=self.session_runtime))
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()
@@ -175,6 +177,7 @@ class Runtime:
                 self._small = (local, SmallModelDecider(self.model_broker, local))
             found["small_model"] = self._small[1]
         if (laya := self.laya.decider) is not None:
+            self.system1_engine.set_laya_decider(laya)
             found["laya"] = laya
         return found
 
@@ -249,6 +252,7 @@ class Runtime:
         await self.model_broker.configure(new)
         self.system1_engine.set_engine_settings(lambda: new.engine)
         self.system1_engine.set_laya_enabled(lambda: bool(laya_kinds(new.decisions)))
+        self.system1_engine.set_laya_decider(self.laya.decider)
         self.orchestrator.configure(new)
         self._sync_power()
         for observe in self._observers:

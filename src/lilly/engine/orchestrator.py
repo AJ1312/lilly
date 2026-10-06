@@ -82,6 +82,7 @@ class Orchestrator:
         self._settings: Settings | None = None
         self._gate = Gate(deps.limits().max_running)
         self._active: dict[str, tuple[asyncio.Task[None], TaskRunner]] = {}
+        self._session_ids: dict[str, str] = {}
         self._submitting = 0                              # submits that hold a slot but are not in _active yet
         self._finishing: set[asyncio.Task[None]] = set()  # cleanups of cancelled tasks
         self._closed = False
@@ -193,6 +194,12 @@ class Orchestrator:
         self._submitting += 1      # the slot is held from here, before the first await
         try:
             row = await db.write(create)
+            if self._d.session_runtime is not None:
+                session = self._d.session_runtime.create_session(
+                    task_id, goal, agent_id=agent.id if agent else None,
+                    conversation_id=conv_id, initial_model=pin)
+                await self._d.session_runtime.start_session(session.session_id)
+                self._session_ids[task_id] = session.session_id
             if self._closed:       # shutdown began while the task was being written: nobody would stop it
                 await self._cancel_queued(task_id)
                 raise ConflictError("Lilly is shutting down")
@@ -279,7 +286,19 @@ class Orchestrator:
 
     async def _run(self, runner: TaskRunner) -> None:
         async with self._gate:
-            await runner.run()
+            try:
+                await runner.run()
+            finally:
+                runtime = self._d.session_runtime
+                session_id = self._session_ids.pop(runner._task.id, None)
+                if runtime is not None and session_id is not None:
+                    row = tasks.get_task(self._d.db.reader, runner._task.id)
+                    if row is not None and row.state is TaskState.DONE:
+                        await runtime.complete_session(session_id, row.answer)
+                    elif row is not None and row.state is TaskState.CANCELLED:
+                        await runtime.cancel_session(session_id)
+                    else:
+                        await runtime.fail_session(session_id, row.error if row else "task ended")
 
     def _ended(self, task_id: str, handle: asyncio.Task[None]) -> None:
         """A task is over. One cancelled before it ran never recorded its end, so that is done here."""
@@ -311,6 +330,10 @@ class Orchestrator:
 
         if await self._d.db.write(job):
             self._d.bus.publish({"type": "task", "task_id": task_id, "state": "CANCELLED"})
+            runtime = self._d.session_runtime
+            session_id = self._session_ids.pop(task_id, None)
+            if runtime is not None and session_id is not None:
+                await runtime.cancel_session(session_id)
 
     # ---- stopping ----------------------------------------------------------------------------------
     async def cancel(self, task_id: str) -> None:
