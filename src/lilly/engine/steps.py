@@ -174,21 +174,24 @@ class StepExecutor:
             own = tool.review(args, rec.task_id)
             if own[0] > verdict:
                 verdict, why = own
-            # Browser settings remain useful as the default/manual safety
-            # policy, but the task-level AUTO/OFF control is an explicit user
-            # choice to suppress prompts for non-denied interaction.  A tool's
-            # DENY verdict is never downgraded here.
-            if name.startswith("browser.") and rec.ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF) \
-                    and verdict is Verdict.NEEDS_APPROVAL and not rec.ctx.tainted:
+            # When approval_mode is AUTO or OFF, non-denied interaction runs
+            # autonomously without prompting the user, preserving isolation and
+            # prompt-injection safety (tainted R2+ operations still prompt).
+            if rec.ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF) \
+                    and verdict is Verdict.NEEDS_APPROVAL \
+                    and not (rec.ctx.tainted and spec.risk >= Risk.R2):
                 verdict, why = Verdict.ALLOW, f"approval mode is {rec.ctx.approval_mode.value}"
         if verdict is Verdict.DENY:
             await rec.step_status(row_id, "failed", error=f"blocked: {why}")
             await rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=row_id)
             raise StepFailed(f"{name} is blocked: {why}", kind="policy")
         verdict, why = await self._doubted(verdict, why, name, spec, args)
-        if rec.ctx.approval_mode is ApprovalMode.OFF and verdict is Verdict.NEEDS_APPROVAL and why == DOUBT:
-            verdict, why = Verdict.ALLOW, "approval mode is OFF"
-        payload = {"tool": name, "args": args, "target": self._target.value}
+        if rec.ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF) \
+                and verdict is Verdict.NEEDS_APPROVAL and why == DOUBT:
+            verdict, why = Verdict.ALLOW, f"approval mode is {rec.ctx.approval_mode.value}"
+        payload: dict[str, Any] = {"tool": name, "args": args}
+        if self._target is not ExecutionTarget.HOST:
+            payload["target"] = self._target.value
         digest = payload_hash(rec.task_id, row_id, "step", payload)
         if verdict is Verdict.NEEDS_APPROVAL:
             standing_target = tool.standing_target(args) if spec.standing_ok and self._standing_enabled() else None

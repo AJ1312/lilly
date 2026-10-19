@@ -28,9 +28,9 @@ Needs Python 3.12 or newer and an internet connection for the install. Then run 
 
 ## Controlling your computer
 
-Turn on **Settings → Privacy & access → Computer control**, then allow it per agent in **Agents**. Lilly can observe screenshots and accessibility state, move/click/type/scroll/drag, open apps and links, and verify fresh state after actions. Grounding uses semantic accessibility/DOM targets first, vision when configured, and coordinates only as a fallback. macOS Screen Recording and Accessibility permissions are required.
+Turn on **Settings → Privacy & access → Computer control**, then allow it per agent in **Agents** (or enable it directly; computer module is available by default). Lilly uses open-source PyAutoGUI alongside native OS hooks for reliable, cross-platform mouse clicks, pointer movements, typing, key combinations, drags, and scrolling. Grounding uses semantic accessibility/DOM targets first, vision grounders when configured, and flexible coordinate targeting (`@x=..., y=...`, `x=..., y=...`, `100, 200`, `(100, 200)`) as standard.
 
-`MANUAL` asks for approval, `AUTO` runs ordinary safe actions directly, and `OFF` suppresses prompts. None of these modes bypasses hard policy denials, permissions, sandboxing or auditing.
+`MANUAL` asks for approval before interactive actions. `AUTO` and `OFF` work autonomously without prompting for safe, non-denied operations, while strictly preserving isolation barriers and prompt-injection defenses (untrusted web taint at R2+ still prompts). Hard policy denials and shared folder scope boundaries are never bypassed.
 
 ## Talking to it from Telegram, running code safely, watching the browser
 

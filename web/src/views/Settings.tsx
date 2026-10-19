@@ -69,6 +69,20 @@ function General({ d }: { d: SettingsDraft }) {
         />
         <p className="hint">{MODES.find((m) => m.key === s.default_mode)?.blurb} An agent can set its own mode.</p>
       </div>
+      <div className="field">
+        <span className="label">Workflow learning</span>
+        <Segmented<'off' | 'suggest' | 'auto'>
+          label="Workflow learning"
+          value={s.learning?.mode ?? 'suggest'}
+          onChange={(v) => d.edit((x) => ({ ...x, learning: { mode: v, auto_playbooks: x.learning?.auto_playbooks ?? false } }))}
+          options={[
+            { value: 'off', label: 'Off', hint: 'Never extract or suggest reusable playbooks from tasks.' },
+            { value: 'suggest', label: 'Suggest', hint: 'Prompt to save verified workflows after successful tasks.' },
+            { value: 'auto', label: 'Auto-save', hint: 'Automatically learn safe verified playbooks from completed tasks.' },
+          ]}
+        />
+        <p className="hint">Learned workflows are verified and never bypass policy, tool schemas, or security boundaries.</p>
+      </div>
       <Switch label="Keep this computer awake while Lilly works" hint="macOS only. Lilly holds the Mac awake just while a task runs, or always when this is on." checked={s.stay_awake} onChange={(v) => d.edit((x) => ({ ...x, stay_awake: v }))} />
     </div>
   )

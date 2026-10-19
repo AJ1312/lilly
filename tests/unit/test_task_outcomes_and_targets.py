@@ -208,3 +208,20 @@ def test_task_store_outcomes_and_targets_migration_and_query(tmp_path: Path) -> 
     devbox_tasks = tasks.list_tasks(con, target=ExecutionTarget.DEVBOX)
     assert len(devbox_tasks) == 1
     assert devbox_tasks[0].id == "t2"
+
+
+def test_cross_target_approval_hash_isolation() -> None:
+    from lilly.domain.payload import payload_hash
+
+    task_id = "task-cross-target"
+    step_id = "s1"
+    tool = "fs.write"
+    args = {"path": "/shared/data.txt", "content": "test"}
+
+    host_payload = {"tool": tool, "args": args}
+    devbox_payload = {"tool": tool, "args": args, "target": "devbox"}
+
+    host_hash = payload_hash(task_id, step_id, "step", host_payload)
+    devbox_hash = payload_hash(task_id, step_id, "step", devbox_payload)
+
+    assert host_hash != devbox_hash, "Approvals must not be transferable between Host and DevBox"

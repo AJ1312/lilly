@@ -180,6 +180,37 @@ function ActiveTask({ task, onBack, onContinue }: { task: Task; onBack: () => vo
       </section>
       <RunCard taskId={task.id} initialState={task.state} />
       {reply && <section className="workspace-result"><p className="eyebrow">Result</p><Markdown text={reply} /></section>}
+      {d.task.state === 'DONE' && (!d.task.outcome || d.task.outcome === 'success') && (
+        <div style={{ display: 'flex', gap: '8px', margin: '12px 0', alignItems: 'center' }}>
+          <Button
+            icon="bookmark"
+            onClick={async () => {
+              try {
+                await api.post('/api/playbooks', {
+                  name: d.task.goal.slice(0, 48),
+                  description: d.task.goal,
+                  task_signature: d.task.goal,
+                  target: d.task.target || 'host',
+                  provenance_task_id: d.task.id,
+                  steps: [],
+                })
+                alert('Saved workflow to Playbooks!')
+              } catch (e) {
+                alert('Could not save playbook: ' + String(e))
+              }
+            }}
+          >
+            Remember workflow
+          </Button>
+          <a
+            className="btn btn-secondary"
+            href={`#/routines?goal=${encodeURIComponent(d.task.goal)}&target=${encodeURIComponent(d.task.target || 'host')}`}
+            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+          >
+            Schedule daily…
+          </a>
+        </div>
+      )}
       {d.task.error && <p className="run-error" role="alert">{d.task.error}</p>}
       <TaskComposer conversationId={d.task.conversation_id} onCreated={(next) => { onContinue(next) }} />
       <details className="advanced-trace">

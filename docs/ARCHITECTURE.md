@@ -28,14 +28,15 @@ policy-bound capability registry controls every tool call.
 
 | Component | Responsibility |
 | --- | --- |
-| `domain/policy.py` | Deterministic risk, label, mode, permission and approval decisions |
+| `domain/policy.py` | Deterministic risk, label, mode, permission, execution target and approval decisions |
 | `domain/tools_registry.py` | Typed capability schemas, namespaces and risk metadata |
 | `engine/session_runtime.py` | Durable session authority, recovery, events, artifacts and routing history |
-| `engine/agent_loop.py` | The only normal interactive reasoning/execution loop |
+| `engine/agent_loop.py` | The interactive reasoning/execution loop with truthful outcome evaluation |
 | `decide/system1.py` | Typed Laya decisions with deterministic fallback |
-| `providers/model_broker.py` | Per-turn provider/model selection and fallback |
-| `tools/computer_runtime.py` | Persistent screen/AX/DOM state, grounding, actions and verification |
-| `tools/devbox/` | Persistent isolated command environment |
+| `providers/model_broker.py` | Per-turn provider/model selection, prompt caching, and fallback |
+| `tools/computer_runtime.py` | PyAutoGUI cross-platform desktop control, AX/DOM state, grounding, and verification |
+| `tools/devbox/` | Persistent isolated command container with strict execution target isolation |
+| `store/playbooks.py` | Learned verified workflow templates and repeatable routines |
 | `ui/` and `web/` | Task-first live workspace over the API/event stream |
 
 ## Compatibility boundaries

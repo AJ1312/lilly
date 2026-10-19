@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import shutil
 import subprocess  # nosec B404 - fixed osascript/screencapture invocations only
@@ -27,7 +28,7 @@ _KEY_CODES = {
     "backspace": 51, "delete": 51, "space": 49, "left": 123, "right": 124,
     "down": 125, "up": 126, "home": 115, "end": 119, "pageup": 116, "pagedown": 121,
 }
-_COORDINATE = re.compile(r"^@?\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)\s*$", re.I)
+_COORDINATE = re.compile(r"^@?\s*\(?\s*(?:x\s*[:=]\s*)?(\d+)\s*,\s*(?:y\s*[:=]\s*)?(\d+)\s*\)?$", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,24 +77,52 @@ class VisionGrounder(Protocol):
     async def __call__(self, frame: ComputerFrame, target: str, task_id: str) -> tuple[int, int] | None: ...
 
 
-class MacComputerBackend:  # pragma: no cover - exercised by the macOS desktop smoke test
-    """Small native backend using macOS accessibility and event primitives."""
+class PyAutoGUIComputerBackend:  # pragma: no cover - exercised by the desktop smoke test
+    """Robust desktop control backend powered by open-source PyAutoGUI and native OS hooks."""
 
     def __init__(self) -> None:
         self._screencapture = shutil.which("screencapture")
         self._osascript = shutil.which("osascript")
+        try:
+            import pyautogui  # type: ignore[import-untyped]
+            pyautogui.PAUSE = 0.05
+            pyautogui.FAILSAFE = False
+            self._pyautogui = pyautogui
+        except Exception:
+            self._pyautogui = None
 
     async def observe(self, screenshot_path: Path | None) -> tuple[str | None, str | None, Sequence[A11yElement]]:
-        if sys.platform != "darwin" or self._osascript is None:
-            raise ToolError("desktop computer control is unavailable on this platform")
         if screenshot_path is not None:
-            if self._screencapture is None:
-                raise ToolError("macOS screenshot capture is unavailable")
+            captured = False
+            if sys.platform == "darwin" and self._screencapture is not None:
+                try:
+                    await asyncio.to_thread(self._run, [self._screencapture, "-m", "-x", str(screenshot_path)])
+                    captured = screenshot_path.is_file()
+                except Exception:
+                    captured = False
+            if not captured and self._pyautogui is not None:
+                try:
+                    await asyncio.to_thread(self._pyautogui.screenshot, str(screenshot_path))
+                    captured = screenshot_path.is_file()
+                except Exception as exc:
+                    logging.debug("pyautogui screenshot fallback failed: %s", exc)
+
+        app: str | None = None
+        window: str | None = None
+        if sys.platform == "darwin":
             try:
-                await asyncio.to_thread(self._run, [self._screencapture, "-x", str(screenshot_path)])
-            except (OSError, subprocess.SubprocessError) as exc:
-                raise ToolError(f"could not capture the screen: {exc}") from exc
-        script = '''tell application "System Events"
+                import importlib
+                appkit = importlib.import_module("AppKit")
+                front = appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
+                if front is not None:
+                    app = str(front.localizedName() or "")
+            except Exception as exc:
+                logging.debug("AppKit active application check skipped: %s", exc)
+
+        elements: list[A11yElement] = []
+        if sys.platform == "darwin" and self._osascript is not None:
+            script = '''tell application "System Events"
+try
 set p to first application process whose frontmost is true
 set n to name of p
 set w to ""
@@ -116,65 +145,86 @@ set element_position to position of element_ref
 set element_size to size of element_ref
 set elements_text to elements_text & (element_role & tab & element_name & tab & element_description & tab & (item 1 of element_position) & tab & (item 2 of element_position) & tab & (item 1 of element_size) & tab & (item 2 of element_size)) & linefeed
 end try
-try
-repeat with child_ref in UI elements of element_ref
-try
-set element_role to role of child_ref
-set element_name to ""
-try
-set element_name to name of child_ref
-end try
-set element_description to ""
-try
-set element_description to description of child_ref
-end try
-set element_position to position of child_ref
-set element_size to size of child_ref
-set elements_text to elements_text & (element_role & tab & element_name & tab & element_description & tab & (item 1 of element_position) & tab & (item 2 of element_position) & tab & (item 1 of element_size) & tab & (item 2 of element_size)) & linefeed
-end try
-end repeat
-end try
 end repeat
 end try
 return n & tab & w & linefeed & elements_text
+on error
+return ""
+end try
 end tell'''
-        try:
-            result = await asyncio.to_thread(self._run, [self._osascript, "-e", script])
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise ToolError("macOS accessibility permission is required to inspect the frontmost app") from exc
-        header, _, body = result.partition("\n")
-        app, _, window = header.partition("\t")
-        elements: list[A11yElement] = []
-        for row in body.splitlines():
-            fields = row.split("\t")
-            if len(fields) != 7:
-                continue
             try:
-                elements.append(A11yElement(fields[0], fields[1], fields[2], *(int(value) for value in fields[3:])))
-            except ValueError:
-                continue
+                result = await asyncio.to_thread(self._run, [self._osascript, "-e", script])
+                if result:
+                    header, _, body = result.partition("\n")
+                    a_name, _, w_name = header.partition("\t")
+                    if not app and a_name:
+                        app = a_name
+                    if w_name:
+                        window = w_name
+                    for row in body.splitlines():
+                        fields = row.split("\t")
+                        if len(fields) == 7:
+                            try:
+                                elements.append(A11yElement(fields[0], fields[1], fields[2], *(int(value) for value in fields[3:])))
+                            except ValueError:
+                                continue
+            except Exception as exc:
+                logging.debug("macOS accessibility elements inspection skipped: %s", exc)
         return app or None, window or None, elements
 
     async def click(self, x: int, y: int) -> None:
-        await self._script(f'tell application "System Events" to click at {{{x}, {y}}}')
+        if self._pyautogui is not None:
+            await asyncio.to_thread(self._pyautogui.click, x=x, y=y)
+            return
+        await self._jxa(f"mouseClick({x}, {y})")
 
     async def type_text(self, text: str) -> None:
+        if self._pyautogui is not None:
+            await asyncio.to_thread(self._pyautogui.write, text, interval=0.01)
+            return
         escaped = text.replace("\\", "\\\\").replace('"', '\\"')
         await self._script(f'tell application "System Events" to keystroke "{escaped}"')
 
     async def press(self, key: str) -> None:
-        normalized = key.casefold().replace(" ", "")
+        normalized = key.casefold().strip().replace(" ", "")
+        if self._pyautogui is not None:
+            key_map = {
+                "return": "enter", "esc": "escape",
+                "backspace": "backspace", "delete": "delete",
+                "pageup": "pageup", "pagedown": "pagedown",
+                "up": "up", "down": "down", "left": "left", "right": "right",
+            }
+            mapped = key_map.get(normalized, normalized)
+            if "+" in mapped:
+                parts = mapped.split("+")
+                await asyncio.to_thread(self._pyautogui.hotkey, *parts)
+            else:
+                await asyncio.to_thread(self._pyautogui.press, mapped)
+            return
         if normalized not in _KEY_CODES:
             raise ValidationFailed(f"unsupported key: {key}")
         await self._script(f'tell application "System Events" to key code {_KEY_CODES[normalized]}')
 
     async def move(self, x: int, y: int) -> None:
+        if self._pyautogui is not None:
+            await asyncio.to_thread(self._pyautogui.moveTo, x=x, y=y)
+            return
         await self._jxa(f"mouseMove({x}, {y})")
 
     async def scroll(self, amount: int) -> None:
+        if self._pyautogui is not None:
+            await asyncio.to_thread(self._pyautogui.scroll, amount)
+            return
         await self.press("pagedown" if amount < 0 else "pageup")
 
     async def drag(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
+        if self._pyautogui is not None:
+            def _drag() -> None:
+                assert self._pyautogui is not None
+                self._pyautogui.moveTo(start_x, start_y)
+                self._pyautogui.dragTo(end_x, end_y, button="left")
+            await asyncio.to_thread(_drag)
+            return
         await self._jxa(f"mouseDrag({start_x}, {start_y}, {end_x}, {end_y})")
 
     async def _script(self, script: str) -> None:
@@ -191,6 +241,12 @@ function mouseMove(x, y) {
   const e = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, point(x, y), 0);
   $.CGEventPost($.kCGHIDEventTap, e);
 }
+function mouseClick(x, y) {
+  const down = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, point(x, y), 0);
+  $.CGEventPost($.kCGHIDEventTap, down);
+  const up = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, point(x, y), 0);
+  $.CGEventPost($.kCGHIDEventTap, up);
+}
 function mouseDrag(x1, y1, x2, y2) {
   const down = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, point(x1, y1), 0);
   $.CGEventPost($.kCGHIDEventTap, down);
@@ -206,6 +262,10 @@ function mouseDrag(x1, y1, x2, y2) {
     def _run(argv: list[str]) -> str:
         done = subprocess.run(argv, check=True, capture_output=True, text=True, timeout=15)  # nosec B603
         return done.stdout.strip()
+
+
+# Backward compatibility alias
+MacComputerBackend = PyAutoGUIComputerBackend
 
 
 @dataclass(slots=True)

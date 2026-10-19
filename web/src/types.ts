@@ -154,6 +154,11 @@ export interface ModelSpec {
   quick: boolean
 }
 
+export interface LearningSettings {
+  mode: 'off' | 'suggest' | 'auto'
+  auto_playbooks: boolean
+}
+
 export interface Settings {
   modules: string[]
   default_mode: 'LOCKED' | 'ASK' | 'OPEN'
@@ -172,6 +177,7 @@ export interface Settings {
   engine: EngineSettings
   grounding: GroundingSettings
   crew: CrewSettings
+  learning: LearningSettings
   models: ModelSpec[]
 }
 

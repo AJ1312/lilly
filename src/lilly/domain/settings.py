@@ -191,9 +191,15 @@ CREW_BOUNDS = {
 
 
 @dataclass(frozen=True, slots=True)
+class LearningSettings:
+    mode: str = "suggest"  # "off" | "suggest" | "auto"
+    auto_playbooks: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class Settings:
     models: tuple[ModelSpec, ...] = ()
-    modules: frozenset[str] = frozenset({"files", "web", "memory", "notes", "skills"})
+    modules: frozenset[str] = frozenset({"files", "web", "memory", "notes", "skills", "computer"})
     default_mode: Mode = Mode.ASK
     approval_mode: ApprovalMode = ApprovalMode.MANUAL
     file_roots: tuple[str, ...] = ()             # folders agents may touch; empty means no file access
@@ -210,6 +216,7 @@ class Settings:
     engine: EngineSettings = EngineSettings()
     grounding: GroundingSettings = GroundingSettings()
     crew: CrewSettings = CrewSettings()
+    learning: LearningSettings = LearningSettings()
 
 
 def default_settings() -> Settings:
@@ -451,6 +458,16 @@ def _crew(raw: object, errs: list[str]) -> CrewSettings:
     return CrewSettings(**kw)
 
 
+def parse_learning(raw: object) -> tuple[LearningSettings, list[str]]:
+    if not isinstance(raw, dict):
+        return LearningSettings(), []
+    mode = str(raw.get("mode", "suggest"))
+    if mode not in ("off", "suggest", "auto"):
+        return LearningSettings(), [f"learning.mode must be 'off', 'suggest', or 'auto', not {mode!r}"]
+    auto_pb = bool(raw.get("auto_playbooks", False))
+    return LearningSettings(mode=mode, auto_playbooks=auto_pb), []
+
+
 def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     """Validate user-edited settings. Returns (settings, []) or (None, problems)."""
     errs: list[str] = []
@@ -515,12 +532,14 @@ def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     errs += bridge_errs
     devbox, devbox_errs = parse_devbox(raw.get("devbox", {}))
     errs += devbox_errs
+    learning, learning_errs = parse_learning(raw.get("learning", {}))
+    errs += learning_errs
     if errs:
         return None, errs
     return Settings(tuple(specs), mods, mode, approval_mode, roots, days,
                     NetworkSettings(hosts, local_only), SearchSettings(engine, url), stay, limits, decisions or DecisionSettings(),
                     browser or BrowserSettings(), bridges or BridgeSettings(), devbox or DevboxSettings(),
-                    capacity, engine_settings, grounding, crew), []
+                    capacity, engine_settings, grounding, crew, learning), []
 
 
 def settings_to_dict(s: Settings) -> dict[str, Any]:
@@ -569,6 +588,10 @@ def settings_to_dict(s: Settings) -> dict[str, Any]:
         "browser": browser_to_dict(s.browser),
         "bridges": bridge_to_dict(s.bridges),
         "devbox": devbox_to_dict(s.devbox),
+        "learning": {
+            "mode": s.learning.mode,
+            "auto_playbooks": s.learning.auto_playbooks,
+        },
         "models": [{"name": m.name, "provider": m.provider, "model_id": m.model_id, "local": m.local,
                     "enabled": m.enabled, "caps": [c.name for c in Cap if c and c in m.caps],
                     "max_label": m.max_label.name, "rpm": m.rpm, "rpd": m.rpd, "tz": m.tz,

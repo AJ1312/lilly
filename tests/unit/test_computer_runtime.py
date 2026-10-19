@@ -163,3 +163,22 @@ async def test_continuous_monitor_starts_and_stops_with_task_lifecycle(tmp_path:
     assert "task" in runtime._monitors
     await runtime.stop_monitor("task")
     assert "task" not in runtime._monitors
+
+
+@pytest.mark.asyncio
+async def test_flexible_coordinate_targeting(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    runtime = ComputerRuntime(tmp_path, backend=backend)
+    frame = await runtime.observe("task")
+
+    for coord_str, expected in [
+        ("@x=120, y=240", (120, 240)),
+        ("x=300, y=400", (300, 400)),
+        ("500, 600", (500, 600)),
+        ("(750, 850)", (750, 850)),
+        ("x: 100, y: 200", (100, 200)),
+        ("900,1000", (900, 1000)),
+    ]:
+        fresh = await runtime.click("task", frame.frame_id, coord_str)
+        assert ("click", expected) in backend.calls
+        frame = fresh
