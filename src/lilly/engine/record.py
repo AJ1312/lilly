@@ -13,7 +13,7 @@ from typing import Any
 from lilly.domain.clock import Clock
 from lilly.domain.labels import Label, TaskCtx
 from lilly.domain.reasoning import Layer, redact
-from lilly.domain.tasks import TaskState
+from lilly.domain.tasks import TaskOutcome, TaskState
 from lilly.engine.bus import EventBus
 from lilly.store import tasks
 from lilly.store.db import Database
@@ -43,6 +43,7 @@ class TaskRecord:
                          "model" if source == "model" else "system")
 
     async def state(self, state: TaskState, *, answer: str | None = None, error: str | None = None,
+                    outcome: TaskOutcome | None = None, outcome_reason: str | None = None,
                     also: Callable[[sqlite3.Connection], None] | None = None) -> None:
         """Move the task to `state`. `also` writes in the same transaction: both happen or neither does."""
         if state is self.state_now:
@@ -50,15 +51,25 @@ class TaskRecord:
         task_id, now = self.task_id, self.clock()
 
         def job(con: sqlite3.Connection) -> None:
-            tasks.set_state(con, task_id, state, now, answer=answer, error=error)
-            append_event(con, task_id, "state", {"state": state.value, **({"error": error} if error else {})},
-                         "system", now)
+            tasks.set_state(con, task_id, state, now, answer=answer, error=error,
+                            outcome=outcome, outcome_reason=outcome_reason)
+            append_event(con, task_id, "state", {
+                "state": state.value,
+                **({"error": error} if error else {}),
+                **({"outcome": outcome.value} if outcome else {}),
+                **({"outcome_reason": outcome_reason} if outcome_reason else {}),
+            }, "system", now)
             if also is not None:
                 also(con)
 
         await self.db.write(job)
         self.state_now = state
-        self.bus.publish({"type": "task", "task_id": task_id, "state": state.value})
+        self.bus.publish({
+            "type": "task",
+            "task_id": task_id,
+            "state": state.value,
+            **({"outcome": outcome.value} if outcome else {}),
+        })
 
     def absorb(self, label: Label, untrusted: bool) -> None:
         """Join new data into the task's context. No await: with steps side by side, no update is ever lost."""

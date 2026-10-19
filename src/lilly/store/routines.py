@@ -9,11 +9,12 @@ from typing import Any
 
 from lilly.domain.errors import NotFound, ValidationFailed
 from lilly.domain.schedule import Schedule, next_run, parse_schedule, schedule_to_dict
+from lilly.domain.tasks import ExecutionTarget
 
 MAX_ROUTINES = 20
 MAX_FAILURES = 5
 _COLS = ("id, name, goal, agent_id, schedule_json, enabled, next_run, last_run, last_task_id, last_state, "
-         "last_error, failures, pause_reason, created_at")
+         "last_error, failures, pause_reason, created_at, playbook_id, playbook_version, target")
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,11 +33,23 @@ class RoutineRow:
     failures: int
     pause_reason: str | None
     created_at: float
+    playbook_id: str | None = None
+    playbook_version: int | None = None
+    target: ExecutionTarget = ExecutionTarget.HOST
 
 
 def _row(r: tuple[Any, ...]) -> RoutineRow:
+    playbook_id = str(r[14]) if len(r) > 14 and r[14] is not None else None
+    playbook_version = int(r[15]) if len(r) > 15 and r[15] is not None else None
+    target_val = str(r[16]) if len(r) > 16 and r[16] is not None else "host"
+    try:
+        target = ExecutionTarget(target_val)
+    except ValueError:
+        target = ExecutionTarget.HOST
+
     return RoutineRow(str(r[0]), str(r[1]), str(r[2]), r[3], parse_schedule(json.loads(r[4])), bool(r[5]), r[6],
-                      r[7], r[8], r[9], r[10], int(r[11]), r[12], float(r[13]))
+                      r[7], r[8], r[9], r[10], int(r[11]), r[12], float(r[13]),
+                      playbook_id=playbook_id, playbook_version=playbook_version, target=target)
 
 
 def _check(name: str, goal: str) -> tuple[str, str]:
@@ -47,12 +60,15 @@ def _check(name: str, goal: str) -> tuple[str, str]:
 
 
 def create_routine(con: sqlite3.Connection, id: str, name: str, goal: str, agent_id: str | None,
-                   schedule: Schedule, now: float, tz: tzinfo | None = None) -> RoutineRow:
+                   schedule: Schedule, now: float, tz: tzinfo | None = None,
+                   playbook_id: str | None = None, playbook_version: int | None = None,
+                   target: ExecutionTarget = ExecutionTarget.HOST) -> RoutineRow:
     name, goal = _check(name, goal)
     if con.execute("SELECT COUNT(*) FROM routines").fetchone()[0] >= MAX_ROUTINES:
         raise ValidationFailed(f"you can have up to {MAX_ROUTINES} routines; delete one first")
-    con.execute(f"INSERT INTO routines({_COLS}) VALUES(?,?,?,?,?,1,?,NULL,NULL,NULL,NULL,0,NULL,?)",
-                (id, name, goal, agent_id, json.dumps(schedule_to_dict(schedule)), next_run(schedule, now, tz), now))
+    con.execute(f"INSERT INTO routines({_COLS}) VALUES(?,?,?,?,?,1,?,NULL,NULL,NULL,NULL,0,NULL,?,?,?,?)",
+                (id, name, goal, agent_id, json.dumps(schedule_to_dict(schedule)), next_run(schedule, now, tz), now,
+                 playbook_id, playbook_version, target.value))
     row = get_routine(con, id)
     assert row is not None
     return row
@@ -86,7 +102,9 @@ def unsettled_routines(con: sqlite3.Connection) -> list[RoutineRow]:
 
 def update_routine(con: sqlite3.Connection, routine_id: str, now: float, *, name: str | None = None,
                    goal: str | None = None, agent_id: str | None = None, clear_agent: bool = False,
-                   schedule: Schedule | None = None, tz: tzinfo | None = None) -> RoutineRow:
+                   schedule: Schedule | None = None, tz: tzinfo | None = None,
+                   playbook_id: str | None = None, playbook_version: int | None = None,
+                   target: ExecutionTarget | None = None) -> RoutineRow:
     cur = get_routine(con, routine_id)
     if cur is None:
         raise NotFound(routine_id)
@@ -94,8 +112,13 @@ def update_routine(con: sqlite3.Connection, routine_id: str, now: float, *, name
     new_agent = None if clear_agent else (cur.agent_id if agent_id is None else agent_id)
     sched = cur.schedule if schedule is None else schedule
     nxt = next_run(sched, now, tz) if (schedule is not None and cur.enabled) else cur.next_run
-    con.execute("UPDATE routines SET name=?, goal=?, agent_id=?, schedule_json=?, next_run=? WHERE id=?",
-                (new_name, new_goal, new_agent, json.dumps(schedule_to_dict(sched)), nxt, routine_id))
+    new_playbook_id = playbook_id if playbook_id is not None else cur.playbook_id
+    new_playbook_version = playbook_version if playbook_version is not None else cur.playbook_version
+    new_target = target if target is not None else cur.target
+    con.execute("UPDATE routines SET name=?, goal=?, agent_id=?, schedule_json=?, next_run=?, "
+                "playbook_id=?, playbook_version=?, target=? WHERE id=?",
+                (new_name, new_goal, new_agent, json.dumps(schedule_to_dict(sched)), nxt,
+                 new_playbook_id, new_playbook_version, new_target.value, routine_id))
     row = get_routine(con, routine_id)
     assert row is not None
     return row

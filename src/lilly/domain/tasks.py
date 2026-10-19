@@ -18,6 +18,38 @@ class TaskState(Enum):
     EXPIRED = "EXPIRED"
 
 
+class TaskOutcome(str, Enum):
+    UNVERIFIED = "unverified"
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    NEEDS_USER = "needs_user"
+    BLOCKED = "blocked"
+
+
+class ExecutionTarget(str, Enum):
+    HOST = "host"
+    DEVBOX = "devbox"
+
+
+class LoopAnswer(str):
+    outcome: TaskOutcome
+    outcome_reason: str | None
+    verified: bool
+
+    def __new__(
+        cls,
+        content: str,
+        outcome: TaskOutcome = TaskOutcome.SUCCESS,
+        outcome_reason: str | None = None,
+        verified: bool = False,
+    ) -> LoopAnswer:
+        instance = super().__new__(cls, content)
+        instance.outcome = outcome
+        instance.outcome_reason = outcome_reason
+        instance.verified = verified
+        return instance
+
+
 TERMINAL: frozenset[TaskState] = frozenset(
     {TaskState.DONE, TaskState.FAILED, TaskState.CANCELLED, TaskState.EXPIRED}
 )

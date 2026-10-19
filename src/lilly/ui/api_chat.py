@@ -13,7 +13,7 @@ from lilly.domain.decisions import DRIFTS, FOLLOWS
 from lilly.domain.errors import NotFound, ValidationFailed
 from lilly.domain.sheet import TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
-from lilly.domain.tasks import TaskState
+from lilly.domain.tasks import ExecutionTarget, TaskOutcome, TaskState
 from lilly.engine.bus import EventBus
 from lilly.engine.intent import parse_requested_intent
 from lilly.engine.orchestrator import SubmitRequest
@@ -106,6 +106,13 @@ async def submit_task(request: Request) -> Response:
         requested_intent = parse_requested_intent(raw_intent)
     except ValueError as exc:
         raise ValidationFailed(str(exc)) from None
+    raw_target = text(data, "target", required=False, max_len=16)
+    target = ExecutionTarget.HOST
+    if raw_target:
+        try:
+            target = ExecutionTarget(raw_target.lower())
+        except ValueError:
+            raise ValidationFailed(f"unknown execution target: {raw_target}") from None
     row = await rt.orchestrator.submit(SubmitRequest(
         goal=text(data, "goal", max_len=4000) or "",
         conversation_id=text(data, "conversation_id", required=False, max_len=64),
@@ -113,19 +120,48 @@ async def submit_task(request: Request) -> Response:
         skill=text(data, "skill", required=False, max_len=64),
         params=params,
         pin_model=text(data, "pin_model", required=False, max_len=64),
-        profile=profile, intent=requested_intent))
+        profile=profile, intent=requested_intent,
+        target=target))
     return JSONResponse({"task": task_json(row)}, 202)
 
 
 async def list_tasks(request: Request) -> Response:
+    con = runtime(request).db.reader
     states: tuple[TaskState, ...] | None = None
     if raw := request.query_params.get("state"):
         try:
             states = tuple(TaskState(s) for s in raw.split(","))
         except ValueError:
             raise ValidationFailed("unknown task state") from None
-    rows = tasks.list_tasks(runtime(request).db.reader, states=states, limit=limit_param(request))
-    return JSONResponse({"tasks": [task_json(t) for t in rows]})
+
+    outcomes: tuple[TaskOutcome, ...] | None = None
+    if raw_outcomes := request.query_params.get("outcome"):
+        try:
+            outcomes = tuple(TaskOutcome(o) for o in raw_outcomes.split(","))
+        except ValueError:
+            raise ValidationFailed("unknown task outcome") from None
+
+    target: ExecutionTarget | None = None
+    if raw_target := request.query_params.get("target"):
+        try:
+            target = ExecutionTarget(raw_target.lower())
+        except ValueError:
+            raise ValidationFailed("unknown execution target") from None
+
+    agent_id = request.query_params.get("agent_id")
+    conv_id = request.query_params.get("conversation_id")
+    query = request.query_params.get("q", "").strip() or None
+
+    raw_offset = request.query_params.get("offset", "0")
+    offset = int(raw_offset) if raw_offset.isdigit() else 0
+    limit = limit_param(request, 50, 200)
+
+    total = tasks.count_tasks(con, states=states, outcomes=outcomes, target=target,
+                              agent_id=agent_id, conversation_id=conv_id, query=query)
+    rows = tasks.list_tasks(con, states=states, outcomes=outcomes, target=target,
+                            agent_id=agent_id, conversation_id=conv_id, query=query,
+                            offset=offset, limit=limit)
+    return JSONResponse({"tasks": [task_json(t) for t in rows], "total": total, "offset": offset, "limit": limit})
 
 
 async def get_task(request: Request) -> Response:

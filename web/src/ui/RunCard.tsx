@@ -8,7 +8,7 @@ import { LIVE_STATES, type PlanStep, type Step, type TaskDetail, type Verdict } 
 import { ApprovalCard } from './ApprovalCard'
 import { TOOL_LABEL } from './format'
 import { Icon } from './Icon'
-import { Button, ErrorNote, Pill, StatePill } from './kit'
+import { Button, ErrorNote, OutcomePill, Pill, StatePill, TargetPill } from './kit'
 
 const VERDICT: Record<Verdict, { text: string; tone: 'ok' | 'warn' | 'bad' }> = {
   ALLOW: { text: 'runs on its own', tone: 'ok' },
@@ -92,6 +92,8 @@ export function RunCard({ taskId, initialState }: { taskId: string; initialState
     <section className="run" aria-label="Task progress">
       <header className="run-head">
         <StatePill state={task.state} />
+        {!isLive && task.outcome && <OutcomePill outcome={task.outcome} reason={task.outcome_reason} />}
+        <TargetPill target={task.target} />
         {task.skill && <span className="tag">skill: {task.skill}</span>}
         {task.label !== 'PUBLIC' && <span className="tag tag-private"><Icon name="lock" size={12} /> used private data</span>}
         {task.tainted && <span className="tag tag-warn">read web content</span>}

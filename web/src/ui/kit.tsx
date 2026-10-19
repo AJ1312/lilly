@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useEscape } from '../hooks'
 import { useApp } from '../store'
-import { STATE_LABEL } from './format'
+import { OUTCOME_LABEL, STATE_LABEL } from './format'
 import { Icon } from './Icon'
 
 export function Button(props: {
@@ -102,6 +102,27 @@ export function Segmented<T extends string | number>(props: {
 export function StatePill({ state }: { state: string }) {
   const tone = state === 'DONE' ? 'ok' : state === 'WAITING_APPROVAL' ? 'warn' : ['FAILED', 'EXPIRED'].includes(state) ? 'bad' : state === 'CANCELLED' ? 'mute' : 'live'
   return <span className={`pill pill-${tone}`}>{STATE_LABEL[state] ?? state}</span>
+}
+
+export function OutcomePill({ outcome, reason }: { outcome?: string; reason?: string | null }) {
+  if (!outcome) return null
+  const meta = OUTCOME_LABEL[outcome] ?? { label: outcome, hint: '' }
+  const tone = outcome === 'success' ? 'ok' : outcome === 'needs_user' ? 'live' : outcome === 'blocked' ? 'bad' : outcome === 'partial' ? 'warn' : 'mute'
+  return (
+    <span className={`pill pill-${tone}`} title={reason || meta.hint}>
+      {meta.label}
+    </span>
+  )
+}
+
+export function TargetPill({ target }: { target?: string }) {
+  if (!target) return null
+  const isDevbox = target === 'devbox'
+  return (
+    <span className={`pill pill-${isDevbox ? 'warn' : 'mute'}`} title={isDevbox ? 'Isolated DevBox container' : 'This laptop (Host)'}>
+      {isDevbox ? 'DevBox' : 'Host'}
+    </span>
+  )
 }
 
 export function Pill({ children, tone = 'mute', title }: { children: ReactNode; tone?: 'ok' | 'warn' | 'bad' | 'mute' | 'live'; title?: string }) {

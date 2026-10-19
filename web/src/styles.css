@@ -663,3 +663,37 @@ input.num { width: 5.5rem; }
 .wizard-progress { display: flex; gap: 4px; }
 .wizard-progress span { height: 4px; flex: 1; background: var(--line); border-radius: 2px; }
 .wizard-progress span.on { background: var(--accent); }
+
+.jump-to-bottom {
+  position: sticky;
+  bottom: 12px;
+  align-self: center;
+  margin: 0 auto;
+  padding: 6px 14px;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  z-index: 10;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.jump-to-bottom:hover {
+  background: var(--paper-2);
+  transform: translateY(-1px);
+}
+
+.task-composer-target {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.task-composer-target .label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+

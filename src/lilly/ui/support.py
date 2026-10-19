@@ -20,7 +20,7 @@ from lilly.domain.errors import (
 )
 from lilly.domain.schedule import describe, schedule_to_dict
 from lilly.store import approvals as approval_store
-from lilly.store import conversations, memory, routines, spaces, tasks
+from lilly.store import conversations, memory, playbooks, routines, spaces, tasks
 from lilly.store.events import EventRow
 
 log = logging.getLogger("lilly.ui")
@@ -110,7 +110,8 @@ def task_json(t: tasks.TaskRow) -> dict[str, Any]:
     return {"id": t.id, "conversation_id": t.conversation_id, "agent_id": t.agent_id, "state": t.state.value,
             "goal": t.goal, "mode": t.mode, "label": t.label.name, "tainted": t.tainted, "skill": t.skill,
             "plan": _loads(t.plan_json), "pinned_model": t.pinned_model, "answer": t.answer, "error": t.error,
-            "created_at": t.created_at, "updated_at": t.updated_at, "finished_at": t.finished_at}
+            "created_at": t.created_at, "updated_at": t.updated_at, "finished_at": t.finished_at,
+            "outcome": t.outcome.value, "outcome_reason": t.outcome_reason, "target": t.target.value}
 
 
 def step_json(s: tasks.StepRow) -> dict[str, Any]:
@@ -161,4 +162,26 @@ def routine_json(r: routines.RoutineRow) -> dict[str, Any]:
             "schedule": schedule_to_dict(r.schedule), "when": describe(r.schedule), "enabled": r.enabled,
             "next_run": r.next_run, "last_run": r.last_run, "last_task_id": r.last_task_id,
             "last_state": r.last_state, "last_error": r.last_error, "pause_reason": r.pause_reason,
-            "created_at": r.created_at}
+            "created_at": r.created_at, "playbook_id": r.playbook_id, "playbook_version": r.playbook_version,
+            "target": r.target.value}
+
+
+def playbook_json(p: playbooks.PlaybookRow) -> dict[str, Any]:
+    return {
+        "id": p.id,
+        "name": p.name,
+        "description": p.description,
+        "task_signature": p.task_signature,
+        "version": p.version,
+        "steps": p.steps,
+        "parameters": p.parameters,
+        "preconditions": p.preconditions,
+        "target": p.target.value,
+        "provenance_task_id": p.provenance_task_id,
+        "success_count": p.success_count,
+        "status": p.status,
+        "created_at": p.created_at,
+        "updated_at": p.updated_at,
+    }
+
+

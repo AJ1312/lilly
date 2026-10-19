@@ -116,4 +116,13 @@ BUILTIN_SKILLS: dict[str, Skill] = {sk.name: sk for sk in (
         _llm("s2", "Point out anything unusual and suggest cleanups. Suggest only; do not act.", "$s1.output",
              "a short report"),
     ), Risk.R0),
+    Skill("job-search", 1, "Search public career sites and job boards for structured openings, deduplicate and rank them.",
+          ("query",), (
+        {"id": "s1", "tool": "web.search", "args": {"query": "{query} career job listings"}, "expect": "search result links"},
+        {"id": "s2", "tool": "web.fetch", "args": {"urls": "$s1.output"}, "expect": "job listing pages text"},
+        _llm("s3", "Extract structured job listings matching '{query}'. For each listing include: job title, company, "
+                   "location/remote, posted date (or 'not stated'), canonical URL, experience level, published salary "
+                   "(or 'not stated'), and source. Deduplicate by company + title. Output as a clean structured markdown table.",
+             "$s2.output", "a structured job listings table"),
+    ), Risk.R0),
 )}

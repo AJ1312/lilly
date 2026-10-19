@@ -8,13 +8,13 @@ from typing import Any
 
 from lilly.domain.errors import NotFound
 from lilly.domain.labels import Label
-from lilly.domain.tasks import TERMINAL, TaskState, check_transition
+from lilly.domain.tasks import TERMINAL, ExecutionTarget, TaskOutcome, TaskState, check_transition
 from lilly.store.connection import tx
 from lilly.store.events import append_event
 
 _TASK_COLS = ("id, conversation_id, agent_id, state, goal, mode, label, tainted, skill, "
               "plan_json, pinned_model, answer, error, created_at, updated_at, finished_at, "
-              "parent_task_id, depth, profile_json")
+              "parent_task_id, depth, profile_json, outcome, outcome_reason, target")
 _STEP_COLS = "step_id, position, tool, status, args_json, output, label, untrusted, error, started_at, finished_at"
 MAX_OUTPUT = 262_144
 MAX_ARGS = 16_384
@@ -42,6 +42,9 @@ class TaskRow:
     parent_task_id: str | None = None
     depth: int = 0
     profile_json: str = "{}"
+    outcome: TaskOutcome = TaskOutcome.UNVERIFIED
+    outcome_reason: str | None = None
+    target: ExecutionTarget = ExecutionTarget.HOST
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,18 @@ def _clip_args(args_json: str) -> str:
 
 
 def _task(r: tuple[Any, ...]) -> TaskRow:
+    outcome_val = str(r[19]) if len(r) > 19 and r[19] is not None else "unverified"
+    try:
+        outcome = TaskOutcome(outcome_val)
+    except ValueError:
+        outcome = TaskOutcome.UNVERIFIED
+    outcome_reason = str(r[20]) if len(r) > 20 and r[20] is not None else None
+    target_val = str(r[21]) if len(r) > 21 and r[21] is not None else "host"
+    try:
+        target = ExecutionTarget(target_val)
+    except ValueError:
+        target = ExecutionTarget.HOST
+
     return TaskRow(
         str(r[0]), r[1], r[2], TaskState(r[3]), str(r[4]), int(r[5]),
         Label(r[6]), bool(r[7]), r[8], r[9], r[10], r[11], r[12],
@@ -74,6 +89,9 @@ def _task(r: tuple[Any, ...]) -> TaskRow:
         str(r[16]) if len(r) > 16 and r[16] is not None else None,
         int(r[17]) if len(r) > 17 and r[17] is not None else 0,
         str(r[18]) if len(r) > 18 and r[18] is not None else "{}",
+        outcome=outcome,
+        outcome_reason=outcome_reason,
+        target=target,
     )
 
 
@@ -81,11 +99,12 @@ def create_task(con: sqlite3.Connection, *, id: str, goal: str, mode: int,
                 label: Label, tainted: bool, now: float, conversation_id: str | None = None,
                 agent_id: str | None = None, skill: str | None = None,
                 pinned_model: str | None = None, parent_task_id: str | None = None,
-                depth: int = 0, profile_json: str = "{}") -> TaskRow:
+                depth: int = 0, profile_json: str = "{}",
+                target: ExecutionTarget = ExecutionTarget.HOST) -> TaskRow:
     con.execute(
-        f"INSERT INTO tasks({_TASK_COLS}) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,NULL,NULL,?,?,NULL,?,?,?)",
+        f"INSERT INTO tasks({_TASK_COLS}) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,NULL,NULL,?,?,NULL,?,?,?,'unverified',NULL,?)",
         (id, conversation_id, agent_id, TaskState.PENDING.value, goal, mode, int(label),
-         int(tainted), skill, pinned_model, now, now, parent_task_id, depth, profile_json))
+         int(tainted), skill, pinned_model, now, now, parent_task_id, depth, profile_json, target.value))
     task = get_task(con, id)
     assert task is not None
     return task
@@ -96,37 +115,101 @@ def get_task(con: sqlite3.Connection, task_id: str) -> TaskRow | None:
     return _task(r) if r else None
 
 
-def list_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None = None,
-               conversation_id: str | None = None, before: float | None = None,
-               limit: int = 50) -> list[TaskRow]:
+def count_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None = None,
+                outcomes: tuple[TaskOutcome, ...] | None = None,
+                target: ExecutionTarget | None = None,
+                agent_id: str | None = None,
+                conversation_id: str | None = None,
+                query: str | None = None) -> int:
     where: list[str] = []
     args: list[Any] = []
     if states:
         where.append(f"state IN ({','.join('?' * len(states))})")
         args += [s.value for s in states]
+    if outcomes:
+        where.append(f"outcome IN ({','.join('?' * len(outcomes))})")
+        args += [o.value for o in outcomes]
+    if target is not None:
+        where.append("target=?")
+        args.append(target.value)
+    if agent_id is not None:
+        where.append("agent_id=?")
+        args.append(agent_id)
+    if conversation_id:
+        where.append("conversation_id=?")
+        args.append(conversation_id)
+    if query:
+        where.append("goal LIKE ?")
+        args.append(f"%{query}%")
+    sql = "SELECT COUNT(*) FROM tasks" + (" WHERE " + " AND ".join(where) if where else "")
+    row = con.execute(sql, args).fetchone()
+    return int(row[0]) if row else 0
+
+
+def list_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None = None,
+               outcomes: tuple[TaskOutcome, ...] | None = None,
+               target: ExecutionTarget | None = None,
+               agent_id: str | None = None,
+               conversation_id: str | None = None, before: float | None = None,
+               query: str | None = None,
+               offset: int = 0, limit: int = 50) -> list[TaskRow]:
+    where: list[str] = []
+    args: list[Any] = []
+    if states:
+        where.append(f"state IN ({','.join('?' * len(states))})")
+        args += [s.value for s in states]
+    if outcomes:
+        where.append(f"outcome IN ({','.join('?' * len(outcomes))})")
+        args += [o.value for o in outcomes]
+    if target is not None:
+        where.append("target=?")
+        args.append(target.value)
+    if agent_id is not None:
+        where.append("agent_id=?")
+        args.append(agent_id)
     if conversation_id:
         where.append("conversation_id=?")
         args.append(conversation_id)
     if before is not None:
         where.append("created_at<?")
         args.append(before)
+    if query:
+        where.append("goal LIKE ?")
+        args.append(f"%{query}%")
     sql = f"SELECT {_TASK_COLS} FROM tasks" + (" WHERE " + " AND ".join(where) if where else "")
-    rows = con.execute(sql + " ORDER BY created_at DESC LIMIT ?", (*args, max(1, min(limit, 200)))).fetchall()
+    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    args += [max(1, min(limit, 200)), max(0, offset)]
+    rows = con.execute(sql, args).fetchall()
     return [_task(r) for r in rows]
 
 
 def set_state(con: sqlite3.Connection, task_id: str, new: TaskState, now: float, *,
-              answer: str | None = None, error: str | None = None) -> TaskRow:
+              answer: str | None = None, error: str | None = None,
+              outcome: TaskOutcome | None = None, outcome_reason: str | None = None) -> TaskRow:
     """Move a task along its lifecycle. Illegal moves raise ConflictError; finished tasks never change."""
     with tx(con):
         task = get_task(con, task_id)
         if task is None:
             raise NotFound(task_id)
         check_transition(task.state, new)
+
+        # Derive default outcome if moving to a terminal state without explicit outcome
+        resolved_outcome = outcome
+        if resolved_outcome is None and new in TERMINAL:
+            if new is TaskState.FAILED:
+                resolved_outcome = TaskOutcome.BLOCKED
+            elif new is TaskState.CANCELLED or new is TaskState.EXPIRED:
+                resolved_outcome = TaskOutcome.PARTIAL
+            else:
+                # DONE without explicit verified outcome defaults conservatively to unverified
+                resolved_outcome = TaskOutcome.UNVERIFIED
+
+        outcome_val = resolved_outcome.value if resolved_outcome is not None else None
         con.execute(
             "UPDATE tasks SET state=?, updated_at=?, finished_at=?, answer=COALESCE(?, answer), "
-            "error=COALESCE(?, error) WHERE id=?",
-            (new.value, now, now if new in TERMINAL else None, answer, error, task_id))
+            "error=COALESCE(?, error), outcome=COALESCE(?, outcome), outcome_reason=COALESCE(?, outcome_reason) "
+            "WHERE id=?",
+            (new.value, now, now if new in TERMINAL else None, answer, error, outcome_val, outcome_reason, task_id))
     updated = get_task(con, task_id)
     assert updated is not None
     return updated

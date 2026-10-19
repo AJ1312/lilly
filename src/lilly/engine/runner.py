@@ -40,7 +40,7 @@ from lilly.domain.reasoning import Layer
 from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS, check_skill, instantiate
-from lilly.domain.tasks import TERMINAL, TaskState
+from lilly.domain.tasks import TERMINAL, ExecutionTarget, TaskOutcome, TaskState
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.agent_loop import AgentLoop
 from lilly.engine.approvals import ApprovalService
@@ -83,6 +83,7 @@ class RunSpec:
     sheet: PetSheet | None = None
     profile: TaskProfile | None = None
     intent: Intent | None = None
+    target: ExecutionTarget = ExecutionTarget.HOST
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +121,7 @@ class TaskRunner:
                                 TaskState(task.state))
         self._steps = StepExecutor(self._rec, deps.approvals, deps.grants, deps.scope, deps.limits, spec.pin_model,
                                    deps.decisions, self._brief, engine_settings=deps.engine_settings,
-                                   read_cache=deps.read_cache, standing=deps.standing)
+                                   read_cache=deps.read_cache, standing=deps.standing, target=spec.target)
 
     @property
     def agent_id(self) -> str | None:
@@ -143,18 +144,22 @@ class TaskRunner:
             async with asyncio.timeout(self._d.limits().task_minutes * 60.0):
                 await self._execute()
         except asyncio.CancelledError:
-            await asyncio.shield(self._finish(TaskState.CANCELLED, error=self.stop_reason))
+            await asyncio.shield(self._finish(TaskState.CANCELLED, error=self.stop_reason, outcome=TaskOutcome.PARTIAL, outcome_reason="cancelled"))
             raise
         except Stop as stop:
-            await self._finish(stop.state, error=stop.message)
+            stop_outcome = TaskOutcome.BLOCKED if stop.state == TaskState.FAILED else (
+                TaskOutcome.PARTIAL if stop.state in (TaskState.CANCELLED, TaskState.EXPIRED) else TaskOutcome.UNVERIFIED
+            )
+            await self._finish(stop.state, error=stop.message, outcome=stop_outcome, outcome_reason=stop.message)
         except TimeoutError:
-            await self._finish(TaskState.FAILED, error="the task took too long and was stopped")
+            await self._finish(TaskState.FAILED, error="the task took too long and was stopped", outcome=TaskOutcome.BLOCKED, outcome_reason="timeout")
         except Exception as exc:  # the last line of defence: a task always ends in a recorded state
             if not isinstance(exc, LillyError):
                 log.exception("task %s crashed", self._task.id)
-            await self._finish(TaskState.FAILED, error=describe_error(exc))
+            await self._finish(TaskState.FAILED, error=describe_error(exc), outcome=TaskOutcome.BLOCKED, outcome_reason=describe_error(exc))
 
-    async def _finish(self, state: TaskState, *, answer: str | None = None, error: str | None = None) -> None:
+    async def _finish(self, state: TaskState, *, answer: str | None = None, error: str | None = None,
+                      outcome: TaskOutcome | None = None, outcome_reason: str | None = None) -> None:
         try:
             task_id, conv, now = self._task.id, self._spec.conversation_id, self._d.clock()
             label, untrusted = self._rec.ctx.label, self._rec.ctx.tainted
@@ -164,13 +169,15 @@ class TaskRunner:
                 conversations.add_message(con, conv, "assistant", answer, now, label=label, untrusted=untrusted,
                                           task_id=task_id)
 
-            await self._rec.state(state, answer=answer, error=error, also=reply if answer is not None else None)
+            await self._rec.state(state, answer=answer, error=error, outcome=outcome, outcome_reason=outcome_reason,
+                                  also=reply if answer is not None else None)
         except ConflictError:
             row = tasks.get_task(self._d.db.reader, self._task.id)
             if row is not None and row.state not in TERMINAL:  # a bug, not a race: never leave a task hanging
                 log.error("task %s could not move to %s from %s", self._task.id, state.value, row.state.value)
                 await self._d.db.write(lambda con: tasks.set_state(
-                    con, self._task.id, TaskState.FAILED, self._d.clock(), error="internal state error"))
+                    con, self._task.id, TaskState.FAILED, self._d.clock(), error="internal state error",
+                    outcome=TaskOutcome.BLOCKED, outcome_reason="internal state error"))
         except LillyError:
             log.exception("could not record the end of task %s", self._task.id)
 
@@ -221,9 +228,12 @@ class TaskRunner:
             system1_engine=self._d.system1,
             sheet=self._spec.sheet,
             profile=self._spec.profile,
+            target=self._spec.target,
         )
         answer = await loop.run()
-        await self._answer(answer)
+        loop_outcome = getattr(answer, "outcome", None)
+        loop_reason = getattr(answer, "outcome_reason", None)
+        await self._answer(answer, outcome=loop_outcome, outcome_reason=loop_reason)
 
     async def _execute_plan(self) -> None:
         self._prepare_assist()
@@ -416,15 +426,14 @@ class TaskRunner:
         try:
             out = await self._steps.run({"tool": qa.tool, "args": qa.args}, step_id, {}, tools, decline_continues=True)
         except StepDeclined:
-            # For now, use a simple message since we don't have access to copy
-            await self._answer(f"Quick action declined: {qa.shown}")
+            await self._answer(f"Quick action declined: {qa.shown}", outcome=TaskOutcome.NEEDS_USER, outcome_reason="Quick action declined")
             return
         except StepFailed as failed:
-            await self._finish(TaskState.FAILED, error=failed.reason)
+            await self._finish(TaskState.FAILED, error=failed.reason, outcome=TaskOutcome.BLOCKED, outcome_reason=failed.reason)
             return
-        await self._answer(tools[qa.tool].summary(qa.args, out))      # code-written; no model text
+        await self._answer(tools[qa.tool].summary(qa.args, out), outcome=TaskOutcome.SUCCESS, outcome_reason="Quick action completed")
 
-    async def _answer(self, text: str) -> None:
+    async def _answer(self, text: str, *, outcome: TaskOutcome | None = None, outcome_reason: str | None = None) -> None:
         if not text:
             raise Stop(TaskState.FAILED, "there was no answer to give")
         if self._rec.ctx.label is Label.SECRET:  # unreachable by policy; a last guard before text is stored as an answer
@@ -437,6 +446,12 @@ class TaskRunner:
         globs = self._d.grounding_settings().protected_globs
         receipt = ReceiptBuilder.build_from_con(self._d.db.reader, self._task.id, protected_globs=globs)
         await self._rec.event("receipt", receipt.to_dict())
-        await self._finish(TaskState.DONE, answer=text)
+
+        res_outcome = outcome if outcome is not None else getattr(text, "outcome", None)
+        res_reason = outcome_reason if outcome_reason is not None else getattr(text, "outcome_reason", None)
+        if res_outcome is None:
+            res_outcome = TaskOutcome.UNVERIFIED
+
+        await self._finish(TaskState.DONE, answer=text, outcome=res_outcome, outcome_reason=res_reason)
         if self._replies is not None and self._rec.state_now is TaskState.DONE:   # saved and finished: now it may be judged
             self._replies.start(self._task.id, self._brief, text, self._rec.event)

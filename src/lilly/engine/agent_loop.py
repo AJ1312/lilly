@@ -30,7 +30,7 @@ from lilly.domain.reasoning import Layer
 from lilly.domain.schema import validate_schema
 from lilly.domain.settings import EngineSettings, GroundingSettings, LimitSettings
 from lilly.domain.sheet import PetSheet, TaskProfile
-from lilly.domain.tasks import TaskState
+from lilly.domain.tasks import ExecutionTarget, LoopAnswer, TaskOutcome, TaskState
 from lilly.domain.text import fence
 from lilly.engine.context import ContextManager
 from lilly.engine.crew import resolve_ref
@@ -114,6 +114,7 @@ class AgentLoop:
         profile: TaskProfile | None = None,
         system1_engine: System1Engine | None = None,
         requested_intent: Intent | None = None,
+        target: ExecutionTarget = ExecutionTarget.HOST,
     ) -> None:
         self._rec = rec
         self._completer = completer
@@ -136,6 +137,7 @@ class AgentLoop:
         self._sheet = sheet
         self._profile = profile
         self._system1 = system1_engine
+        self._target = target
         self._task_complexity = 0.5
         self._system1_requires_vision = False
         self._system1_capability = Cap.NONE
@@ -152,6 +154,10 @@ class AgentLoop:
         self._grounding = GroundingVerifier(file_roots=self._file_roots(), enabled=gs.enabled)
         self._context_mgr = ContextManager(self._engine_settings, self._completer)
         self._intent = requested_intent or classify_intent(goal)
+
+    @property
+    def target(self) -> ExecutionTarget:
+        return self._target
 
     @property
     def current_stop_reason(self) -> str:
@@ -195,9 +201,15 @@ class AgentLoop:
 
     def _get_visible_tools(self) -> dict[str, Tool]:
         all_tools = dict(self._tools())
+        if self._target is ExecutionTarget.DEVBOX:
+            allowed_prefixes = ("devbox.", "result.", "agent.", "skill.")
+            all_tools = {k: v for k, v in all_tools.items() if any(k.startswith(p) for p in allowed_prefixes)}
+        elif self._target is ExecutionTarget.HOST:
+            all_tools = {k: v for k, v in all_tools.items() if not k.startswith("devbox.")}
+
         visible: dict[str, Tool] = {}
         ALWAYS_VISIBLE = frozenset({"agent.ask"})   # the one tool a pet needs even with everything else off
-        
+
         for name, tool in all_tools.items():
             if name not in ALWAYS_VISIBLE:
                 if self._tool_allowlist is not None and name not in self._tool_allowlist:
@@ -208,6 +220,64 @@ class AgentLoop:
                     continue
             visible[name] = tool
         return visible
+
+    def _evaluate_outcome(
+        self,
+        text: str,
+        *,
+        intent: Intent,
+        action_performed: bool,
+        action_verified: bool,
+        had_blocked: bool,
+        had_declined: bool,
+        had_failed_step: bool,
+    ) -> tuple[TaskOutcome, str | None, bool]:
+        """Determine truthful goal outcome and verification state."""
+        lower = text.lower()
+        blocked_indicators = (
+            "not optimized for", "isn't optimized for", "not supported",
+            "blocked by policy", "unable to play", "cannot play",
+            "access denied", "permission denied",
+        )
+        is_blocked_text = any(phrase in lower for phrase in blocked_indicators)
+
+        question_indicators = (
+            "would you like me to", "do you want me to", "should i",
+            "how would you like to proceed", "what would you like to do",
+            "let me know how to proceed", "please let me know",
+            "would you prefer", "or try another",
+        )
+        asks_user = any(phrase in lower for phrase in question_indicators) or (
+            "?" in text and ("switch" in lower or "proceed" in lower or "instead" in lower or "choose" in lower)
+        )
+
+        if had_blocked or is_blocked_text:
+            return TaskOutcome.BLOCKED, "action was blocked by platform or policy", False
+        if had_declined:
+            return TaskOutcome.NEEDS_USER, "action approval was declined", False
+
+        if intent is Intent.ACTION:
+            if asks_user:
+                return TaskOutcome.NEEDS_USER, "further user input or choice needed", False
+            if action_verified:
+                return TaskOutcome.SUCCESS, "action performed and verified", True
+            if action_performed:
+                return TaskOutcome.UNVERIFIED, "action performed but visible state was not verified", False
+            if asks_user:
+                return TaskOutcome.NEEDS_USER, "action not completed; user choice needed", False
+            return TaskOutcome.PARTIAL, "requested action was not executed to completion", False
+
+        if intent is Intent.NAVIGATE:
+            if action_performed or action_verified:
+                return TaskOutcome.SUCCESS, "navigated to destination", True
+            return TaskOutcome.PARTIAL, "destination not reached", False
+
+        # Intent is WEB_RETRIEVE or ANSWER
+        if had_failed_step:
+            return TaskOutcome.PARTIAL, "completed with errors during retrieval", False
+        if asks_user and not action_performed:
+            return TaskOutcome.NEEDS_USER, "clarification requested from user", False
+        return TaskOutcome.SUCCESS, None, False
 
     async def _capabilities(self, visible: dict[str, Tool]) -> dict[str, Tool]:
         """Expose core tools + discovered/used tools, loading schemas on demand to save tokens."""
@@ -428,6 +498,9 @@ class AgentLoop:
         action_performed = False
         action_verified = False
         action_prompted = False
+        had_blocked = False
+        had_declined = False
+        had_failed_step = False
 
         while True:
             if self._rec.cancelled:
@@ -749,6 +822,14 @@ class AgentLoop:
             all_sids = [f"t{turn}c{i}" for i in range(1, len(done.result.tool_calls) + 1)]
             messages.extend([obs_by_sid[sid] for sid in all_sids if sid in obs_by_sid])
 
+            for outcome in outcomes.values():
+                if outcome.kind == "blocked" or "blocked" in (outcome.reason or ""):
+                    had_blocked = True
+                elif outcome.kind == "declined":
+                    had_declined = True
+                elif not outcome.ok:
+                    had_failed_step = True
+
             if intent.value == "ACTION":
                 for outcome in outcomes.values():
                     if not outcome.ok:
@@ -802,4 +883,13 @@ class AgentLoop:
         if not candidate_answer:
             raise Stop(TaskState.FAILED, "there was no answer to give")
 
-        return candidate_answer
+        outcome_val, outcome_reason, verified = self._evaluate_outcome(
+            candidate_answer,
+            intent=intent,
+            action_performed=action_performed,
+            action_verified=action_verified,
+            had_blocked=had_blocked,
+            had_declined=had_declined,
+            had_failed_step=had_failed_step,
+        )
+        return LoopAnswer(candidate_answer, outcome=outcome_val, outcome_reason=outcome_reason, verified=verified)

@@ -39,7 +39,7 @@ def test_every_builtin_skill_is_valid(name: str) -> None:
 
 
 def test_the_builtin_skills() -> None:
-    assert sorted(BUILTIN_SKILLS) == ["data-profile", "file-organizer", "research", "resource-hogs", "run-and-explain",
+    assert sorted(BUILTIN_SKILLS) == ["data-profile", "file-organizer", "job-search", "research", "resource-hogs", "run-and-explain",
                                       "summarize-docs", "system-health"]
 
 

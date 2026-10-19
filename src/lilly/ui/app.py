@@ -110,6 +110,10 @@ def api_routes() -> list[Route]:
         _route("/api/agents/{agent_id}", data.update_agent, ["PATCH"]),
         _route("/api/agents/{agent_id}", data.delete_agent, ["DELETE"]),
         _route("/api/crew/route", data.crew_route, ["POST"]),
+        _route("/api/playbooks", data.list_playbooks, ["GET"]),
+        _route("/api/playbooks", data.create_playbook, ["POST"]),
+        _route("/api/playbooks/{playbook_id}", data.get_playbook, ["GET"]),
+        _route("/api/playbooks/{playbook_id}", data.delete_playbook, ["DELETE"]),
         # settings, models, keys, system, data
         _route("/api/routines", api_routines.list_routines, ["GET"]),
         _route("/api/routines", api_routines.create_routine, ["POST"]),

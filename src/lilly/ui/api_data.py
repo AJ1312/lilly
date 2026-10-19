@@ -16,9 +16,10 @@ from lilly.domain.ids import new_id
 from lilly.domain.labels import Label
 from lilly.domain.pets import DEFAULT_LOOK, Look, look_to_dict, parse_look
 from lilly.domain.sheet import parse_sheet
+from lilly.domain.tasks import ExecutionTarget
 from lilly.engine.crew import choose_pet
 from lilly.engine.orchestrator import AGENT_CHANGED, AGENT_DELETED
-from lilly.store import agents, memory, spaces
+from lilly.store import agents, memory, playbooks, spaces
 from lilly.store import undo as undo_store
 from lilly.store.undo import hash_content
 from lilly.ui.support import (
@@ -28,6 +29,7 @@ from lilly.ui.support import (
     memory_json,
     ok,
     page_json,
+    playbook_json,
     runtime,
     space_json,
     text,
@@ -408,4 +410,67 @@ async def undo_step(request: Request) -> Response:
                 temp_path.unlink()
 
     return JSONResponse({"restored": record.path})
+
+
+# ---- playbooks ---------------------------------------------------------------------------------
+async def list_playbooks(request: Request) -> Response:
+    rt = runtime(request)
+    target_param = request.query_params.get("target")
+    target = None
+    if target_param:
+        try:
+            target = ExecutionTarget(target_param)
+        except ValueError:
+            target = None
+    limit = limit_param(request, 50)
+    rows = playbooks.list_playbooks(rt.db.reader, target=target, limit=limit)
+    return JSONResponse({"playbooks": [playbook_json(p) for p in rows]})
+
+
+async def create_playbook(request: Request) -> Response:
+    rt = runtime(request)
+    data = await json_body(request)
+    name = text(data, "name", max_len=120) or ""
+    sig = text(data, "task_signature", max_len=200) or ""
+    desc = text(data, "description", required=False, max_len=1000) or ""
+    target_raw = data.get("target", "host")
+    try:
+        target = ExecutionTarget(target_raw)
+    except ValueError:
+        target = ExecutionTarget.HOST
+    steps = data.get("steps")
+    if steps is not None and not isinstance(steps, list):
+        raise ValidationFailed("steps must be a list of step objects")
+    parameters = data.get("parameters")
+    if parameters is not None and not isinstance(parameters, dict):
+        raise ValidationFailed("parameters must be a JSON object")
+    preconditions = data.get("preconditions")
+    if preconditions is not None and not isinstance(preconditions, dict):
+        raise ValidationFailed("preconditions must be a JSON object")
+    prov_task_id = text(data, "provenance_task_id", required=False, max_len=64)
+    pid = new_id()
+    now = rt.clock()
+    row = await rt.db.write(lambda con: playbooks.create_playbook(
+        con, id=pid, name=name, task_signature=sig, description=desc,
+        steps=steps or [], parameters=parameters or {}, preconditions=preconditions or {},
+        target=target, provenance_task_id=prov_task_id, now=now
+    ))
+    return JSONResponse({"playbook": playbook_json(row)}, 201)
+
+
+async def get_playbook(request: Request) -> Response:
+    rt = runtime(request)
+    pid = request.path_params["playbook_id"]
+    row = playbooks.get_playbook(rt.db.reader, pid)
+    if row is None:
+        raise NotFound(f"playbook {pid}")
+    return JSONResponse({"playbook": playbook_json(row)})
+
+
+async def delete_playbook(request: Request) -> Response:
+    rt = runtime(request)
+    pid = request.path_params["playbook_id"]
+    await rt.db.write(lambda con: playbooks.delete_playbook(con, pid))
+    return ok()
+
 

@@ -14,7 +14,7 @@ from lilly.domain.labels import Label, Mode
 from lilly.domain.settings import EngineSettings, Settings
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
-from lilly.domain.tasks import TERMINAL, TaskState
+from lilly.domain.tasks import TERMINAL, ExecutionTarget, TaskState
 from lilly.engine.intent import Intent
 from lilly.engine.replycheck import ReplyChecker
 from lilly.engine.runner import EngineDeps, RunSpec, TaskRunner
@@ -47,6 +47,7 @@ class SubmitRequest:
     depth: int = 0
     mode: Mode | None = None
     intent: Intent | None = None
+    target: ExecutionTarget = ExecutionTarget.HOST
 
 
 class Gate:
@@ -189,10 +190,12 @@ class Orchestrator:
                 label=Label.PUBLIC, tainted=req.outside, now=now, conversation_id=conv_id,
                 agent_id=agent.id if agent else None, skill=req.skill, pinned_model=pin,
                 parent_task_id=req.parent_task_id, depth=req.depth,
-                profile_json=json.dumps(profile.to_dict()) if profile else "{}")
+                profile_json=json.dumps(profile.to_dict()) if profile else "{}",
+                target=req.target)
             conversations.add_message(con, conv_id, "user", goal, now, task_id=task_id)
             append_event(con, task_id, "created", {
                 "mode": mode.name, "intent": req.intent.value if req.intent else "AUTO",
+                "target": req.target.value,
                 "skill": req.skill, "agent": agent.name if agent else None, "source": req.source,
             }, "user", now)
             return row
@@ -211,7 +214,7 @@ class Orchestrator:
                 raise ConflictError("Lilly is shutting down")
             owner_text = agent_store.owner_text_for(agent) if agent else ""
             spec = RunSpec(goal, conv_id, owner_text, req.skill, req.params, pin, sheet=sheet, profile=profile,
-                           intent=req.intent)
+                           intent=req.intent, target=row.target)
             runner = TaskRunner(self._scoped_deps(agent, sheet=sheet, profile=profile), row, spec, self._replies)
             handle = asyncio.create_task(self._run(runner), name=f"lilly-task-{task_id}")
             self._active[task_id] = (handle, runner)
@@ -244,7 +247,7 @@ class Orchestrator:
             goal=original.goal, conversation_id=original.conversation_id, agent_id=original.agent_id,
             skill=original.skill, pin_model=original.pinned_model, outside=original.tainted,
             profile=profile, parent_task_id=original.id, depth=original.depth + 1,
-            mode=Mode(original.mode)))
+            mode=Mode(original.mode), target=original.target))
         now = self._d.clock()
         await self._d.db.write(lambda con: append_event(
             con, original.id, "recovery", {"child_task_id": child.id, "confirmed_ambiguous": confirm_ambiguous},

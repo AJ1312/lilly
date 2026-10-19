@@ -39,7 +39,7 @@ class Scheduler:
             raise NotFound(routine_id)
         if self._running(routine):
             raise ConflictError("this routine is already running")
-        row = await self._orch.submit(SubmitRequest(goal=routine.goal, agent_id=routine.agent_id))
+        row = await self._orch.submit(SubmitRequest(goal=routine.goal, target=routine.target, agent_id=routine.agent_id))
         now = self._clock()
         await self._db.write(lambda con: routines.record_start(con, routine.id, row.id, now, routine.next_run))
         return row
@@ -56,7 +56,7 @@ class Scheduler:
             await self._db.write(lambda con: routines.record_skip(con, routine.id, later))
             return
         try:
-            row = await self._orch.submit(SubmitRequest(goal=routine.goal, agent_id=routine.agent_id))
+            row = await self._orch.submit(SubmitRequest(goal=routine.goal, target=routine.target, agent_id=routine.agent_id))
         except (NotFound, ValidationFailed) as exc:
             reason = str(exc)
             await self._db.write(lambda con: routines.record_refused(con, routine.id, now, reason))

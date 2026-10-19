@@ -2,9 +2,9 @@ import { useCallback, useState } from 'react'
 import { api, errorText } from '../api'
 import { useInterval, useLoad } from '../hooks'
 import { useApp } from '../store'
-import type { Agent, Routine, Schedule } from '../types'
+import type { Agent, ExecutionTarget, Routine, Schedule } from '../types'
 import { STATE_LABEL, ago, when } from '../ui/format'
-import { Button, Confirm, Dialog, Empty, ErrorNote, Field, IconButton, PageHead, Pill, Segmented, Switch } from '../ui/kit'
+import { Button, Confirm, Dialog, Empty, ErrorNote, Field, IconButton, PageHead, Pill, Segmented, Switch, TargetPill } from '../ui/kit'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const WEEKDAYS = [0, 1, 2, 3, 4]
@@ -14,6 +14,7 @@ interface Draft {
   name: string
   goal: string
   agent_id: string
+  target: ExecutionTarget
   kind: 'at' | 'every'
   at: string
   days: number[]
@@ -22,9 +23,9 @@ interface Draft {
 }
 
 function toDraft(r: Routine | null): Draft {
-  const base: Draft = { name: '', goal: '', agent_id: '', kind: 'at', at: '08:30', days: WEEKDAYS, amount: 1, unit: 60 }
+  const base: Draft = { name: '', goal: '', agent_id: '', target: 'host', kind: 'at', at: '08:30', days: WEEKDAYS, amount: 1, unit: 60 }
   if (!r) return base
-  const common = { ...base, name: r.name, goal: r.goal, agent_id: r.agent_id ?? '' }
+  const common = { ...base, name: r.name, goal: r.goal, agent_id: r.agent_id ?? '', target: r.target ?? 'host' }
   if (r.schedule.kind === 'at') return { ...common, kind: 'at', at: r.schedule.at, days: r.schedule.days }
   const n = r.schedule.every_minutes
   const unit = n % 1440 === 0 ? 1440 : n % 60 === 0 ? 60 : 1
@@ -42,7 +43,7 @@ function RoutineDialog({ routine, agents, onClose, onSaved }: { routine: Routine
   const toggleDay = (i: number) => set('days', d.days.includes(i) ? d.days.filter((x) => x !== i) : [...d.days, i].sort())
   const ready = d.name.trim() !== '' && d.goal.trim() !== '' && (d.kind === 'every' ? d.amount >= 1 : d.days.length > 0 && d.at !== '')
   const save = async () => {
-    const body = { name: d.name, goal: d.goal, agent_id: d.agent_id || null, schedule: toSchedule(d) }
+    const body = { name: d.name, goal: d.goal, agent_id: d.agent_id || null, schedule: toSchedule(d), target: d.target }
     try {
       if (routine) await api.patch(`/api/routines/${routine.id}`, body)
       else await api.post('/api/routines', body)
@@ -62,6 +63,23 @@ function RoutineDialog({ routine, agents, onClose, onSaved }: { routine: Routine
       <Field label="What should Lilly do?" hint="Write it as you would in a chat. It runs the same way, with the same approvals.">
         {(id) => <textarea id={id} rows={4} value={d.goal} maxLength={4000} placeholder="Read my notes from yesterday and list what I should follow up on today." onChange={(e) => set('goal', e.target.value)} />}
       </Field>
+      <div className="field">
+        <span className="label">Execution target</span>
+        <Segmented
+          label="Execution target"
+          value={d.target}
+          onChange={(v) => set('target', v as ExecutionTarget)}
+          options={[
+            { value: 'host', label: 'This laptop' },
+            { value: 'devbox', label: 'Isolated DevBox' },
+          ]}
+        />
+        <p className="hint">
+          {d.target === 'devbox'
+            ? 'Runs in a locked-down container with shared folder only.'
+            : 'Can use permitted local files, browser, and computer controls.'}
+        </p>
+      </div>
       <Field label="Who does it?" hint="The agent's permissions decide what the routine may touch. Anything that needs approval waits for you in Approvals.">
         {(id) => (
           <select id={id} value={d.agent_id} onChange={(e) => set('agent_id', e.target.value)}>
@@ -154,6 +172,8 @@ export function Routines() {
               </div>
               <p className="clamp">{r.goal}</p>
               <div className="row wrap">
+                <TargetPill target={r.target ?? 'host'} />
+                {r.playbook_id && <Pill tone="ok">Playbook v{r.playbook_version ?? 1}</Pill>}
                 <Pill tone="mute">{r.when}</Pill>
                 <Pill tone={s.tone}>{s.text}</Pill>
                 {r.last_run !== null && r.last_state && r.last_state !== 'running' && (

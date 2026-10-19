@@ -9,8 +9,9 @@ from starlette.responses import JSONResponse, Response
 from lilly.domain.errors import NotFound
 from lilly.domain.ids import new_id
 from lilly.domain.schedule import parse_schedule
+from lilly.domain.tasks import ExecutionTarget
 from lilly.store import agents, routines
-from lilly.ui.support import flag, json_body, ok, routine_json, runtime, task_json, text
+from lilly.ui.support import flag, json_body, ok, routine_json, runtime, task_json, text, whole
 
 
 def _must_exist(con: sqlite3.Connection, agent_id: str | None) -> None:
@@ -28,11 +29,19 @@ async def create_routine(request: Request) -> Response:
     data = await json_body(request)
     name, goal = text(data, "name", max_len=80) or "", text(data, "goal", max_len=4000) or ""
     agent_id = text(data, "agent_id", required=False, max_len=64) or None
+    playbook_id = text(data, "playbook_id", required=False, max_len=64) or None
+    playbook_version = whole(data, "playbook_version")
+    target_raw = data.get("target", "host")
+    try:
+        target = ExecutionTarget(target_raw)
+    except ValueError:
+        target = ExecutionTarget.HOST
     schedule, routine_id, now = parse_schedule(data.get("schedule")), new_id(), rt.clock()
 
     def create(con: sqlite3.Connection) -> routines.RoutineRow:
         _must_exist(con, agent_id)
-        return routines.create_routine(con, routine_id, name, goal, agent_id, schedule, now)
+        return routines.create_routine(con, routine_id, name, goal, agent_id, schedule, now,
+                                       playbook_id=playbook_id, playbook_version=playbook_version, target=target)
 
     made = await rt.db.write(create)
     rt.routines_changed()
@@ -47,13 +56,23 @@ async def update_routine(request: Request) -> Response:
     schedule = parse_schedule(data["schedule"]) if "schedule" in data else None
     has_agent = "agent_id" in data
     agent_id = text(data, "agent_id", required=False, max_len=64) or None
+    playbook_id = text(data, "playbook_id", required=False, max_len=64)
+    playbook_version = whole(data, "playbook_version")
+    target_raw = data.get("target")
+    target = None
+    if target_raw:
+        try:
+            target = ExecutionTarget(target_raw)
+        except ValueError:
+            pass
     now = rt.clock()
 
     def update(con: sqlite3.Connection) -> routines.RoutineRow:
         if has_agent:
             _must_exist(con, agent_id)
         row = routines.update_routine(con, routine_id, now, name=name, goal=goal, agent_id=agent_id,
-                                      clear_agent=has_agent and agent_id is None, schedule=schedule)
+                                      clear_agent=has_agent and agent_id is None, schedule=schedule,
+                                      playbook_id=playbook_id, playbook_version=playbook_version, target=target)
         if enabled is not None and enabled != row.enabled:
             row = routines.set_enabled(con, routine_id, enabled, now)
         return row

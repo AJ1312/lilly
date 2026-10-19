@@ -3,6 +3,9 @@ export type TaskState =
 
 export const LIVE_STATES: TaskState[] = ['PENDING', 'PLANNING', 'RUNNING', 'WAITING_APPROVAL', 'VERIFYING']
 
+export type TaskOutcome = 'unverified' | 'success' | 'partial' | 'needs_user' | 'blocked'
+export type ExecutionTarget = 'host' | 'devbox'
+
 export interface Task {
   id: string
   conversation_id: string | null
@@ -21,6 +24,9 @@ export interface Task {
   updated_at: number
   finished_at: number | null
   reply_check?: 'follows' | 'drifts' | null
+  outcome: TaskOutcome
+  outcome_reason: string | null
+  target: ExecutionTarget
 }
 
 export interface Step {
@@ -106,7 +112,28 @@ export interface Routine {
   last_state: string | null
   last_error: string | null
   pause_reason: string | null
+  playbook_id?: string | null
+  playbook_version?: number | null
+  target?: ExecutionTarget | null
 }
+
+export interface Playbook {
+  id: string
+  name: string
+  task_signature: string
+  version: number
+  target: ExecutionTarget
+  definition: Record<string, unknown>
+  success_count: number
+  last_used_at: number | null
+  created_at: number
+}
+
+export const EXECUTION_TARGETS: { value: ExecutionTarget; label: string; hint: string }[] = [
+  { value: 'host', label: 'This laptop', hint: 'Direct host execution with granted file and desktop permissions.' },
+  { value: 'devbox', label: 'Isolated DevBox', hint: 'Runs inside a secured, network-isolated container with shared folder only.' },
+]
+
 export interface Skill { name: string; summary: string; params: string[]; risk: string }
 
 export interface ModelSpec {

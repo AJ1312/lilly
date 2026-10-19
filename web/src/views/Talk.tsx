@@ -2,7 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useApp } from '../store'
-import { APPROVAL_MODES, LIVE_STATES, REQUEST_INTENTS, type Agent, type Message, type ModelStatus, type RequestIntent, type Settings, type Skill, type Task, type Thread } from '../types'
+import {
+  APPROVAL_MODES,
+  EXECUTION_TARGETS,
+  LIVE_STATES,
+  REQUEST_INTENTS,
+  type Agent,
+  type ExecutionTarget,
+  type Message,
+  type ModelStatus,
+  type RequestIntent,
+  type Settings,
+  type Skill,
+  type Task,
+  type Thread,
+} from '../types'
 import { Icon, Petals } from '../ui/Icon'
 import { Markdown } from '../ui/Markdown'
 import { Pet, type PetState } from '../ui/Pet'
@@ -24,6 +38,7 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
   const [agentId, setAgentId] = useState('')
   const [model, setModel] = useState('')
   const [intent, setIntent] = useState<RequestIntent>('AUTO')
+  const [target, setTarget] = useState<ExecutionTarget>('host')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [skills, setSkills] = useState(false)
@@ -45,6 +60,7 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
         agent_id: agentId || undefined,
         pin_model: model || undefined,
         intent: intent === 'AUTO' ? undefined : intent,
+        target,
         ...extra,
       })
       setText('')
@@ -85,6 +101,12 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
         }}
       />
       <div className="composer-bar">
+        <Segmented
+          label="Execution target"
+          value={target}
+          onChange={(value) => setTarget(value as ExecutionTarget)}
+          options={EXECUTION_TARGETS.map((t) => ({ value: t.value, label: t.label, hint: t.hint }))}
+        />
         <select aria-label="Which agent" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
           <option value="">Default assistant</option>
           {agents.data?.agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -97,7 +119,7 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
           {REQUEST_INTENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <Segmented
-          label="Approval mode"
+          label="Approval mode (global default)"
           value={approvalMode}
           onChange={(value) => void changeApprovalMode(value)}
           options={APPROVAL_MODES.map((mode) => ({ value: mode.value, label: mode.name, hint: mode.blurb }))}
@@ -193,11 +215,32 @@ function Conversation({ id, onDeleted }: { id: string; onDeleted: () => void }) 
   const toast = useApp((s) => s.toast)
   const [rename, setRename] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const [showJump, setShowJump] = useState(false)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
   const end = useRef<HTMLDivElement>(null)
   const v = view.data
 
+  const checkScroll = () => {
+    const el = messagesRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    const near = distanceFromBottom < 90
+    isNearBottomRef.current = near
+    setShowJump(!near)
+  }
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    end.current?.scrollIntoView({ behavior, block: 'end' })
+    setShowJump(false)
+  }
+
   const count = (v?.messages.length ?? 0) + (v?.tasks.length ?? 0)
-  useEffect(() => { if (count > 0) end.current?.scrollIntoView({ block: 'end' }) }, [count])
+  useEffect(() => {
+    if (isNearBottomRef.current && count > 0) {
+      end.current?.scrollIntoView({ block: 'end' })
+    }
+  }, [count])
 
   if (!v) return <div className="conversation"><ErrorNote text={view.error} /></div>
   const byTask = (taskId: string, role: string) => v.messages.find((m) => m.task_id === taskId && m.role === role)
@@ -211,7 +254,7 @@ function Conversation({ id, onDeleted }: { id: string; onDeleted: () => void }) 
           <IconButton icon="trash" label="Delete conversation" kind="danger" onClick={() => setConfirm(true)} />
         </div>
       </header>
-      <div className="messages" aria-live="polite">
+      <div className="messages" aria-live="polite" ref={messagesRef} onScroll={checkScroll}>
         {v.tasks.map((t) => {
           const user = byTask(t.id, 'user')
           const reply = byTask(t.id, 'assistant')
@@ -238,6 +281,11 @@ function Conversation({ id, onDeleted }: { id: string; onDeleted: () => void }) 
         })}
         <div ref={end} />
       </div>
+      {showJump && (
+        <button type="button" className="jump-to-bottom" onClick={() => scrollToBottom('smooth')}>
+          ↓ Jump to latest
+        </button>
+      )}
       <Composer conversationId={id} onSent={() => bump()} />
       {rename && <RenameDialog thread={v.thread} onClose={() => setRename(false)} onSaved={() => { setRename(false); bump() }} />}
       {confirm && (

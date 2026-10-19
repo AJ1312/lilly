@@ -42,7 +42,7 @@ from lilly.domain.policy import PathScope, decide
 from lilly.domain.ports import ToolContext, ToolResult
 from lilly.domain.reasoning import Layer, redact
 from lilly.domain.settings import EngineSettings, LimitSettings
-from lilly.domain.tasks import TaskState
+from lilly.domain.tasks import ExecutionTarget, TaskState
 from lilly.domain.tools_registry import ToolSpec
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.decisions import DecisionPipeline
@@ -97,7 +97,8 @@ class StepExecutor:
                  loop_mode: bool = False,
                  engine_settings: Callable[[], EngineSettings] | None = None,
                  read_cache: ReadCache | None = None,
-                 standing: StandingStore | None = None) -> None:
+                 standing: StandingStore | None = None,
+                 target: ExecutionTarget = ExecutionTarget.HOST) -> None:
         self._rec, self._approvals, self._grants = rec, approvals, grants
         self._scope, self._limits, self._pin, self._decisions = scope, limits, pin_model, decisions
         self._brief = brief or Brief("")      # what the user asked and the agent's standing instructions, for the plan check
@@ -107,6 +108,11 @@ class StepExecutor:
         self._engine_settings = engine_settings
         self._read_cache = read_cache
         self._standing = standing
+        self._target = target
+
+    @property
+    def target(self) -> ExecutionTarget:
+        return self._target
 
     @property
     def seen_looping(self) -> int:
@@ -149,6 +155,19 @@ class StepExecutor:
         except StepFailed as exc:
             await rec.step_status(row_id, "failed", error=exc.reason)
             raise
+        if self._target is ExecutionTarget.DEVBOX:
+            # devbox target only allows devbox.*, result.read, and agent.* tools
+            allowed_prefixes = ("devbox.", "result.", "agent.", "skill.")
+            if not any(name.startswith(p) for p in allowed_prefixes):
+                await rec.step_status(row_id, "failed", error=f"tool '{name}' is not allowed in Isolated DevBox execution target")
+                await rec.thought(Layer.ACT, f"{name} is blocked in DevBox target: only container and agent tools are available.", step=row_id)
+                raise StepFailed(f"{name} is not available in Isolated DevBox target: container has no host OS/browser/desktop access", kind="policy")
+        elif self._target is ExecutionTarget.HOST:
+            if name.startswith("devbox."):
+                await rec.step_status(row_id, "failed", error="devbox tools cannot be run under This Laptop (Host) execution target")
+                await rec.thought(Layer.ACT, f"{name} is blocked under Host target.", step=row_id)
+                raise StepFailed(f"{name} is not available under Host target", kind="policy")
+
         spec = tool.spec
         verdict, why = decide(tool_call(name, spec, args), rec.ctx, self._scope())
         if verdict is not Verdict.DENY:
@@ -169,16 +188,16 @@ class StepExecutor:
         verdict, why = await self._doubted(verdict, why, name, spec, args)
         if rec.ctx.approval_mode is ApprovalMode.OFF and verdict is Verdict.NEEDS_APPROVAL and why == DOUBT:
             verdict, why = Verdict.ALLOW, "approval mode is OFF"
-        payload = {"tool": name, "args": args}
+        payload = {"tool": name, "args": args, "target": self._target.value}
         digest = payload_hash(rec.task_id, row_id, "step", payload)
         if verdict is Verdict.NEEDS_APPROVAL:
-            target = tool.standing_target(args) if spec.standing_ok and self._standing_enabled() else None
+            standing_target = tool.standing_target(args) if spec.standing_ok and self._standing_enabled() else None
             standing = self._standing
-            grant = standing.find(name, target) if target and standing else None
+            grant = standing.find(name, standing_target) if standing_target and standing else None
             if grant is not None and why_allows_standing(why, rec):
                 assert standing is not None
                 await standing.touch(grant.id)
-                await rec.event("standing_grant_used", {"step": row_id, "tool": name, "target": target, "grant": grant.id}, "tool")
+                await rec.event("standing_grant_used", {"step": row_id, "tool": name, "target": standing_target, "grant": grant.id}, "tool")
             else:
                 await self._approve(row_id, name, args, payload, why, decline_continues=decline_continues)
         await rec.step_status(row_id, "running", args_json=canonical(clip(args)))
@@ -291,7 +310,7 @@ class StepExecutor:
         await rec.step_status(row_id, "waiting")
         await rec.state(TaskState.WAITING_APPROVAL)
         summary = f"{name} — {why}"
-        display: dict[str, Any] = {"tool": name, "args": clip(args, APPROVAL_CHARS), "why": why}
+        display: dict[str, Any] = {"tool": name, "args": clip(args, APPROVAL_CHARS), "why": why, "target": self._target.value}
         if name == "fs.edit":
             old_str = str(args.get("old", ""))
             new_str = str(args.get("new", ""))
