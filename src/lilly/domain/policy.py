@@ -66,6 +66,11 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
     openm, locked = ctx.mode is Mode.OPEN, ctx.mode is Mode.LOCKED
     if call.risk is Risk.R3:
         out.append((Verdict.DENY, "forbidden tool"))
+    # A computer/browser interaction is consent-controlled by the selected
+    # approval mode.  Keep explicit confirmations for commands and other
+    # sensitive tools, but do not make ordinary navigation impossible in AUTO.
+    mode_consent = ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF)
+    visual_interaction = call.tool.startswith(("computer.", "browser."))
     if call.confirm:
         out.append((Verdict.NEEDS_APPROVAL, "always needs your approval, in every mode"))
     if call.risk is Risk.R1 and not openm and ctx.approval_mode is not ApprovalMode.AUTO:
@@ -81,7 +86,7 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
     elif call.reads_label is Label.PERSONAL:
         if locked:
             out.append((Verdict.DENY, "this agent has no private access"))
-        elif not openm:
+        elif not openm and not (visual_interaction and mode_consent and not ctx.tainted):
             out.append((Verdict.NEEDS_APPROVAL, "agent asks before reading private data"))
     if call.egress and ctx.label is Label.SECRET:
         out.append((Verdict.DENY, "secret data may not leave the device"))
@@ -89,7 +94,8 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
         out.append((Verdict.DENY, "this agent may not send private data"))
     if call.egress and ctx.tainted and ctx.label >= Label.PERSONAL:
         out.append((Verdict.NEEDS_APPROVAL, "private data could leave after reading untrusted content"))
-    if call.egress and ctx.label is Label.PERSONAL and not openm:
+    if call.egress and ctx.label is Label.PERSONAL and not openm \
+            and not (visual_interaction and mode_consent and not ctx.tainted):
         out.append((Verdict.NEEDS_APPROVAL, "personal data leaving the device"))
     if any(not scope.allows(p) for p in call.paths):
         out.append((Verdict.DENY, "path outside granted roots"))

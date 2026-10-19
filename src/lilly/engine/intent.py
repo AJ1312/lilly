@@ -12,6 +12,19 @@ class Intent(StrEnum):
     ACTION = "ACTION"
 
 
+def parse_requested_intent(value: str | None) -> Intent | None:
+    """Parse an optional user-selected intent; AUTO returns to classification."""
+    if value is None:
+        return None
+    normalized = " ".join(value.replace("_", " ").split()).upper()
+    if normalized in ("", "AUTO", "AUTOMATIC"):
+        return None
+    try:
+        return Intent(normalized)
+    except ValueError:
+        raise ValueError(f"unknown request intent: {value}") from None
+
+
 _ACTION = re.compile(
     r"\b(play|pause|send|post|buy|book|create|delete|fill|type|click|select|download|upload|"
     r"submit|share|save|install|run|move|drag|scroll)\b", re.I,

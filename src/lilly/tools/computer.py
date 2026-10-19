@@ -1,8 +1,7 @@
-"""Computer control: open links and apps, list and stop processes, show notifications, run commands.
+"""Computer control: navigation, observation, pointer/keyboard input and process helpers.
 
-Every tool here is `confirm` in the registry (or reversible and visible), so the user approves each use,
-whatever the agent's access mode. The checks below are guard rails against mistakes, not the security boundary:
-the boundary is that nothing runs until the person has read the exact command or target and said yes.
+The approval mode controls ordinary visible interaction. Shell execution,
+process control, secret handling and policy denials remain hard gates.
 """
 from __future__ import annotations
 

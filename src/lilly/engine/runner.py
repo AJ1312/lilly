@@ -46,6 +46,7 @@ from lilly.engine.agent_loop import AgentLoop
 from lilly.engine.approvals import ApprovalService
 from lilly.engine.bus import EventBus
 from lilly.engine.decisions import DecisionPipeline
+from lilly.engine.intent import Intent
 from lilly.engine.lanes import LaneScheduler, dependencies
 from lilly.engine.outcome import StepFailed, Stop, clip, describe_error
 from lilly.engine.planner import HistoryItem, PlanInputs, direct_plan, generate_plan, replan
@@ -81,6 +82,7 @@ class RunSpec:
     pin_model: str | None = None
     sheet: PetSheet | None = None
     profile: TaskProfile | None = None
+    intent: Intent | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +184,7 @@ class TaskRunner:
             return
 
         # Quick Actions hook (P2-A)
-        if self._d.quick is not None and not self._spec.skill:
+        if self._d.quick is not None and not self._spec.skill and self._spec.intent is None:
             tools = dict(self._d.tools())
             allowed = self._spec.sheet.tools if self._spec.sheet else None
             allowed_names = {n for n in tools if allowed is None or n in allowed}
@@ -208,6 +210,7 @@ class TaskRunner:
             db=self._d.db,
             goal=self._spec.goal,
             conversation_id=self._spec.conversation_id,
+            requested_intent=self._spec.intent,
             agent_instructions=self._spec.agent_instructions,
             pin_model=self._spec.pin_model,
             pet_name=pet_name,

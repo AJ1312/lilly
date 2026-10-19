@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useApp } from '../store'
-import { APPROVAL_MODES, LIVE_STATES, type Settings, type Task, type TaskDetail } from '../types'
+import { APPROVAL_MODES, LIVE_STATES, REQUEST_INTENTS, type RequestIntent, type Settings, type Task, type TaskDetail } from '../types'
 import { Icon } from '../ui/Icon'
 import { Markdown } from '../ui/Markdown'
 import { RunCard } from '../ui/RunCard'
@@ -14,8 +14,9 @@ const statusLabel: Record<string, string> = {
   VERIFYING: 'Verifying', DONE: 'Complete', FAILED: 'Failed', CANCELLED: 'Stopped', EXPIRED: 'Expired',
 }
 
-function TaskComposer({ onCreated }: { onCreated: (task: Task) => void }) {
+function TaskComposer({ onCreated, conversationId = null }: { onCreated: (task: Task) => void; conversationId?: string | null }) {
   const [goal, setGoal] = useState('')
+  const [intent, setIntent] = useState<RequestIntent>('AUTO')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [approvalBusy, setApprovalBusy] = useState(false)
@@ -26,7 +27,11 @@ function TaskComposer({ onCreated }: { onCreated: (task: Task) => void }) {
     if (!goal.trim() || busy) return
     setBusy(true); setError(null)
     try {
-      const result = await api.post<{ task: Task }>('/api/tasks', { goal: goal.trim() })
+      const result = await api.post<{ task: Task }>('/api/tasks', {
+        goal: goal.trim(),
+        conversation_id: conversationId || undefined,
+        intent: intent === 'AUTO' ? undefined : intent,
+      })
       setGoal(''); onCreated(result.task)
     } catch (err) { setError(errorText(err)) } finally { setBusy(false) }
   }
@@ -38,8 +43,8 @@ function TaskComposer({ onCreated }: { onCreated: (task: Task) => void }) {
     } catch (err) { setApprovalError(errorText(err)) } finally { setApprovalBusy(false) }
   }
   return (
-    <section className="task-composer" aria-label="New task">
-      <textarea value={goal} rows={3} maxLength={4000} placeholder="What should Lilly get done?" aria-label="Task description"
+    <section className="task-composer" aria-label={conversationId ? 'Continue task' : 'New task'}>
+      <textarea value={goal} rows={3} maxLength={4000} placeholder={conversationId ? 'Continue this task with more context…' : 'What should Lilly get done?'} aria-label="Task description"
         onChange={(event) => setGoal(event.target.value)} onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void submit() }
         }} />
@@ -53,8 +58,14 @@ function TaskComposer({ onCreated }: { onCreated: (task: Task) => void }) {
         />
         <span className="hint">{APPROVAL_MODES.find((mode) => mode.value === approvalMode)?.blurb}</span>
       </div>
+      <div className="task-composer-mode">
+        <label htmlFor="workspace-intent">Request mode</label>
+        <select id="workspace-intent" aria-label="Request mode" value={intent} onChange={(event) => setIntent(event.target.value as RequestIntent)}>
+          {REQUEST_INTENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </div>
       <ErrorNote text={approvalError} />
-      <div className="task-composer-footer"><span className="hint">Lilly will plan, act, verify, and keep you posted.</span><Button kind="primary" icon="arrow-right" busy={busy} disabled={!goal.trim()} onClick={() => void submit()}>Start task</Button></div>
+      <div className="task-composer-footer"><span className="hint">Lilly will plan, act, verify, and keep you posted.</span><Button kind="primary" icon="arrow-right" busy={busy} disabled={!goal.trim()} onClick={() => void submit()}>{conversationId ? 'Continue task' : 'Start task'}</Button></div>
       <ErrorNote text={error} />
     </section>
   )
@@ -68,7 +79,7 @@ function TaskRow({ task, selected, onSelect }: { task: Task; selected: boolean; 
   </button>
 }
 
-function ActiveTask({ task, onBack }: { task: Task; onBack: () => void }) {
+function ActiveTask({ task, onBack, onContinue }: { task: Task; onBack: () => void; onContinue: (task: Task) => void }) {
   const detail = useLoad<TaskDetail>(`/api/tasks/${task.id}`, true)
   const d = detail.data
   if (!d) return <main className="workspace-main"><ErrorNote text={detail.error} /></main>
@@ -83,6 +94,7 @@ function ActiveTask({ task, onBack }: { task: Task; onBack: () => void }) {
     <RunCard taskId={task.id} initialState={task.state} />
     {reply && <section className="workspace-result"><p className="eyebrow">Result</p><Markdown text={reply} /></section>}
     {d.task.error && <p className="run-error" role="alert">{d.task.error}</p>}
+    <TaskComposer conversationId={d.task.conversation_id} onCreated={(next) => { onContinue(next) }} />
     <details className="advanced-trace"><summary>Advanced trace</summary><p className="hint">Steps, policy decisions and verification details are available in the task record.</p><a href={`#/activity/${task.id}`}>Open full task record</a></details>
   </main>
 }
@@ -100,7 +112,7 @@ export function Workspace() {
       <div className="workspace-task-list">{tasks.data?.tasks.map((task) => <TaskRow key={task.id} task={task} selected={selected?.id === task.id} onSelect={() => setSelected(task)} />)}{tasks.data?.tasks.length === 0 && <p className="workspace-empty">No tasks yet. Give Lilly a job to begin.</p>}</div>
       <a className="workspace-settings" href="#/settings"><Icon name="settings" size={15} /> Settings</a>
     </aside>
-    {active ? <ActiveTask task={active} onBack={() => setSelected(null)} /> : <main className="workspace-main workspace-blank"><div className="workspace-blank-mark"><Icon name="spark" size={20} /></div><p className="eyebrow">Ready when you are</p><h1>Give Lilly a job.</h1><p>Tasks stay here while Lilly works. You can follow progress, handle approvals, and inspect the result without leaving the workspace.</p><div className="workspace-shortcuts"><span><kbd>⌘</kbd><kbd>Enter</kbd> start task</span><span><kbd>⌘</kbd><kbd>K</kbd> command palette</span></div></main>}
+    {active ? <ActiveTask task={active} onBack={() => setSelected(null)} onContinue={(task) => { setSelected(task); tasks.reload() }} /> : <main className="workspace-main workspace-blank"><div className="workspace-blank-mark"><Icon name="spark" size={20} /></div><p className="eyebrow">Ready when you are</p><h1>Give Lilly a job.</h1><p>Tasks stay here while Lilly works. You can follow progress, handle approvals, and inspect the result without leaving the workspace.</p><div className="workspace-shortcuts"><span><kbd>⌘</kbd><kbd>Enter</kbd> start task</span><span><kbd>⌘</kbd><kbd>K</kbd> command palette</span></div></main>}
     <span className="sr-only" aria-live="polite">Workspace updated {tick}</span>
   </div>
 }

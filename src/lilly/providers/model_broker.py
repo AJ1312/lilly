@@ -214,6 +214,7 @@ class ModelBroker:
         self._total_calls = 0
         self._total_tokens_in = 0
         self._total_tokens_out = 0
+        self._total_tokens_cached = 0
         
         log.info(f"ModelBroker initialized with {len(self.pool.entries)} models")
 
@@ -355,9 +356,13 @@ class ModelBroker:
                 return -0.1
 
         if model_tier == "STRONG":
-            score += profile.reasoning_strength * 0.2
+            score += profile.reasoning_strength * 0.25
+            if entry.spec.lane == 1 or "strong" in entry.spec.tags:
+                score += 0.2
         elif model_tier == "QUICK":
-            score += (1.0 - profile.reasoning_strength) * 0.1
+            score += (1.0 - profile.reasoning_strength) * 0.15
+            if entry.spec.quick or "fast" in entry.spec.tags or profile.cost_tier == "free":
+                score += 0.3
         elif model_tier == "VISION" and profile.vision < 0.7:
             return -0.1
         if verification == "THOROUGH":
@@ -489,15 +494,23 @@ class ModelBroker:
         """
         candidates = [e for e in self.pool.entries 
                      if e.spec.enabled and e.name not in skip and self.has_key(e)]
+        if getattr(self._settings.network, "local_only", False):
+            candidates = [e for e in candidates if e.spec.local]
         
         if pin:
             # If a specific model is pinned, try to use it
             pinned_entry = next((e for e in candidates if e.name == pin), None)
             if pinned_entry is None:
+                reason = (
+                    f"Pinned model '{pin}' is a remote model, but local-only mode is active"
+                    if getattr(self._settings.network, "local_only", False)
+                    and any(e.name == pin and not e.spec.local for e in self.pool.entries)
+                    else f"Pinned model '{pin}' is unavailable"
+                )
                 return RoutingResult(
                     model_entry=None,
                     decision=RoutingDecision.FORCED,
-                    reason=f"Pinned model '{pin}' is unavailable",
+                    reason=reason,
                     candidates_tried=(pin,),
                 )
             
@@ -564,7 +577,7 @@ class ModelBroker:
             ok, grant = label_access(entry, label, grants, task_id, payload_hash, mode)
             if not ok:
                 if (entry.max_label < label and entry.ask_private and mode is not Mode.LOCKED 
-                        and (label is not Label.SECRET or not entry.local) and (mode is Mode.ASK or entry.trains)):
+                        and (label is not Label.SECRET or entry.local) and (mode is Mode.ASK or entry.trains)):
                     grantable.append(entry.name)
                 continue
             
@@ -662,6 +675,11 @@ class ModelBroker:
         - Observability and event reporting
         """
         
+        if getattr(self._settings.network, "local_only", False):
+            if not any(e.spec.enabled and e.spec.local for e in self.pool.entries):
+                raise NoModelAvailable("Local-only mode is active, but no local model is enabled. "
+                                       "Turn on a local model (such as Ollama) or turn off local-only mode in Settings.")
+
         if not any(e.spec.enabled and self.has_key(e) for e in self.pool.entries):
             raise NoModelAvailable("No model has an API key yet. Add one in Settings → Models & keys "
                                    "(a free key works), or turn on a local model.")
@@ -773,11 +791,13 @@ class ModelBroker:
                 self.capacity.release(lease, tokens_in=result.input_tokens, tokens_out=result.output_tokens, outcome="ok")
                 entry.last_error = None
                 entry.last_successful_call = self._clock()
+                cached = getattr(result, "cached_tokens", 0)
                 await self._record_call(
                     call_id, task_id, role, entry.name, started,
                     int((self._clock() - started) * 1000),
                     result.input_tokens, result.output_tokens,
                     int(lease.waited_s * 1000), "ok",
+                    tokens_cached=cached,
                 )
                 await self._persist_usage()
                 
@@ -785,6 +805,7 @@ class ModelBroker:
                 self._total_calls += 1
                 self._total_tokens_in += result.input_tokens
                 self._total_tokens_out += result.output_tokens
+                self._total_tokens_cached += cached
                 
                 return Completed(result, entry.name)
                 
@@ -819,6 +840,8 @@ class ModelBroker:
 
     async def _call(self, entry: ModelEntry, req: CompletionRequest) -> CompletionResult:
         """Make a single provider call."""
+        if getattr(self._settings.network, "local_only", False) and not entry.spec.local:
+            raise NoModelAvailable(f"Model '{entry.name}' is remote, but local-only mode is active")
         try:
             return await self._providers[entry.name].complete(req)
         except ProviderError as pe:
@@ -874,6 +897,7 @@ class ModelBroker:
         tokens_out: int,
         waited_ms: int,
         outcome: str,
+        tokens_cached: int = 0,
     ) -> None:
         """Record a model call to the ledger."""
         record = ModelCallRecord(
@@ -888,6 +912,7 @@ class ModelBroker:
             tokens_out=tokens_out,
             waited_ms=waited_ms,
             outcome=outcome,
+            tokens_cached=tokens_cached,
         )
         try:
             await self._db.write(lambda con: record_model_call(con, record))
@@ -899,6 +924,8 @@ class ModelBroker:
         entry = self.pool.get(name)
         if entry is None:
             return {"ok": False, "error": "unknown model"}
+        if getattr(self._settings.network, "local_only", False) and not entry.spec.local:
+            return {"ok": False, "error": f"Model '{entry.name}' is remote, but local-only mode is active"}
         if not self.has_key(entry):
             return {"ok": False, "error": "no key saved for this model"}
         if not entry.try_begin(8, 8):
@@ -951,3 +978,12 @@ class ModelBroker:
             return routing.model_entry, routing.reason, routing.grantable_models
         else:
             return None, routing.reason, routing.grantable_models
+
+    def get_efficiency_stats(self) -> dict[str, int]:
+        """Return token efficiency and usage statistics."""
+        return {
+            "total_calls": self._total_calls,
+            "total_tokens_in": self._total_tokens_in,
+            "total_tokens_out": self._total_tokens_out,
+            "total_tokens_cached": self._total_tokens_cached,
+        }

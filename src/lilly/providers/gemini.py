@@ -13,9 +13,12 @@ from typing import Any
 import httpx
 
 from lilly.domain.errors import ProviderError
-from lilly.domain.ports import CompletionRequest, CompletionResult, KeyStore, ModelToolCall, Provider
+from lilly.domain.payload import canonical
+from lilly.domain.ports import CompletionRequest, CompletionResult, KeyStore, ModelToolCall, Provider, ToolSchema
 from lilly.domain.tools_registry import unwire_name, wire_name
 from lilly.providers.base import post_json
+
+_GEMINI_DECLARATION_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 _TYPE_MAP = {
     "string": "STRING",
@@ -72,6 +75,19 @@ def to_gemini_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
             out["items"] = {"type": "STRING"}
 
     return out
+
+
+def _format_gemini_tool(t: ToolSchema) -> dict[str, Any]:
+    key = (t.name, t.description, canonical(t.parameters))
+    cached = _GEMINI_DECLARATION_CACHE.get(key)
+    if cached is None:
+        cached = {
+            "name": wire_name(t.name),
+            "description": t.description,
+            "parameters": to_gemini_schema(t.parameters),
+        }
+        _GEMINI_DECLARATION_CACHE[key] = cached
+    return cached
 
 
 class GeminiProvider(Provider):
@@ -148,14 +164,7 @@ class GeminiProvider(Provider):
         if req.tools:
             body["tools"] = [
                 {
-                    "functionDeclarations": [
-                        {
-                            "name": wire_name(t.name),
-                            "description": t.description,
-                            "parameters": to_gemini_schema(t.parameters),
-                        }
-                        for t in req.tools
-                    ]
+                    "functionDeclarations": [_format_gemini_tool(t) for t in req.tools]
                 }
             ]
 
@@ -184,6 +193,7 @@ class GeminiProvider(Provider):
                     ))
 
             usage = data.get("usageMetadata") or {}
+            cached_tokens = int(usage.get("cachedContentTokenCount", 0))
             # Echo or capture provider_state
             resp_state = data.get("providerState") or provider_state
 
@@ -194,6 +204,7 @@ class GeminiProvider(Provider):
                 str(cand.get("finishReason", "STOP")).lower(),
                 tool_calls=tuple(tool_calls),
                 provider_state=resp_state,
+                cached_tokens=cached_tokens,
             )
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             raise ProviderError(retryable=False) from exc

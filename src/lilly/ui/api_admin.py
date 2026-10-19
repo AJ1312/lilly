@@ -101,7 +101,20 @@ def _key_refs(rt: Runtime) -> list[str]:
 
 async def get_settings(request: Request) -> Response:
     rt = runtime(request)
-    return JSONResponse({"settings": settings_to_dict(rt.settings), "problems": rt.settings_problems})
+    specs = {s.name: s for s in rt.settings.models}
+    rows = []
+    for row in rt.router.status():
+        s = specs.get(str(row["name"]))
+        if s is not None:
+            rows.append({**row, "caps": [c.name for c in type(s.caps) if c and c in s.caps],
+                         "max_label": s.max_label.name, "private_access": s.private_access, "trains": s.trains})
+        else:
+            rows.append(row)
+    return JSONResponse({
+        "settings": settings_to_dict(rt.settings),
+        "problems": rt.settings_problems,
+        "models": rows,
+    })
 
 
 async def put_settings(request: Request) -> Response:
@@ -268,7 +281,7 @@ async def export_data(request: Request) -> Response:
 
 async def health(request: Request) -> Response:
     """Public and tiny: lets `lilly status`, launchd and the installer ask whether Lilly is up."""
-    return JSONResponse({"ok": True, "app": "lilly", "version": __version__})
+    return JSONResponse({"ok": True, "status": "ok", "app": "lilly", "version": __version__})
 
 
 async def get_capacity(request: Request) -> Response:

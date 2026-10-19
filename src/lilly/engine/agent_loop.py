@@ -11,12 +11,12 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lilly.core.shortlist import discover
+from lilly.core.shortlist import CONTROL_TOOLS, discover
 from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
-from lilly.domain.labels import Verdict
+from lilly.domain.labels import Risk, Verdict
 from lilly.domain.payload import canonical, payload_hash
-from lilly.domain.plan import tool_call
+from lilly.domain.plan import FINAL_TOOL, tool_call
 from lilly.domain.policy import PathScope, decide
 from lilly.domain.ports import (
     Completed,
@@ -36,7 +36,7 @@ from lilly.engine.context import ContextManager
 from lilly.engine.crew import resolve_ref
 from lilly.engine.decisions import DecisionPipeline
 from lilly.engine.grounding import GroundingVerifier
-from lilly.engine.intent import classify_intent
+from lilly.engine.intent import Intent, classify_intent
 from lilly.engine.lanes import LaneScheduler, parallel_eligible
 from lilly.engine.messages import (
     AGENT_SYSTEM,
@@ -66,19 +66,21 @@ log = logging.getLogger("lilly.agent_loop")
 # outside this contract.
 _ACTION_TOOLS = frozenset({
     "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
-    "browser.scroll", "browser.back", "browser.forward", "browser.close",
+    "browser.scroll", "browser.back", "browser.close",
     "computer.click", "computer.type", "computer.press", "computer.move",
     "computer.scroll", "computer.drag", "computer.open_app", "computer.open_url",
-    "computer.stop_process", "computer.run", "devbox.run", "fs.write", "fs.edit",
+    "computer.stop_process", "computer.run", "computer.notify", "devbox.run",
+    "fs.write", "fs.edit", "fs.apply_moves", "fs.trash",
     "notes.write", "memory.write",
 })
 _ACTION_OBSERVATION_TOOLS = frozenset({
-    "browser.open", "browser.read", "browser.find", "browser.screenshot", "browser.back",
-    "browser.forward", "computer.observe", "computer.processes",
+    "browser.open", "browser.read", "browser.find", "browser.back",
+    "computer.observe", "computer.processes",
+    "fs.read", "fs.list", "fs.search", "notes.read", "notes.search", "memory.search",
 })
 _ACTION_TOOLS_WITH_FRESH_STATE = frozenset({
     "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
-    "browser.scroll", "browser.back", "browser.forward",
+    "browser.scroll", "browser.back",
     "computer.click", "computer.type", "computer.press", "computer.move",
     "computer.scroll", "computer.drag",
 })
@@ -111,6 +113,7 @@ class AgentLoop:
         sheet: PetSheet | None = None,
         profile: TaskProfile | None = None,
         system1_engine: System1Engine | None = None,
+        requested_intent: Intent | None = None,
     ) -> None:
         self._rec = rec
         self._completer = completer
@@ -135,6 +138,7 @@ class AgentLoop:
         self._system1 = system1_engine
         self._task_complexity = 0.5
         self._system1_requires_vision = False
+        self._system1_capability = Cap.NONE
         self._system1_model_tier: str | None = None
         self._system1_tool_family: str | None = None
         self._system1_verification: str | None = None
@@ -142,9 +146,12 @@ class AgentLoop:
         self._steps.loop_mode = True
         self._used_tools: set[str] = set()
         self._discovered_tools: set[str] = set()
+        self._schema_cache: dict[str, ToolSchema] = {}
+        self._failed_calls: dict[tuple[str, str], str] = {}
         gs = grounding_settings() if callable(grounding_settings) else (grounding_settings or GroundingSettings())
         self._grounding = GroundingVerifier(file_roots=self._file_roots(), enabled=gs.enabled)
         self._context_mgr = ContextManager(self._engine_settings, self._completer)
+        self._intent = requested_intent or classify_intent(goal)
 
     @property
     def current_stop_reason(self) -> str:
@@ -158,25 +165,29 @@ class AgentLoop:
             return
         models = tuple(getattr(self._completer, "get_available_models", lambda: ())())
         tools = tuple(self._tools().keys())
-        classification, complexity = await self._system1.assess_task(self._goal, self._rec.task_id)
+        routed_goal = f"Requested intent: {self._intent.value}\nUser request: {self._goal}"
+        classification, complexity = await self._system1.assess_task(routed_goal, self._rec.task_id)
         tier, capability, tool_family = await self._system1.determine_routing(
-            self._goal, models, tools, self._rec.task_id
+            routed_goal, models, tools, self._rec.task_id
         )
         self._task_complexity = {
             "TRIVIAL": 0.1, "SIMPLE": 0.3, "MODERATE": 0.6,
             "COMPLEX": 0.8, "EXPERT": 0.95,
         }.get(complexity.level.name, 0.5)
+        self._system1_capability = capability.primary_capability
         self._system1_requires_vision = capability.needs_vision
         self._system1_model_tier = tier.tier.name
         self._system1_tool_family = tool_family.primary_family.name
         verification = await self._system1.assess_verification(
-            self._rec.task_id, self._goal, self._task_complexity, classification.task_class
+            self._rec.task_id, routed_goal, self._task_complexity, classification.task_class
         )
         self._system1_verification = verification.level.name
         await self._rec.event("system1", {
+            "intent": self._intent.value,
             "classification": classification.task_class.name,
             "complexity": complexity.level.name,
             "model_tier": tier.tier.name,
+            "capability": capability.primary_capability.name,
             "tool_family": tool_family.primary_family.name,
             "verification": verification.level.name,
             "reasoning": complexity.reasoning[:300],
@@ -199,8 +210,35 @@ class AgentLoop:
         return visible
 
     async def _capabilities(self, visible: dict[str, Tool]) -> dict[str, Tool]:
-        """Expose the full policy-filtered catalog; ranking cannot hide capabilities."""
-        return visible
+        """Expose core tools + discovered/used tools, loading schemas on demand to save tokens."""
+        if len(visible) <= 12:
+            return visible
+
+        # Core tools
+        allowed = set(CONTROL_TOOLS)
+        allowed.add(FINAL_TOOL)
+        allowed.add("agent.ask")
+
+        # Plus previously used or discovered tools
+        allowed.update(self._used_tools)
+        allowed.update(self._discovered_tools)
+
+        # On the initial turn (no tools used or discovered yet), seed relevant tools from the task goal/intent
+        if not self._used_tools and not self._discovered_tools:
+            specs = {name: tool.spec for name, tool in visible.items()}
+            ns = self._system1_tool_family.lower() if self._system1_tool_family and self._system1_tool_family != "ALL" else None
+            initial_matches = discover(specs, self._goal, namespace=ns, limit=8)
+            allowed.update(initial_matches)
+
+        # Filter to visible tools that are in allowed
+        active = {name: tool for name, tool in visible.items() if name in allowed}
+        # Ensure agent.discover and agent.ask are always available if present in visible
+        if "agent.discover" in visible:
+            active["agent.discover"] = visible["agent.discover"]
+        if "agent.ask" in visible:
+            active["agent.ask"] = visible["agent.ask"]
+
+        return active
 
     def _build_system_prompt(self, limits: LimitSettings, role: str = "act") -> str:
         roots = self._file_roots()
@@ -239,7 +277,7 @@ class AgentLoop:
             "Efficiency rule: You can call multiple independent read-only tools in a single turn to run them in parallel (e.g. reading multiple files, running searches). Mutating tools execute in order. "
             "If the capability you need is not listed, call agent.discover with descriptive words and use the discovered tool on the next turn."
         )
-        intent = classify_intent(self._goal)
+        intent = self._intent
         parts.append(
             f"Request intent: {intent.value}. For WEB RETRIEVE, gather and return information without opening a browser unless interaction is required. "
             "For NAVIGATE, opening the destination is the outcome. For ACTION, continue through every interaction and verify the user-visible result; "
@@ -274,13 +312,27 @@ class AgentLoop:
                           tool_call_id=tc.id or tc.name)
             return msg, outcome
 
-        spec = tool.spec
         args_dict = dict(args)
+        args_key = canonical(clip(args_dict))
+        call_key = (name, args_key)
+
+        # Prevent repeated identical failed calls without executing
+        if call_key in self._failed_calls:
+            prev_reason = self._failed_calls[call_key]
+            reason = f"repeated identical call already failed: {prev_reason}"
+            outcome = StepOutcome(step_id=step_id, tool=name, kind="failed", reason=reason)
+            msg = Message("tool", OBS_ERROR.format(step_id=step_id, tool=name, reason=reason),
+                          tool_call_id=tc.id or tc.name)
+            await self._rec.step_status(step_id, "failed", error=reason)
+            return msg, outcome
+
+        spec = tool.spec
         # Check policy before running
         verdict, why = decide(tool_call(name, spec, args_dict), self._rec.ctx, self._scope())
         if verdict is not Verdict.DENY and (own := tool.review(args_dict, self._rec.task_id))[0] > verdict:
             verdict, why = own
         if verdict is Verdict.DENY:
+            self._failed_calls[call_key] = why
             await self._rec.step_status(step_id, "failed", error=f"blocked: {why}")
             await self._rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=step_id)
             outcome = StepOutcome(step_id=step_id, tool=name, kind="blocked", reason=why)
@@ -298,6 +350,10 @@ class AgentLoop:
             )
             self._outputs[step_id] = output
             self._grounding.record_step(name, args, output)
+
+            # Mutation occurred: clear failed calls cache to allow retries in modified environment
+            if spec.risk > Risk.R0 or name in _ACTION_TOOLS:
+                self._failed_calls.clear()
 
             # Format successful observation
             untrusted = spec.untrusted or self._rec.ctx.tainted
@@ -330,6 +386,7 @@ class AgentLoop:
             )
             return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
         except StepDeclined as dec:
+            self._failed_calls[call_key] = dec.user_reason or "declined by the user"
             if dec.user_reason:
                 obs = OBS_DECLINED_REASON.format(step_id=step_id, tool=name, reason=dec.user_reason)
             else:
@@ -337,6 +394,7 @@ class AgentLoop:
             outcome = StepOutcome(step_id=step_id, tool=name, kind="declined", reason=dec.user_reason or "declined by the user")
             return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
         except StepFailed as failed:
+            self._failed_calls[call_key] = failed.reason
             if failed.kind == "policy":
                 obs = OBS_BLOCKED.format(step_id=step_id, tool=name, why=failed.reason)
                 outcome = StepOutcome(step_id=step_id, tool=name, kind="blocked", reason=failed.reason)
@@ -357,6 +415,7 @@ class AgentLoop:
         turn = 0
         model_calls = 0
         tokens_used = 0
+        last_input_tokens: int | None = None
         consecutive_invalid_turns = 0
         escalated = False
         escalation_triggered = False
@@ -365,7 +424,7 @@ class AgentLoop:
         self._grounding.record_user_message(self._goal)
 
         candidate_answer: str | None = None
-        intent = classify_intent(self._goal)
+        intent = self._intent
         action_performed = False
         action_verified = False
         action_prompted = False
@@ -387,10 +446,13 @@ class AgentLoop:
             visible_tools = self._get_visible_tools()
             shown_tools = await self._capabilities(visible_tools)
 
-            tool_schemas = [
-                ToolSchema(name=name, description=t.spec.doc, parameters=dict(t.spec.schema))
-                for name, t in sorted(shown_tools.items(), key=lambda item: item[0])
-            ]
+            tool_schemas: list[ToolSchema] = []
+            for name, t in sorted(shown_tools.items(), key=lambda item: item[0]):
+                cached_schema = self._schema_cache.get(name)
+                if cached_schema is None or cached_schema.description != t.spec.doc:
+                    cached_schema = ToolSchema(name=name, description=t.spec.doc, parameters=dict(t.spec.schema))
+                    self._schema_cache[name] = cached_schema
+                tool_schemas.append(cached_schema)
 
             # 3. Check budgets
             max_steps = limits.max_agent_steps
@@ -443,6 +505,7 @@ class AgentLoop:
 
             messages = await self._context_mgr.prepare(
                 messages, label=self._rec.ctx.label, mode=self._rec.ctx.mode, task_id=self._rec.task_id,
+                actual_tokens=last_input_tokens,
             )
 
             req = CompletionRequest(
@@ -469,7 +532,7 @@ class AgentLoop:
                 digest = payload_hash(self._rec.task_id, f"turn_{t}_{c}", "loop", {"goal": self._goal})
                 if getattr(self._completer, "supports_system1_routing", False):
                     done = await self._completer.complete(
-                        r, need=Cap.NONE, label=self._rec.ctx.label, task_id=self._rec.task_id,
+                        r, need=self._system1_capability, label=self._rec.ctx.label, task_id=self._rec.task_id,
                         payload_hash=digest, mode=self._rec.ctx.mode, pin=p,
                         task_complexity=self._task_complexity,
                         requires_tools=bool(r.tools), requires_vision=self._system1_requires_vision,
@@ -478,7 +541,7 @@ class AgentLoop:
                     )
                 else:
                     done = await self._completer.complete(
-                        r, need=Cap.NONE, label=self._rec.ctx.label, task_id=self._rec.task_id,
+                        r, need=self._system1_capability, label=self._rec.ctx.label, task_id=self._rec.task_id,
                         payload_hash=digest, mode=self._rec.ctx.mode, pin=p,
                     )
                 self._rec.models.append(done.model)
@@ -486,6 +549,7 @@ class AgentLoop:
 
             done = await self._steps.with_model_permission(invoke_model, stage_name, self._rec.state_now)
             model_calls += 1
+            last_input_tokens = done.result.input_tokens
             tokens_used += done.result.input_tokens + done.result.output_tokens
 
             if self._rec.cancelled:

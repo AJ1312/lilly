@@ -18,6 +18,10 @@ class Database:
     """Write through the single writer thread, read on the loop thread's read-only connection."""
 
     def __init__(self, path: str | Path) -> None:
+        if str(path).strip() == ":memory:":
+            raise ValueError(
+                "Database requires an explicit filesystem path; ':memory:' is not supported because Writer runs on a separate thread."
+            )
         self.path = Path(path).resolve()
         self._writer = Writer(self.path)  # creates the file and migrates before the reader opens
         self.reader = open_reader(self.path)

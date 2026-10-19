@@ -9,7 +9,7 @@ import psutil
 import pytest
 
 from lilly.domain.errors import PolicyDenied, ToolError, ValidationFailed
-from lilly.domain.labels import Label, Mode, Risk, TaskCtx, Verdict
+from lilly.domain.labels import ApprovalMode, Label, Mode, Risk, TaskCtx, Verdict
 from lilly.domain.plan import tool_call
 from lilly.domain.policy import PathScope, decide
 from lilly.domain.ports import ToolContext
@@ -42,9 +42,16 @@ def test_confirm_tools_ask_in_every_mode(name: str, mode: Mode) -> None:
     assert verdict in (Verdict.NEEDS_APPROVAL, Verdict.DENY)  # never ALLOW
 
 
-def test_every_command_and_launch_tool_is_marked_confirm() -> None:
-    for name in ("computer.open_url", "computer.open_app", "computer.stop_process", "computer.run"):
+def test_commands_remain_confirmed_but_visible_navigation_follows_approval_mode() -> None:
+    for name in ("computer.stop_process", "computer.run"):
         assert DEFAULT_TOOLS[name].confirm and DEFAULT_TOOLS[name].risk is Risk.R2
+    for name in ("computer.open_url", "computer.open_app", "computer.click", "computer.type", "computer.press"):
+        assert not DEFAULT_TOOLS[name].confirm and DEFAULT_TOOLS[name].risk is Risk.R2
+
+
+def test_auto_allows_visible_computer_interaction_without_a_prompt() -> None:
+    call = tool_call("computer.click", DEFAULT_TOOLS["computer.click"], {})
+    assert decide(call, TaskCtx(mode=Mode.ASK, approval_mode=ApprovalMode.AUTO), PathScope(["/tmp"]))[0] is Verdict.ALLOW
 
 
 def test_a_locked_agent_cannot_run_commands_that_read_private_data() -> None:

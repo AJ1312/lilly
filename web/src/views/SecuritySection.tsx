@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, configureApi, errorText } from '../api'
 import { useApp } from '../store'
-import { Button, Confirm, Dialog, Field, IconButton } from '../ui/kit'
+import { Button, Confirm, Dialog, Field, IconButton, Switch } from '../ui/kit'
 import type { SettingsDraft } from './settingsDraft'
 
 type Pending = 'everywhere' | 'token' | 'stop' | 'permissions' | null
@@ -48,12 +48,21 @@ export function SecuritySection({ d }: { d: SettingsDraft }) {
   const hosts = d.current.network.allowed_hosts
   const addHost = () => {
     const h = host.trim().toLowerCase()
-    if (h && !hosts.includes(h)) d.edit((s) => ({ ...s, network: { allowed_hosts: [...hosts, h] } }))
+    if (h && !hosts.includes(h)) d.edit((s) => ({ ...s, network: { ...s.network, allowed_hosts: [...hosts, h] } }))
     setHost('')
   }
 
   return (
     <div className="stack">
+      <div className="field">
+        <span className="label">Local-only privacy mode</span>
+        <Switch
+          label="Reject all remote models"
+          hint="Strictly restricts reasoning to models running on this computer (like Ollama). External model API calls are blocked at the execution boundary."
+          checked={Boolean(d.current.network.local_only)}
+          onChange={(v) => d.edit((s) => ({ ...s, network: { ...s.network, local_only: v } }))}
+        />
+      </div>
       <div className="field">
         <span className="label">Signed in on this browser</span>
         <p className="hint">Lilly only answers requests that carry your sign-in. Sessions last 30 days.</p>

@@ -15,6 +15,7 @@ from lilly.domain.settings import EngineSettings, Settings
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import TERMINAL, TaskState
+from lilly.engine.intent import Intent
 from lilly.engine.replycheck import ReplyChecker
 from lilly.engine.runner import EngineDeps, RunSpec, TaskRunner
 from lilly.store import agents as agent_store
@@ -45,6 +46,7 @@ class SubmitRequest:
     parent_task_id: str | None = None
     depth: int = 0
     mode: Mode | None = None
+    intent: Intent | None = None
 
 
 class Gate:
@@ -189,8 +191,10 @@ class Orchestrator:
                 parent_task_id=req.parent_task_id, depth=req.depth,
                 profile_json=json.dumps(profile.to_dict()) if profile else "{}")
             conversations.add_message(con, conv_id, "user", goal, now, task_id=task_id)
-            append_event(con, task_id, "created", {"mode": mode.name, "skill": req.skill,
-                                                   "agent": agent.name if agent else None, "source": req.source}, "user", now)
+            append_event(con, task_id, "created", {
+                "mode": mode.name, "intent": req.intent.value if req.intent else "AUTO",
+                "skill": req.skill, "agent": agent.name if agent else None, "source": req.source,
+            }, "user", now)
             return row
 
         self._submitting += 1      # the slot is held from here, before the first await
@@ -206,7 +210,8 @@ class Orchestrator:
                 await self._cancel_queued(task_id)
                 raise ConflictError("Lilly is shutting down")
             owner_text = agent_store.owner_text_for(agent) if agent else ""
-            spec = RunSpec(goal, conv_id, owner_text, req.skill, req.params, pin, sheet=sheet, profile=profile)
+            spec = RunSpec(goal, conv_id, owner_text, req.skill, req.params, pin, sheet=sheet, profile=profile,
+                           intent=req.intent)
             runner = TaskRunner(self._scoped_deps(agent, sheet=sheet, profile=profile), row, spec, self._replies)
             handle = asyncio.create_task(self._run(runner), name=f"lilly-task-{task_id}")
             self._active[task_id] = (handle, runner)

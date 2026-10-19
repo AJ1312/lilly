@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useApp } from '../store'
-import { LIVE_STATES, type Agent, type Message, type ModelStatus, type Skill, type Task, type Thread } from '../types'
+import { APPROVAL_MODES, LIVE_STATES, REQUEST_INTENTS, type Agent, type Message, type ModelStatus, type RequestIntent, type Settings, type Skill, type Task, type Thread } from '../types'
 import { Icon, Petals } from '../ui/Icon'
 import { Markdown } from '../ui/Markdown'
 import { Pet, type PetState } from '../ui/Pet'
 import { ReplyCheck } from '../ui/ReplyCheck'
 import { RunCard } from '../ui/RunCard'
-import { Button, Confirm, Dialog, ErrorNote, Field, IconButton } from '../ui/kit'
+import { Button, Confirm, Dialog, ErrorNote, Field, IconButton, Segmented } from '../ui/kit'
 import { ago } from '../ui/format'
 
 interface ThreadView { thread: Thread; messages: Message[]; tasks: Task[] }
@@ -23,9 +23,11 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
   const [text, setText] = useState(props.initial ?? '')
   const [agentId, setAgentId] = useState('')
   const [model, setModel] = useState('')
+  const [intent, setIntent] = useState<RequestIntent>('AUTO')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [skills, setSkills] = useState(false)
+  const settings = useLoad<{ settings: Settings; problems: string[] }>('/api/settings')
   const agents = useLoad<{ agents: Agent[] }>('/api/agents')
   const models = useLoad<{ models: ModelStatus[] }>('/api/models')
   const area = useRef<HTMLTextAreaElement>(null)
@@ -42,6 +44,7 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
         conversation_id: props.conversationId ?? undefined,
         agent_id: agentId || undefined,
         pin_model: model || undefined,
+        intent: intent === 'AUTO' ? undefined : intent,
         ...extra,
       })
       setText('')
@@ -50,6 +53,16 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
       setError(errorText(e))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const approvalMode = settings.data?.settings.approval_mode ?? 'MANUAL'
+  const changeApprovalMode = async (mode: Settings['approval_mode']) => {
+    if (!settings.data || mode === approvalMode) return
+    try {
+      settings.replace(await api.put('/api/settings', { ...settings.data.settings, approval_mode: mode }))
+    } catch (e) {
+      setError(errorText(e))
     }
   }
 
@@ -80,6 +93,15 @@ function Composer(props: { conversationId: string | null; onSent: (conversationI
           <option value="">Model: automatic</option>
           {models.data?.models.filter((m) => m.enabled).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
         </select>
+        <select aria-label="Request mode" value={intent} onChange={(e) => setIntent(e.target.value as RequestIntent)}>
+          {REQUEST_INTENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <Segmented
+          label="Approval mode"
+          value={approvalMode}
+          onChange={(value) => void changeApprovalMode(value)}
+          options={APPROVAL_MODES.map((mode) => ({ value: mode.value, label: mode.name, hint: mode.blurb }))}
+        />
         <Button small icon="spark" onClick={() => setSkills(true)}>Skills</Button>
         <span className="grow" />
         <Button kind="primary" icon="send" busy={busy} disabled={!text.trim()} onClick={() => void send(text)}>Send</Button>
@@ -259,6 +281,7 @@ export function Talk({ threadId, go }: { threadId: string | null; go: (hash: str
   const [listOpen, setListOpen] = useState(false)
   const threads = useLoad<{ threads: Thread[] }>(`/api/threads?${query ? `q=${encodeURIComponent(query)}` : archived ? 'archived=1' : ''}`, true)
   const toast = useApp((s) => s.toast)
+  const [purgeId, setPurgeId] = useState<string | null>(null)
 
   const toggleArchive = async (t: Thread) => {
     try {
@@ -285,6 +308,7 @@ export function Talk({ threadId, go }: { threadId: string | null; go: (hash: str
                 <span className="thread-when">{ago(t.updated_at)}</span>
               </a>
               <IconButton icon={t.archived ? 'up' : 'down'} label={t.archived ? 'Unarchive' : 'Archive'} onClick={() => void toggleArchive(t)} />
+              <IconButton icon="trash" label="Delete session" kind="danger" onClick={() => setPurgeId(t.id)} />
             </li>
           ))}
           {threads.data?.threads.length === 0 && <li className="thread-empty">No conversations yet.</li>}
@@ -296,6 +320,22 @@ export function Talk({ threadId, go }: { threadId: string | null; go: (hash: str
         </button>
         {threadId ? <Conversation key={threadId} id={threadId} onDeleted={() => go('/talk')} /> : <Welcome onSent={(id) => go(`/talk/${id}`)} />}
       </section>
+      {purgeId && (
+        <Confirm
+          title="Delete this session?"
+          danger
+          confirm="Delete session"
+          body="The conversation and its messages will be removed permanently. Finished task records remain in activity history."
+          onClose={() => setPurgeId(null)}
+          onConfirm={() => {
+            api.del(`/api/threads/${purgeId}`).then(() => {
+              if (threadId === purgeId) go('/talk')
+              threads.reload()
+              setPurgeId(null)
+            }).catch((e: unknown) => toast(errorText(e), 'bad'))
+          }}
+        />
+      )}
     </div>
   )
 }

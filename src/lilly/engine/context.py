@@ -71,8 +71,10 @@ def truncate_observation(content: str, max_chars: int) -> str:
 
 
 def make_digest(msg: Message) -> str:
-    """Convert an older tool observation message to a compact one-line digest."""
+    """Convert an older tool observation message to a compact one-line digest with retrievable reference."""
     content = msg.content.strip()
+    if "[call result.read with" in content:
+        return content
     is_untrusted = UNTRUSTED_OPEN in content
 
     # Clean untrusted tags for inspection
@@ -92,7 +94,7 @@ def make_digest(msg: Message) -> str:
 
         if status == "ok":
             first_120 = body[:120].replace("\n", " ")
-            digest = f'{step_id} {tool} ok, {chars_count:,} chars, starts: "{first_120}"'
+            digest = f'{step_id} {tool} ok, {chars_count:,} chars, starts: "{first_120}" [call result.read with {{"step": "{step_id}"}} for full output]'
         else:
             reason = first_line.split(f"{status}:", 1)[-1].strip() if f"{status}:" in first_line else first_line
             digest = f"{step_id} {tool} {status}: {reason}"
@@ -106,6 +108,8 @@ def make_digest(msg: Message) -> str:
         # provenance and size only; the original result remains available via
         # result.read.
         digest = re.sub(r', starts: ".*"$', "", digest)
+        if "result.read" not in digest and m:
+            digest += f' [call result.read with {{"step": "{m.group(1)}"}} for full output]'
         return f"{UNTRUSTED_OPEN}\n{digest}\n{UNTRUSTED_CLOSE}"
     return digest
 
@@ -142,7 +146,8 @@ class ContextManager:
 
     async def prepare(self, messages: list[Message], budget: int | None = None,
                       *, label: Label = Label.PUBLIC, mode: Mode = Mode.ASK,
-                      task_id: str | None = None) -> list[Message]:
+                      task_id: str | None = None,
+                      actual_tokens: int | None = None) -> list[Message]:
         """Prepare messages before a model call: truncate observations and compact if over budget."""
         if not messages:
             return []
@@ -150,9 +155,10 @@ class ContextManager:
         # 1. Truncate tool results to observation_chars
         msgs = self.truncate_observations(messages)
 
-        # 2. Check token budget
+        # 2. Check token budget (incorporating actual reported tokens where available)
         soft_limit = budget if budget is not None else self._engine_settings().soft_context_tokens
-        current_tokens = total_tokens(msgs)
+        estimated_tokens = total_tokens(msgs)
+        current_tokens = max(actual_tokens, estimated_tokens) if actual_tokens is not None and actual_tokens > 0 else estimated_tokens
         if current_tokens <= soft_limit:
             return msgs
 
@@ -161,9 +167,10 @@ class ContextManager:
         # - System prompt (index 0)
         # - Initial user request (first user message)
         # - Any to-do list / plan message
+        # - Any essential findings or key conclusions
         # - Any pending approval
         # - The latest turn in full (last assistant message and everything after it)
-        # - The last error
+        # - Errors from earlier turns (so the agent avoids repeating them)
         n = len(msgs)
         if n <= 3:
             return msgs
@@ -176,14 +183,6 @@ class ContextManager:
                 break
 
         latest_turn_start = last_assistant_idx if last_assistant_idx >= 0 else (n - 1)
-
-        # Find the last error before the latest turn
-        last_error_idx = -1
-        for i in range(latest_turn_start - 1, -1, -1):
-            c = msgs[i].content.lower()
-            if "error:" in c or "blocked by policy" in c or "declined by the user" in c or "failed" in c:
-                last_error_idx = i
-                break
 
         first_user_idx = -1
         for i in range(n):
@@ -198,8 +197,6 @@ class ContextManager:
             protected_indices.add(first_user_idx)
         for i in range(latest_turn_start, n):
             protected_indices.add(i)
-        if last_error_idx >= 0:
-            protected_indices.add(last_error_idx)
 
         for i, m in enumerate(msgs):
             if i in protected_indices:
@@ -211,15 +208,31 @@ class ContextManager:
                 or ("plan" in c and "todos" in c)
                 or ("plan" in c and "items" in c)
                 or (m.tool_calls and any(tc.name == "agent.plan" for tc in m.tool_calls))
+                or (m.role == "tool" and m.tool_call_id and "agent.plan" in m.tool_call_id)
             ):
                 protected_indices.add(i)
                 continue
+            # essential findings
+            if (
+                "finding:" in c
+                or "findings:" in c
+                or "key finding" in c
+                or "discovered:" in c
+                or "key result" in c
+                or "essential:" in c
+            ):
+                protected_indices.add(i)
+                continue
+            # errors (preserve all error messages from earlier turns)
+            if "error:" in c or "blocked by policy" in c or "declined by the user" in c or "failed:" in c or "failed" in c:
+                protected_indices.add(i)
+                continue
             # pending approval
-            if "waiting for approval" in c or "approve" in c:
+            if "waiting for approval" in c or "approve" in c or "approval required" in c:
                 protected_indices.add(i)
                 continue
 
-        # Pass 1: Compact older messages (replace older tool results with digests)
+        # Pass 1: Compact older messages (replace older tool results with digests + artifact pointers)
         compacted: list[Message] = []
         for i, m in enumerate(msgs):
             if i in protected_indices:
@@ -261,13 +274,17 @@ class ContextManager:
         mode: Mode = Mode.ASK,
         task_id: str | None = None,
     ) -> list[Message]:
-        """Produce cached Working notes (<= 400 tokens) using a quick summarize model call."""
+        """Produce cached Working notes (<= 400 tokens), avoiding extra LLM calls unless worthwhile."""
         unprotected_middle = [
             (i, m) for i, m in enumerate(messages)
             if i not in protected_indices and m.role in ("tool", "assistant")
         ]
         if not unprotected_middle:
             return messages
+
+        middle_tokens = sum(message_tokens(m) for _, m in unprotected_middle)
+        # Avoid extra summarization calls unless worthwhile (multiple middle messages or substantial tokens)
+        worthwhile = len(unprotected_middle) >= 2 or middle_tokens >= 200
 
         corpus = "\n".join(
             f"{m.role}: {make_digest(m) if UNTRUSTED_OPEN in m.content else m.content}"
@@ -277,7 +294,7 @@ class ContextManager:
 
         notes = self._summary_cache.get(content_hash)
         if notes is None:
-            if self._completer is not None:
+            if self._completer is not None and worthwhile:
                 try:
                     summary_prompt = (
                         "Summarize these earlier steps into concise Working notes (at most 400 tokens). "
@@ -299,10 +316,10 @@ class ContextManager:
                     )
                     notes = completed.result.text.strip()
                 except Exception:
-                    notes = "\n".join(make_digest(m) for _, m in unprotected_middle if m.role == "tool")[:1600]
+                    notes = "\n".join(m.content for _, m in unprotected_middle if m.role == "tool")[:1600]
             else:
-                # Deterministic fallback notes without model
-                notes = "\n".join(make_digest(m) for _, m in unprotected_middle if m.role == "tool")[:1600]
+                # Deterministic fallback notes without expensive extra model calls
+                notes = "\n".join(m.content for _, m in unprotected_middle if m.role == "tool")[:1600]
 
             self._summary_cache[content_hash] = notes
 

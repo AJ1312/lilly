@@ -75,6 +75,18 @@ class _Acting(BrowserTool):
         self._m.spend(ctx.task_id)
         return tab
 
+    @staticmethod
+    async def _fresh(tab: object, message: str) -> str:
+        """Return the action receipt together with the new snapshot.
+
+        Targets are snapshot-scoped. Returning a fresh snapshot here keeps the
+        model in the same observe -> act -> observe loop as desktop CUA and
+        prevents it from acting on a page state it has not seen.
+        """
+        page = tab.page  # type: ignore[attr-defined]
+        snap = await page.snapshot(fresh=True)
+        return f"{message}\n\n{snap.render()}"
+
 
 class ClickTool(_Acting):
     name = "browser.click"
@@ -85,6 +97,7 @@ class ClickTool(_Acting):
         async with tab.lock:
             done = await tab.page.click(args.get("target"))
             self._m.touch(tab)
+            done = await self._fresh(tab, done)
         return self._out(done)
 
 
@@ -97,6 +110,7 @@ class SubmitTool(_Acting):
         async with tab.lock:
             done = await tab.page.submit(args.get("target"))
             self._m.touch(tab)
+            done = await self._fresh(tab, done)
         return self._out(done)
 
 
@@ -112,6 +126,7 @@ class TypeTool(_Acting):
         async with tab.lock:
             done = await tab.page.type(args.get("target"), text, str(args.get("clear", "")).lower() == "true")
             self._m.touch(tab)
+            done = await self._fresh(tab, done)
         return self._out(done)
 
 
@@ -124,6 +139,7 @@ class SelectTool(_Acting):
         async with tab.lock:
             done = await tab.page.select(args.get("target"), str_arg(args, "value", max_len=200))
             self._m.touch(tab)
+            done = await self._fresh(tab, done)
         return self._out(done)
 
 
@@ -136,6 +152,7 @@ class PressTool(_Acting):
         async with tab.lock:
             done = await tab.page.press(str_arg(args, "key", max_len=20))
             self._m.touch(tab)
+            done = await self._fresh(tab, done)
         return self._out(done)
 
 
@@ -147,6 +164,7 @@ class ScrollTool(BrowserTool):
         async with tab.lock:
             done = await tab.page.scroll(str_arg(args, "direction", max_len=10))
             self._m.touch(tab)
+            done = await _Acting._fresh(tab, done)
         return self._out(done)
 
 
@@ -158,6 +176,7 @@ class BackTool(BrowserTool):
         async with tab.lock:
             done = await tab.page.back()
             self._m.touch(tab)
+            done = await _Acting._fresh(tab, done)
         return self._out(done)
 
 

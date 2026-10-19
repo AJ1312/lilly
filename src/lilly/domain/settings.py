@@ -95,6 +95,7 @@ class ModelSpec:
 @dataclass(frozen=True, slots=True)
 class NetworkSettings:
     allowed_hosts: tuple[str, ...] = ()          # extra Host names the UI answers to, e.g. a Tailscale name
+    local_only: bool = False                     # strictly restrict model inference to local models on this computer
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +153,7 @@ class EngineSettings:
     mode: str = "loop"  # "loop" | "plan"
     observation_chars: int = 6000
     soft_context_tokens: int = 6000
-    read_cache_ttl_s: int = 0
+    read_cache_ttl_s: int = 300
     self_check: bool = False
     finish_on_terminal: bool = True
     # Quick Actions settings
@@ -487,6 +488,7 @@ def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     hosts = tuple(net.get("allowed_hosts", ()))
     if not all(isinstance(h, str) and _HOST.fullmatch(h) for h in hosts):
         errs.append("network.allowed_hosts must be host names without ports or paths")
+    local_only = bool(net.get("local_only", False))
 
     s = raw.get("search", {})
     engine = s.get("engine", "duckduckgo")
@@ -516,7 +518,7 @@ def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     if errs:
         return None, errs
     return Settings(tuple(specs), mods, mode, approval_mode, roots, days,
-                    NetworkSettings(hosts), SearchSettings(engine, url), stay, limits, decisions or DecisionSettings(),
+                    NetworkSettings(hosts, local_only), SearchSettings(engine, url), stay, limits, decisions or DecisionSettings(),
                     browser or BrowserSettings(), bridges or BridgeSettings(), devbox or DevboxSettings(),
                     capacity, engine_settings, grounding, crew), []
 
@@ -528,7 +530,7 @@ def settings_to_dict(s: Settings) -> dict[str, Any]:
         "approval_mode": s.approval_mode.value,
         "file_roots": list(s.file_roots),
         "retention_days": s.retention_days,
-        "network": {"allowed_hosts": list(s.network.allowed_hosts)},
+        "network": {"allowed_hosts": list(s.network.allowed_hosts), "local_only": s.network.local_only},
         "search": {"engine": s.search.engine, "searxng_url": s.search.searxng_url},
         "stay_awake": s.stay_awake,
         "limits": {"max_running": s.limits.max_running, "step_timeout_s": s.limits.step_timeout_s,

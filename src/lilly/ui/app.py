@@ -57,6 +57,7 @@ def api_routes() -> list[Route]:
     return [
         # signing in: public, because these are how you become signed in
         _route("/healthz", admin.health, ["GET"], public=True),
+        _route("/api/healthz", admin.health, ["GET"], public=True),
         _route("/login", admin.login_link, ["GET"], public=True),
         _route("/api/session", admin.session_info, ["GET"], public=True),
         _route("/api/login", admin.login, ["POST"], public=True),

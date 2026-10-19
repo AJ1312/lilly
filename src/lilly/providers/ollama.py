@@ -11,10 +11,29 @@ from typing import Any
 import httpx
 
 from lilly.domain.errors import ProviderError
-from lilly.domain.ports import CompletionRequest, CompletionResult, ModelToolCall, Provider
+from lilly.domain.payload import canonical
+from lilly.domain.ports import CompletionRequest, CompletionResult, ModelToolCall, Provider, ToolSchema
 from lilly.domain.tools_registry import unwire_name, wire_name
 from lilly.providers.base import MAX_RESPONSE_BYTES, get_json, map_http_error
 from lilly.providers.local_gate import LocalGate
+
+_OLLAMA_TOOL_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+
+def _format_ollama_tool(t: ToolSchema) -> dict[str, Any]:
+    key = (t.name, t.description, canonical(t.parameters))
+    cached = _OLLAMA_TOOL_CACHE.get(key)
+    if cached is None:
+        cached = {
+            "type": "function",
+            "function": {
+                "name": wire_name(t.name),
+                "description": t.description,
+                "parameters": dict(t.parameters),
+            },
+        }
+        _OLLAMA_TOOL_CACHE[key] = cached
+    return cached
 
 DEFAULT_URL = "http://127.0.0.1:11434"
 MIN_DEADLINE_S = 120.0        # the first call loads the model into memory, which can take a while
@@ -74,17 +93,7 @@ class OllamaProvider(Provider):
         if req.json_mode:
             body["format"] = "json"
         if req.tools:
-            body["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": wire_name(t.name),
-                        "description": t.description,
-                        "parameters": dict(t.parameters),
-                    },
-                }
-                for t in req.tools
-            ]
+            body["tools"] = [_format_ollama_tool(t) for t in req.tools]
 
         try:
             async with asyncio.timeout(max(req.deadline_s, MIN_DEADLINE_S)):
@@ -180,12 +189,14 @@ class OllamaProvider(Provider):
             ))
 
         try:
+            cached_tokens = int(last.get("prompt_eval_count", 0)) if last.get("prompt_eval_duration") == 0 else 0
             return CompletionResult(
                 "".join(parts),
                 int(last.get("prompt_eval_count", 0)),
                 int(last.get("eval_count", 0)),
                 str(last.get("done_reason", "stop")),
                 tool_calls=tuple(parsed_tool_calls),
+                cached_tokens=cached_tokens,
             )
         except (TypeError, ValueError) as exc:
             raise ProviderError(retryable=False) from exc

@@ -312,7 +312,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.open_url": ToolSpec(
-        Risk.R2, egress=True, confirm=True, path_args=(), module="computer",
+        Risk.R2, egress=True, path_args=(), module="computer",
         terminal=False, standing_ok=True,
         doc="Open a web link in the user's own browser (they see it; Lilly cannot read it).",
         args='{"url": "http(s) link"}',
@@ -326,7 +326,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.open_app": ToolSpec(
-        Risk.R2, confirm=True, path_args=(), module="computer",
+        Risk.R2, path_args=(), module="computer",
         terminal=False, standing_ok=True,
         doc="Start an application on the user's computer.",
         args='{"name": "application name"}',
@@ -346,7 +346,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         schema={"type": "object", "properties": {}, "additionalProperties": False},
     ),
     "computer.click": ToolSpec(
-        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
         doc="Click one target from a fresh computer.observe frame, then capture and return a new frame.",
         args='{"frame_id": "fresh observation id", "target": "accessible label or @x=10,y=20", "expected": "optional text to verify"}',
         schema={
@@ -361,7 +361,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.type": ToolSpec(
-        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
         doc="Click an accessibility target and type text, then capture and return a new frame. Never type secrets.",
         args='{"frame_id": "fresh observation id", "target": "accessible label or coordinates", "text": "text", "expected": "optional text to verify"}',
         schema={
@@ -377,7 +377,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.press": ToolSpec(
-        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
         doc="Press a non-destructive key using a fresh observation frame, then capture and return a new frame.",
         args='{"frame_id": "fresh observation id", "key": "Enter, Tab, Escape or arrow key", "expected": "optional text to verify"}',
         schema={
@@ -406,7 +406,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
                 "required": ["frame_id"], "additionalProperties": False},
     ),
     "computer.drag": ToolSpec(
-        Risk.R2, confirm=True, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
+        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
         doc="Drag between two targets from a fresh frame, then verify a fresh observation.",
         args='{"frame_id": "fresh observation id", "start": "source target", "end": "destination target", "expected": "optional text"}',
         schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "start": {"type": "string"},

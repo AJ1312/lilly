@@ -67,7 +67,8 @@ async def test_find_type_select_and_submit_fill_in_a_form_and_the_server_gets_it
     size = await lab.run("browser.find", query="size")
     submit = await lab.run("browser.find", query="search now")
     assert "textbox" in box and "select" in size and "submit" in submit     # one snapshot serves all three lines
-    assert "Typed 5 characters" in await lab.run("browser.type", target=box, text="shoes")
+    typed = await lab.run("browser.type", target=box, text="shoes")
+    assert "Typed 5 characters" in typed and "Page: Shop" in typed
     # the type changed the page, so the earlier lines are out of date and must be found again
     with pytest.raises(ToolError, match="out of date"):
         await lab.run("browser.select", target=size, value="Large")

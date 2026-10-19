@@ -13,7 +13,7 @@ from tests.integration.conftest import Api
 
 pytestmark = pytest.mark.asyncio
 
-PUBLIC = {"/healthz", "/login", "/api/session", "/api/login", "/api/{rest:path}", "/{path:path}"}
+PUBLIC = {"/healthz", "/api/healthz", "/login", "/api/session", "/api/login", "/api/{rest:path}", "/{path:path}"}
 
 
 # ---- who gets in -------------------------------------------------------------------------------

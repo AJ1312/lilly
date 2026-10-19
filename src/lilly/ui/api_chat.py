@@ -15,6 +15,7 @@ from lilly.domain.sheet import TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import TaskState
 from lilly.engine.bus import EventBus
+from lilly.engine.intent import parse_requested_intent
 from lilly.engine.orchestrator import SubmitRequest
 from lilly.engine.receipt import ReceiptBuilder
 from lilly.store import approvals as approval_store
@@ -100,6 +101,11 @@ async def submit_task(request: Request) -> Response:
         if not isinstance(profile_data, dict):
             raise ValidationFailed("profile must be an object")
         profile = TaskProfile.from_dict(profile_data)
+    raw_intent = text(data, "intent", required=False, max_len=32)
+    try:
+        requested_intent = parse_requested_intent(raw_intent)
+    except ValueError as exc:
+        raise ValidationFailed(str(exc)) from None
     row = await rt.orchestrator.submit(SubmitRequest(
         goal=text(data, "goal", max_len=4000) or "",
         conversation_id=text(data, "conversation_id", required=False, max_len=64),
@@ -107,7 +113,7 @@ async def submit_task(request: Request) -> Response:
         skill=text(data, "skill", required=False, max_len=64),
         params=params,
         pin_model=text(data, "pin_model", required=False, max_len=64),
-        profile=profile))
+        profile=profile, intent=requested_intent))
     return JSONResponse({"task": task_json(row)}, 202)
 
 

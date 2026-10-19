@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -354,29 +355,110 @@ class System1Engine:
         """Update the owner's Laya switch without rebuilding the engine."""
         self._laya_enabled = enabled
 
+    def _deterministic_decide(self, request: System1Request) -> System1Decision | None:
+        """Apply fast, free, deterministic classification rules before model calls."""
+        text = (request.user_request or "").strip()
+        if not text:
+            return None
+        dt = request.decision_type
+
+        # 1. Task classification
+        if dt == DecisionType.TASK_CLASSIFICATION:
+            if re.search(r"^(?:hi|hello|hey|greetings|good\s+(?:morning|afternoon|evening)|thanks|thank you|bye|goodbye)\b", text, re.I):
+                return TaskClassification(TaskClass.CONVERSATION, 0.95, "Conversational greeting")
+            if re.search(r"^(?:who|what) are you\b|^(?:how are you|what's up|how's it going)\b", text, re.I):
+                return TaskClassification(TaskClass.CONVERSATION, 0.92, "General conversational question")
+            if re.search(r"\.(?:py|js|ts|tsx|jsx|json|html|css|yaml|yml|sh|toml|sql|rs|go)\b|\b(?:def |function|class |import |refactor|debug|compile|pytest|npm test)\b", text, re.I):
+                return TaskClassification(TaskClass.CODING, 0.90, "Code structure or file extension recognized")
+            if re.search(r"\b(?:search|google|find out|look up|research|browse|latest news on)\b", text, re.I):
+                return TaskClassification(TaskClass.RESEARCH, 0.88, "Information retrieval request")
+            if re.search(r"\b(?:read file|write file|edit file|delete file|move file|copy file|list files|create folder)\b", text, re.I):
+                return TaskClassification(TaskClass.SYSTEM_OPERATION, 0.90, "File or system operation")
+            if re.search(r"\b(?:open browser|browse to|navigate to|click on|type into|login to)\b", text, re.I):
+                return TaskClassification(TaskClass.WEB_BROWSING, 0.90, "Browser interaction request")
+            if re.search(r"\b(?:and then|after that|first.*then|step 1|pipeline|workflow)\b", text, re.I):
+                return TaskClassification(TaskClass.MULTI_STEP, 0.85, "Multi-step sequencing pattern")
+            if len(text) < 150 and ("?" in text or text.lower().startswith(("what ", "who ", "how ", "why ", "calculate ", "tell me "))):
+                return TaskClassification(TaskClass.SIMPLE_QUERY, 0.88, "Short direct query")
+            return None
+
+        # 2. Complexity estimation
+        elif dt == DecisionType.COMPLEXITY_ESTIMATION:
+            if re.search(r"^(?:hi|hello|hey|greetings|thanks|thank you|bye)\b", text, re.I):
+                return ComplexityAssessment(ComplexityLevel.TRIVIAL, 0.95, 1, 1, "Trivial greeting/chat")
+            if len(text) < 120 and "?" in text and not re.search(r"\b(?:file|browser|terminal|run|search|code|refactor|test)\b", text, re.I):
+                return ComplexityAssessment(ComplexityLevel.SIMPLE, 0.88, 1, 1, "Simple knowledge query without tools")
+            if re.search(r"\b(?:and then|after that|step 1|workflow|refactor all|benchmark)\b", text, re.I) or (len(text) > 400 and re.search(r"\.(?:py|js|ts)\b", text, re.I)):
+                return ComplexityAssessment(ComplexityLevel.COMPLEX, 0.85, 4, 3, "Complex multi-step or code workflow")
+            return None
+
+        # 3. Model tier selection
+        elif dt == DecisionType.MODEL_TIER_SELECTION:
+            if re.search(r"\b(?:screenshot|screen|image|photo|visual|crop|locate button)\b", text, re.I):
+                return ModelTierDecision(ModelTier.VISION, 0.95, "Vision model required for visual targets")
+            if re.search(r"^(?:hi|hello|hey|thanks|thank you|bye)\b", text, re.I) or (len(text) < 100 and "?" in text and not re.search(r"\b(?:code|refactor|file|browser|terminal)\b", text, re.I)):
+                return ModelTierDecision(ModelTier.QUICK, 0.90, "Fast, lightweight model suited for simple query")
+            if re.search(r"\b(?:refactor|architect|benchmark|complex|multi-step|security audit|optimize)\b", text, re.I):
+                return ModelTierDecision(ModelTier.STRONG, 0.85, "High-capability model required for complex task")
+            return None
+
+        # 4. Capability routing
+        elif dt == DecisionType.CAPABILITY_ROUTING:
+            if re.search(r"\b(?:screenshot|screen|image|photo|picture)\b", text, re.I):
+                return CapabilityRouting(Cap.VISION, (), (), needs_tool_use=True, needs_vision=True, reasoning="Vision capability required")
+            if re.search(r"^(?:hi|hello|hey|thanks|who are you)\b", text, re.I):
+                return CapabilityRouting(Cap.NONE, (), (), needs_tool_use=False, needs_vision=False, reasoning="Conversational, no tools required")
+            if re.search(r"\b(?:search|file|read|write|browser|terminal|run|edit|delete)\b", text, re.I):
+                return CapabilityRouting(Cap.NONE, (), (), needs_tool_use=True, needs_vision=False, reasoning="Requires tool use")
+            return None
+
+        # 5. Tool family selection
+        elif dt == DecisionType.TOOL_FAMILY_SELECTION:
+            if re.search(r"^(?:hi|hello|hey|thanks|who are you)\b", text, re.I):
+                return ToolFamilyDecision(ToolFamily.NONE, (), 0.95, "No tool family needed for conversational query")
+            if re.search(r"\b(?:file|files|folder|path|read file|write file|edit file|delete file)\b", text, re.I):
+                return ToolFamilyDecision(ToolFamily.FILESYSTEM, (), 0.90, "Filesystem family identified from keywords")
+            if re.search(r"\b(?:browser|click|navigate|webpage|url|http|html)\b", text, re.I):
+                return ToolFamilyDecision(ToolFamily.BROWSER, (), 0.90, "Browser family identified from keywords")
+            if re.search(r"\b(?:search|google|lookup|fetch|research)\b", text, re.I):
+                return ToolFamilyDecision(ToolFamily.WEB, (), 0.90, "Web family identified from keywords")
+            if re.search(r"\b(?:remember|memory|note|notes|recall)\b", text, re.I):
+                return ToolFamilyDecision(ToolFamily.MEMORY, (), 0.90, "Memory/notes family identified")
+            return None
+
+        return None
+
     async def decide(self, request: System1Request) -> System1Decision:
         """Make a System 1 decision based on the request.
         
-        This method routes the request to the appropriate decision maker,
-        preferring Laya when available, with fallback to deterministic logic.
+        Applies deterministic rules first. Uses Laya only for uncertain
+        classifications. Routes simple tasks to lightweight models, complex
+        tasks to stronger models, and falls back safely when confidence is low.
         """
         decision_type = request.decision_type
         self._decision_counts[decision_type] += 1
-        
-        # Try Laya first if available and appropriate for this decision type
+
+        # 1. Fast, free, deterministic rule pass
+        deterministic = self._deterministic_decide(request)
+        if deterministic is not None and getattr(deterministic, "confidence", 0.0) >= 0.80:
+            if self._on_decision:
+                self._on_decision(decision_type, deterministic)
+            return deterministic
+
+        # 2. Use Laya only for uncertain classifications when available and enabled
         enabled = self._laya_enabled() if callable(self._laya_enabled) else self._laya_enabled
-        if (self.laya_available and self._should_use_laya(decision_type) and enabled is not False):
+        if self.laya_available and self._should_use_laya(decision_type) and enabled is not False:
             try:
                 self._laya_usage_counts[decision_type] += 1
                 decision = await self._make_laya_decision(request)
-                if decision is not None:
+                if decision is not None and getattr(decision, "confidence", 0.0) >= 0.65:
                     if self._on_decision:
                         self._on_decision(decision_type, decision)
                     return decision
             except Exception as e:
                 log.warning(f"Laya decision failed for {decision_type}: {e}")
-        
-        # Fallback to deterministic deciders
+
+        # 3. Custom fallback deciders if registered
         if decision_type in self._fallback_deciders:
             self._fallback_usage_counts[decision_type] += 1
             decider = self._fallback_deciders[decision_type]
@@ -384,9 +466,9 @@ class System1Engine:
             if self._on_decision:
                 self._on_decision(decision_type, decision)
             return decision
-        
-        # Default fallback decisions
-        default_decision = self._make_default_decision(request)
+
+        # 4. Safe fallback: deterministic suggestion if any, or safe default
+        default_decision = deterministic or self._make_default_decision(request)
         if self._on_decision:
             self._on_decision(decision_type, default_decision)
         return default_decision

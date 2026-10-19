@@ -22,9 +22,21 @@ web/node_modules/
 *.p12
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
 *.db
 *.db-wal
 *.db-shm
+*-wal
+*-shm
+*-journal
+:memory:*
+local_models/
+models/
+browser_profile/
+*.token
 
 .DS_Store
 *.log

@@ -133,7 +133,7 @@ export interface Settings {
   approval_mode: 'MANUAL' | 'AUTO' | 'OFF'
   file_roots: string[]
   retention_days: number
-  network: { allowed_hosts: string[] }
+  network: { allowed_hosts: string[]; local_only?: boolean }
   search: { engine: 'duckduckgo' | 'brave' | 'searxng'; searxng_url: string | null }
   stay_awake: boolean
   limits: Limits
@@ -236,8 +236,17 @@ export const MODES = [
 export const APPROVAL_MODES = [
   { value: 'MANUAL', name: 'Manual', blurb: 'Ask before approval-required actions.' },
   { value: 'AUTO', name: 'Auto', blurb: 'Run safe changes directly; hard policy and risky actions still stop.' },
-  { value: 'OFF', name: 'Off', blurb: 'Never prompt; approval-required actions are denied.' },
+  { value: 'OFF', name: 'Off', blurb: 'No prompts for allowed actions; hard policy and permissions still apply.' },
 ] as const
+
+export type RequestIntent = 'AUTO' | 'ANSWER' | 'WEB RETRIEVE' | 'NAVIGATE' | 'ACTION'
+export const REQUEST_INTENTS: { value: RequestIntent; label: string; hint: string }[] = [
+  { value: 'AUTO', label: 'Automatic', hint: 'Classify the request from its wording.' },
+  { value: 'ANSWER', label: 'Answer', hint: 'Answer directly without opening a browser unnecessarily.' },
+  { value: 'WEB RETRIEVE', label: 'Web search', hint: 'Search or scrape, then return the information.' },
+  { value: 'NAVIGATE', label: 'Navigate', hint: 'Open the requested URL or destination.' },
+  { value: 'ACTION', label: 'Act', hint: 'Interact until the requested outcome is verified.' },
+]
 
 export interface Resources {
   machine: {

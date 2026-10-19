@@ -61,6 +61,7 @@ class CompletionResult:
     finish_reason: str
     tool_calls: tuple[ModelToolCall, ...] = ()
     provider_state: Mapping[str, Any] | None = None
+    cached_tokens: int = 0
 
 
 class Provider(ABC):

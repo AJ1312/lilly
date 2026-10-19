@@ -12,9 +12,28 @@ from typing import Any
 import httpx
 
 from lilly.domain.errors import ProviderError
-from lilly.domain.ports import CompletionRequest, CompletionResult, KeyStore, ModelToolCall, Provider
+from lilly.domain.payload import canonical
+from lilly.domain.ports import CompletionRequest, CompletionResult, KeyStore, ModelToolCall, Provider, ToolSchema
 from lilly.domain.tools_registry import unwire_name, wire_name
 from lilly.providers.base import post_json, post_sse
+
+_OPENAI_WIRE_TOOL_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+
+def _format_openai_tool(t: ToolSchema) -> dict[str, Any]:
+    key = (t.name, t.description, canonical(t.parameters))
+    cached = _OPENAI_WIRE_TOOL_CACHE.get(key)
+    if cached is None:
+        cached = {
+            "type": "function",
+            "function": {
+                "name": wire_name(t.name),
+                "description": t.description,
+                "parameters": dict(t.parameters),
+            },
+        }
+        _OPENAI_WIRE_TOOL_CACHE[key] = cached
+    return cached
 
 
 def _parse_tool_call(tc_raw: dict[str, Any]) -> ModelToolCall:
@@ -109,17 +128,7 @@ class OpenAICompatProvider(Provider):
         if req.json_mode and self._supports_json:
             body["response_format"] = {"type": "json_object"}
         if req.tools:
-            body["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": wire_name(t.name),
-                        "description": t.description,
-                        "parameters": dict(t.parameters),
-                    },
-                }
-                for t in req.tools
-            ]
+            body["tools"] = [_format_openai_tool(t) for t in req.tools]
             body["tool_choice"] = req.tool_choice
 
         url = f"{self._base_url}/chat/completions"
@@ -136,12 +145,16 @@ class OpenAICompatProvider(Provider):
             for tc in msg.get("tool_calls") or ():
                 tool_calls.append(_parse_tool_call(tc))
 
+            prompt_tokens_details = usage.get("prompt_tokens_details") or {}
+            cached_tokens = int(prompt_tokens_details.get("cached_tokens") or usage.get("cached_tokens") or 0)
+
             return CompletionResult(
                 content,
                 int(usage.get("prompt_tokens", 0)),
                 int(usage.get("completion_tokens", 0)),
                 choice.get("finish_reason") or "stop",
                 tool_calls=tuple(tool_calls),
+                cached_tokens=cached_tokens,
             )
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             raise ProviderError(retryable=False) from exc
@@ -149,7 +162,7 @@ class OpenAICompatProvider(Provider):
     async def _stream(self, url: str, headers: dict[str, str], body: dict[str, object],
                       req: CompletionRequest) -> CompletionResult:
         body = {**body, "stream": True, **({"stream_options": {"include_usage": True}} if self._stream_usage else {})}
-        tokens, finish, text, on_text = [0, 0], "stop", "", req.on_text
+        tokens, finish, text, on_text = [0, 0, 0], "stop", "", req.on_text
         accumulated_tc: dict[int, dict[str, Any]] = {}
         assert on_text is not None
 
@@ -158,7 +171,9 @@ class OpenAICompatProvider(Provider):
             try:
                 usage = event.get("usage")
                 if isinstance(usage, dict):
-                    tokens[:] = [int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))]
+                    prompt_details = usage.get("prompt_tokens_details") or {}
+                    c_tokens = int(prompt_details.get("cached_tokens") or usage.get("cached_tokens") or 0)
+                    tokens[:] = [int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0)), c_tokens]
                 for choice in event.get("choices") or ():
                     delta = choice.get("delta") or {}
                     piece = delta.get("content")
@@ -194,7 +209,7 @@ class OpenAICompatProvider(Provider):
             _parse_tool_call(accumulated_tc[idx])
             for idx in sorted(accumulated_tc)
         ]
-        return CompletionResult(text, tokens[0], tokens[1], finish, tool_calls=tuple(parsed_calls))
+        return CompletionResult(text, tokens[0], tokens[1], finish, tool_calls=tuple(parsed_calls), cached_tokens=tokens[2])
 
 
 def _read_image(path: str) -> bytes:

@@ -40,6 +40,7 @@ class ModelCallRecord:
     tokens_out: int
     waited_ms: int
     outcome: str  # ok|rate_limited|error|cancelled
+    tokens_cached: int = 0
 
 
 def record_model_call(con: sqlite3.Connection, call: ModelCallRecord) -> None:

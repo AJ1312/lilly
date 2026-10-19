@@ -151,8 +151,17 @@ class StepExecutor:
             raise
         spec = tool.spec
         verdict, why = decide(tool_call(name, spec, args), rec.ctx, self._scope())
-        if verdict is not Verdict.DENY and (own := tool.review(args, rec.task_id))[0] > verdict:   # the tool may only add caution
-            verdict, why = own
+        if verdict is not Verdict.DENY:
+            own = tool.review(args, rec.task_id)
+            if own[0] > verdict:
+                verdict, why = own
+            # Browser settings remain useful as the default/manual safety
+            # policy, but the task-level AUTO/OFF control is an explicit user
+            # choice to suppress prompts for non-denied interaction.  A tool's
+            # DENY verdict is never downgraded here.
+            if name.startswith("browser.") and rec.ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF) \
+                    and verdict is Verdict.NEEDS_APPROVAL and not rec.ctx.tainted:
+                verdict, why = Verdict.ALLOW, f"approval mode is {rec.ctx.approval_mode.value}"
         if verdict is Verdict.DENY:
             await rec.step_status(row_id, "failed", error=f"blocked: {why}")
             await rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=row_id)
@@ -203,6 +212,10 @@ class StepExecutor:
 
             if self._read_cache is not None and ttl_s > 0:
                 self._read_cache.put(name, args, result.output, result.label, result.untrusted, began, ttl_s)
+
+        if not is_cached and self._read_cache is not None and spec.risk > Risk.R0:
+            prefix = name.split(".")[0] + "."
+            self._read_cache.invalidate_prefix(prefix)
 
         if result.model:
             rec.models.append(result.model)

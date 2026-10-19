@@ -227,7 +227,7 @@ async def test_model_broker_select_model(mock_settings, mock_db, mock_key_store,
 
 
 @pytest.mark.asyncio
-async def test_capability_profile_inference():
+async def test_capability_profile_inference(mock_db):
     """Test that capability profiles can be inferred from model specs."""
     from lilly.domain.settings import ModelSpec
     
@@ -247,7 +247,7 @@ async def test_capability_profile_inference():
                         stay_awake=False, retention_days=7, network=None, modules=()),
         keys=MockKeyStore(),
         client=httpx.AsyncClient(),
-        db=Database(":memory:"),
+        db=mock_db,
         grants=None,
     )
     
