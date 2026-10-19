@@ -44,7 +44,7 @@ export const CommandPalette: React.FC = () => {
     {
       id: 'nav-agents',
       title: 'Agents Studio',
-      subtitle: 'Manage agent personas, pet look, instructions',
+      subtitle: 'Manage specialist personas, capabilities, and system instructions',
       icon: 'agents',
       category: 'Navigation',
       action: () => setSection('agents'),

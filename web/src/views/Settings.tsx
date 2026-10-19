@@ -211,12 +211,12 @@ export const SettingsView: React.FC = () => {
   const allModules = ['files', 'web', 'memory', 'notes', 'skills', 'computer', 'browser', 'devbox']
 
   return (
-    <div className="view-container" style={{ padding: '24px' }}>
+    <div className="view-container">
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>Settings & System Configuration</h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-          Manage security approval policies, engine mode (loop vs plan), capacity limits, DevBox container, and hardware integrations.
-        </p>
+        <h1 className="greeting-text">Settings & Configuration</h1>
+        <div className="greeting-sub">
+          Fine-tune engine execution, capacity limits, safety guardrails, MCP tools, and container sandboxes.
+        </div>
       </div>
 
       {/* Tabs */}
@@ -369,7 +369,10 @@ export const SettingsView: React.FC = () => {
                   cursor: 'pointer',
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: '14px' }}>🔄 ReAct Tool Loop (Default)</div>
+                <div style={{ fontWeight: 600, fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Icon name="refresh" size={16} />
+                  <span>ReAct Tool Loop (Default)</span>
+                </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   Dynamic step-by-step model execution. Best for rapid interactive coding, exploratory research, and terminal commands.
                 </div>
@@ -387,7 +390,10 @@ export const SettingsView: React.FC = () => {
                   cursor: 'pointer',
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: '14px' }}>📋 Upfront DAG Planning</div>
+                <div style={{ fontWeight: 600, fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Icon name="tasks" size={16} />
+                  <span>Upfront DAG Planning</span>
+                </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   Generates an upfront dependency step graph before executing. High predictability for complex refactors.
                 </div>
@@ -474,9 +480,10 @@ export const SettingsView: React.FC = () => {
                   type="button"
                   onClick={() => handleApplyPreset(p.name)}
                   className="btn btn-secondary"
-                  style={{ textTransform: 'capitalize' }}
+                  style={{ textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
-                  ⚡ {p.name}: {p.summary}
+                  <Icon name="sparkles" size={12} />
+                  <span>{p.name}: {p.summary}</span>
                 </button>
               ))}
             </div>
@@ -602,9 +609,9 @@ export const SettingsView: React.FC = () => {
                           },
                         })
                       }
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', alignItems: 'center' }}
                     >
-                      ✕
+                      <Icon name="x" size={12} />
                     </button>
                   </span>
                 ))}
@@ -721,9 +728,9 @@ export const SettingsView: React.FC = () => {
                           },
                         })
                       }
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', alignItems: 'center' }}
                     >
-                      ✕
+                      <Icon name="x" size={12} />
                     </button>
                   </span>
                 ))}

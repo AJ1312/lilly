@@ -513,3 +513,26 @@ export const FREEDOM_MODES: Array<{ value: FreedomMode; name: string; blurb: str
   { value: 'ASK', name: 'Ask', blurb: 'Prompts before reading private folders or altering data.' },
   { value: 'OPEN', name: 'Open', blurb: 'Operates freely inside shared folders.' },
 ]
+
+export interface CapacityModel {
+  name: string
+  lane: number
+  breaker: string
+  rpm: number | null
+  rpm_used: number | null
+  rpd: number | null
+  rpd_used: number | null
+  tpm: number | null
+  tpm_used: number | null
+  tpd: number | null
+  tpd_used: number | null
+  ready_in_s: number | null
+  resets_in_s: number | null
+}
+
+export interface Capacity {
+  models: CapacityModel[]
+  queue_length: number
+  estimated_tasks_left_today: number | null
+}
+

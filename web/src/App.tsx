@@ -17,8 +17,6 @@ import { ModelsView } from './views/Models'
 import { SettingsView } from './views/Settings'
 import { ResourcesView } from './views/Resources'
 
-import { ScreenPet } from './ui/ScreenPet'
-
 export const App: React.FC = () => {
   const section = useAppStore((s) => s.section)
   const setSection = useAppStore((s) => s.setSection)
@@ -106,7 +104,6 @@ export const App: React.FC = () => {
       <main className="app-main" id="main-content">
         {renderView()}
       </main>
-      <ScreenPet />
       <CommandPalette />
       <ToastContainer />
     </div>

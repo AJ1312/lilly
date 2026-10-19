@@ -2,10 +2,60 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useAppStore } from '../store'
-import type { Thread, Message, Task, ExecutionTarget, RequestIntent, Agent, Approval } from '../types'
+import type { Thread, Message, Task, ExecutionTarget, Agent, Approval, Capacity } from '../types'
 import { Icon } from '../ui/Icon'
-import { TargetPill, StatePill, RiskPill } from '../ui/Pills'
+import { TargetPill, StatePill } from '../ui/Pills'
 import { Markdown } from '../ui/Markdown'
+
+interface QuickPromptCard {
+  tag: string
+  color: 'peach' | 'lime' | 'periwinkle' | 'mint' | 'lilac'
+  title: string
+  prompt: string
+  target: ExecutionTarget
+}
+
+const QUICK_CARDS: QuickPromptCard[] = [
+  {
+    tag: 'Automate',
+    color: 'peach',
+    title: 'Audit all system health & background routines',
+    prompt: 'Check all system health, running tasks, database size, and tell me what needs attention.',
+    target: 'host',
+  },
+  {
+    tag: 'Coding',
+    color: 'lime',
+    title: 'Refactor code with full test suites and lints',
+    prompt: 'Review the latest codebase changes, run full tests, and check for any remaining edge cases.',
+    target: 'host',
+  },
+  {
+    tag: 'Research',
+    color: 'periwinkle',
+    title: 'Deep search & synthesize knowledge notes',
+    prompt: 'Search the web for the latest techniques and record key facts into long-term memory.',
+    target: 'host',
+  },
+  {
+    tag: 'DevBox',
+    color: 'mint',
+    title: 'Prepare isolated sandbox container for execution',
+    prompt: 'Prepare the DevBox Docker container and verify the sandbox runtime is ready.',
+    target: 'devbox',
+  },
+]
+
+const SUGGESTION_CHIPS = [
+  'Run daily backup',
+  'Check model latencies',
+  'Inspect memory facts',
+  'Automate git sync',
+  'Audit file permissions',
+  'Test speech engine',
+  'Review pending approvals',
+  'Explore model catalog',
+]
 
 export const TalkView: React.FC = () => {
   const selectedThreadId = useAppStore((s) => s.selectedThreadId)
@@ -21,7 +71,50 @@ export const TalkView: React.FC = () => {
   const { data: agentsData } = useLoad<{ agents: Agent[] }>('/api/agents')
   const agents = useMemo(() => agentsData?.agents || [], [agentsData])
 
-  // Active thread details (messages, tasks)
+  // Load live capacity & token limits
+  const { data: capacityData } = useLoad<Capacity>('/api/capacity', 5000)
+
+  // Compute live token counter and quota
+  const totalTpdUsed = capacityData?.models?.reduce((acc, m) => acc + (m.tpd_used || 0), 0) ?? 0
+  const totalTpdQuota = capacityData?.models?.reduce((acc, m) => acc + (m.tpd || 0), 0) ?? 0
+  const estTasksLeft = capacityData?.estimated_tasks_left_today
+
+  const tokenPillText = useMemo(() => {
+    if (totalTpdQuota > 0) {
+      const left = Math.max(0, totalTpdQuota - totalTpdUsed)
+      if (left >= 1_000_000) return `${(left / 1_000_000).toFixed(1)}M tokens left`
+      if (left >= 1_000) return `${(left / 1_000).toFixed(0)}k tokens left`
+      return `${left} tokens left`
+    }
+    if (estTasksLeft !== null && estTasksLeft !== undefined) {
+      return `~${estTasksLeft} tasks left today`
+    }
+    if (totalTpdUsed > 0) {
+      if (totalTpdUsed >= 1_000_000) return `${(totalTpdUsed / 1_000_000).toFixed(1)}M spent`
+      if (totalTpdUsed >= 1_000) return `${(totalTpdUsed / 1_000).toFixed(0)}k spent`
+      return `${totalTpdUsed} spent`
+    }
+    return 'Capacity online'
+  }, [totalTpdQuota, totalTpdUsed, estTasksLeft])
+
+  const composerTokenCount = useMemo(() => {
+    if (totalTpdQuota > 0) {
+      const left = Math.max(0, totalTpdQuota - totalTpdUsed)
+      if (left >= 1_000_000) return `${(left / 1_000_000).toFixed(1)}M`
+      if (left >= 1_000) return `${(left / 1_000).toFixed(0)}k`
+      return `${left}`
+    }
+    if (estTasksLeft !== null && estTasksLeft !== undefined) {
+      return `${estTasksLeft}`
+    }
+    if (totalTpdUsed > 0) {
+      if (totalTpdUsed >= 1_000) return `${(totalTpdUsed / 1_000).toFixed(0)}k`
+      return `${totalTpdUsed}`
+    }
+    return 'Quota'
+  }, [totalTpdQuota, totalTpdUsed, estTasksLeft])
+
+  // Active thread details
   const [activeThread, setActiveThread] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [threadTasks, setThreadTasks] = useState<Task[]>([])
@@ -31,25 +124,21 @@ export const TalkView: React.FC = () => {
   // Composer state
   const [prompt, setPrompt] = useState('')
   const [target, setTarget] = useState<ExecutionTarget>('host')
-  const [intent, setIntent] = useState<RequestIntent>('AUTO')
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Sync selected thread
-  const firstThreadId = threads[0]?.id
-  useEffect(() => {
-    if (!selectedThreadId && firstThreadId) {
-      selectThread(firstThreadId)
-    }
-  }, [firstThreadId, selectedThreadId, selectThread])
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Fetch thread conversation messages
   useEffect(() => {
     let active = true
-    if (!selectedThreadId) return
+    if (!selectedThreadId) {
+      setActiveThread(null)
+      setMessages([])
+      setThreadTasks([])
+      return
+    }
 
     setLoadingMessages(true)
     api
@@ -73,7 +162,7 @@ export const TalkView: React.FC = () => {
     }
   }, [selectedThreadId, toast])
 
-  // Also check for pending approvals
+  // Poll for approvals
   const loadApprovals = useCallback(async () => {
     try {
       const res = await api.get<{ approvals: Approval[] }>('/api/approvals?status=pending')
@@ -85,455 +174,423 @@ export const TalkView: React.FC = () => {
 
   useEffect(() => {
     void loadApprovals()
-    const id = setInterval(loadApprovals, 3000)
+    const id = setInterval(loadApprovals, 3500)
     return () => clearInterval(id)
   }, [loadApprovals])
 
-  // Auto-scroll on new message
+  // Scroll to bottom on new messages
   useEffect(() => {
     if (messages.length > 0 || threadTasks.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages.length, threadTasks.length])
 
-  const handleNewThread = () => {
-    selectThread(null)
-    setActiveThread(null)
-    setMessages([])
-    setThreadTasks([])
-    textareaRef.current?.focus()
-  }
-
-  const handleDeleteThread = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm('Are you sure you want to delete this conversation?')) return
-    try {
-      await api.delete(`/api/threads/${id}`)
-      toast('Conversation deleted', 'good')
-      await reloadThreads()
-      if (selectedThreadId === id) {
-        selectThread(null)
-      }
-    } catch (err) {
-      toast(`Cannot delete thread: ${errorText(err)}`, 'bad')
-    }
-  }
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-    const goal = prompt.trim()
-    if (!goal || submitting) return
+  const handleStartTask = async (textToSend: string, chosenTarget: ExecutionTarget = target) => {
+    const text = textToSend.trim()
+    if (!text || submitting) return
 
     setSubmitting(true)
     try {
-      const payload = {
-        goal,
-        conversation_id: selectedThreadId || undefined,
-        target,
-        intent,
+      const payload: Record<string, unknown> = {
+        goal: text,
+        target: chosenTarget,
         agent_id: selectedAgentId || undefined,
       }
+      if (selectedThreadId) {
+        payload.thread_id = selectedThreadId
+      }
+
       const res = await api.post<{ task: Task }>('/api/tasks', payload)
+      toast('Task dispatched successfully', 'good')
       setPrompt('')
       bump()
 
-      // Optimistically append user message and refresh thread
-      if (selectedThreadId) {
-        const reloadRes = await api.get<{ thread: Thread; messages: Message[]; tasks: Task[] }>(
-          `/api/threads/${selectedThreadId}`
-        )
-        setMessages(reloadRes.messages || [])
-        setThreadTasks(reloadRes.tasks || [])
-      } else if (res.task.conversation_id) {
+      // If task created a thread, select it
+      if (res.task.conversation_id && res.task.conversation_id !== selectedThreadId) {
         selectThread(res.task.conversation_id)
         await reloadThreads()
+      } else if (selectedThreadId) {
+        // Refresh active thread
+        const updated = await api.get<{ thread: Thread; messages: Message[]; tasks: Task[] }>(
+          `/api/threads/${selectedThreadId}`
+        )
+        setMessages(updated.messages || [])
+        setThreadTasks(updated.tasks || [])
       }
     } catch (err) {
-      toast(`Failed to submit: ${errorText(err)}`, 'bad')
+      toast(`Failed to dispatch: ${errorText(err)}`, 'bad')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleApprove = async (approval: Approval, approve: boolean) => {
+  const handleApprove = async (approvalId: string) => {
     try {
-      await api.post(`/api/approvals/${approval.id}/decide`, {
-        approve,
-        payload_hash: approval.payload_hash,
-        decline_reason: approve ? undefined : 'Declined in talk view',
-      })
-      toast(approve ? 'Action approved' : 'Action declined', approve ? 'good' : 'warn')
+      await api.post(`/api/approvals/${approvalId}/decide`, { approve: true })
+      toast('Action approved', 'good')
       bump()
       await loadApprovals()
     } catch (err) {
-      toast(`Decision failed: ${errorText(err)}`, 'bad')
+      toast(`Approval failed: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleReject = async (approvalId: string) => {
+    try {
+      await api.post(`/api/approvals/${approvalId}/decide`, { approve: false })
+      toast('Action rejected', 'warn')
+      bump()
+      await loadApprovals()
+    } catch (err) {
+      toast(`Rejection failed: ${errorText(err)}`, 'bad')
     }
   }
 
   return (
-    <div className="talk-layout">
-      {/* Threads Sidebar */}
-      <div className="talk-threads-pane">
-        <div className="threads-header">
-          <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-main)' }}>
-            Conversations
-          </span>
-          <button
-            onClick={handleNewThread}
-            className="btn btn-secondary btn-sm"
-            type="button"
-            title="Start new thread"
-          >
-            <Icon name="plus" size={14} />
-            <span>New</span>
-          </button>
-        </div>
-
-        <div className="threads-list">
-          {threads.length === 0 ? (
-            <div style={{ padding: '20px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
-              No conversations yet. Start one!
+    <div className="view-container">
+      {/* If No Thread is Selected: Full Editorial Home View (Reference Phone Screen 1 & 2) */}
+      {!selectedThreadId ? (
+        <div style={{ maxWidth: '880px', margin: '0 auto', paddingTop: '10px' }}>
+          {/* Top Greeting & Token Left Pill */}
+          <div className="hero-greeting">
+            <div>
+              <h1 className="greeting-text">Hey, Operator</h1>
+              <div className="greeting-sub">What is the plan for today?</div>
             </div>
-          ) : (
-            threads.map((th) => {
-              const active = th.id === selectedThreadId
-              return (
-                <div
-                  key={th.id}
-                  onClick={() => selectThread(th.id)}
-                  className={`thread-item ${active ? 'active' : ''}`}
+            <div className="token-pill">
+              <Icon name="sparkles" size={13} style={{ color: 'var(--pastel-lime-text)' }} />
+              <span>{tokenPillText}</span>
+            </div>
+          </div>
+
+          {/* Large Editorial Headline Card (Reference Screen 2) */}
+          <div className="hero-editorial-card periwinkle">
+            <h2 className="editorial-headline">
+              Offload the <span className="highlight-pill">daily clutter.</span> Let AI handle the details.
+              <button
+                type="button"
+                className="hero-arrow-btn"
+                onClick={() => inputRef.current?.focus()}
+                title="Start prompt"
+              >
+                <Icon name="chevron-right" size={18} />
+              </button>
+            </h2>
+
+            <div style={{ marginTop: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => handleStartTask('Review workspace tasks, system health, and tell me what needs attention.', 'host')}
+                className="btn btn-primary"
+              >
+                Get Started
+              </button>
+              {threads.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => selectThread(threads[0].id)}
+                  className="btn btn-secondary"
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                    <Icon name="chat" size={14} style={{ color: active ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0 }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {th.title || 'Untitled conversation'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={(e) => handleDeleteThread(th.id, e)}
-                    className="btn btn-ghost btn-sm btn-icon"
-                    style={{ padding: '2px', opacity: active ? 1 : 0.4 }}
-                    title="Delete thread"
-                    type="button"
-                  >
-                    <Icon name="trash" size={12} />
-                  </button>
+                  Resume Last Thread ({threads[0].title || 'Active'})
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Prompt Category Cards (Reference Screen 1) */}
+          <div style={{ marginBottom: '14px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
+              How can I help you today?
+            </h3>
+          </div>
+
+          <div className="card-grid">
+            {QUICK_CARDS.map((card) => (
+              <div
+                key={card.tag}
+                className={`pastel-card ${card.color}`}
+                onClick={() => handleStartTask(card.prompt, card.target)}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span className="pastel-tag-pill">{card.tag}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
+                    <Icon name={card.target === 'devbox' ? 'cloud' : 'laptop'} size={12} />
+                    <span>{card.target === 'devbox' ? 'DevBox' : 'Host'}</span>
+                  </span>
                 </div>
-              )
-            })
-          )}
-        </div>
-      </div>
-
-      {/* Main Conversation Pane */}
-      <div className="talk-conversation-pane">
-        {/* Top Control Bar */}
-        <div className="app-topbar" style={{ backgroundColor: 'var(--bg-card)' }}>
-          <div className="topbar-left">
-            <h2 className="page-title">{activeThread?.title || 'Talk with Lilly'}</h2>
-            <TargetPill target={target} size="sm" />
+                <div className="pastel-card-title">{card.title}</div>
+              </div>
+            ))}
           </div>
 
-          <div className="topbar-right">
-            {/* Agent picker */}
-            {agents.length > 0 && (
-              <select
-                className="select"
-                style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }}
-                value={selectedAgentId}
-                onChange={(e) => setSelectedAgentId(e.target.value)}
-                title="Select agent persona"
-              >
-                <option value="">Lilly (Default)</option>
-                {agents.map((ag) => (
-                  <option key={ag.id} value={ag.id}>
-                    {ag.name}
-                  </option>
-                ))}
-              </select>
-            )}
+          {/* Suggestion Chips Row */}
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
+              Quick Suggestions
+            </div>
+            <div className="chips-scroll-row">
+              {SUGGESTION_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  className="prompt-chip"
+                  onClick={() => handleStartTask(chip, 'host')}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          </div>
 
-            {/* Target Selector Button */}
-            <div
-              className="filter-tabs"
-              style={{ padding: '2px' }}
-              title="Switch execution target (Host laptop vs DevBox sandbox)"
+          {/* Persistent Pill Composer Dock at Bottom */}
+          <div className="chat-input-pill-wrapper" style={{ marginTop: '20px' }}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleStartTask(prompt)
+              }}
+              className="chat-input-pill"
             >
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <select
+                  className="composer-pill-select"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value as ExecutionTarget)}
+                >
+                  <option value="host">Host (Laptop)</option>
+                  <option value="devbox">DevBox (Sandbox)</option>
+                </select>
+                <select
+                  className="composer-pill-select"
+                  value={selectedAgentId}
+                  onChange={(e) => setSelectedAgentId(e.target.value)}
+                >
+                  <option value="">Auto Specialist</option>
+                  {agents.map((ag) => (
+                    <option key={ag.id} value={ag.id}>
+                      {ag.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <input
+                ref={inputRef}
+                className="chat-input-field"
+                placeholder="Ask Lilly anything or describe an automation task..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={submitting}
+              />
+
+              <div className="token-pill" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 10px', fontSize: '11px' }}>
+                <Icon name="sparkles" size={11} />
+                <span>{composerTokenCount}</span>
+              </div>
+
               <button
-                type="button"
-                className={`filter-tab ${target === 'host' ? 'active' : ''}`}
-                onClick={() => setTarget('host')}
+                type="submit"
+                disabled={!prompt.trim() || submitting}
+                className="chat-send-btn"
+                title="Send message"
               >
-                Host
+                <Icon name="play" size={14} />
               </button>
+            </form>
+          </div>
+        </div>
+      ) : (
+        /* Active Conversation Thread View (Reference Phone Screen 3) */
+        <div className="chat-thread-container">
+          {/* Header */}
+          <div className="chat-header">
+            <div className="chat-title-group">
               <button
                 type="button"
-                className={`filter-tab ${target === 'devbox' ? 'active' : ''}`}
-                onClick={() => setTarget('devbox')}
+                onClick={() => selectThread(null)}
+                className="btn btn-ghost btn-sm"
+                style={{ padding: '6px 10px' }}
+                title="Return to Home"
               >
-                DevBox
+                <Icon name="chevron-left" size={16} />
+              </button>
+              <div>
+                <h2 className="chat-thread-title">
+                  {activeThread?.title || 'Active Conversation'}
+                </h2>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{messages.length} messages</span>
+                  <span>•</span>
+                  <span>Target: {target}</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => selectThread(null)}
+                className="btn btn-secondary btn-sm"
+              >
+                <Icon name="plus" size={12} />
+                <span>New Topic</span>
               </button>
             </div>
           </div>
-        </div>
 
-        {/* Messages & Execution Flow */}
-        <div className="chat-messages-container">
-          {loadingMessages ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Loading conversation...
-            </div>
-          ) : messages.length === 0 && threadTasks.length === 0 ? (
+          {/* Pending Approvals Banner */}
+          {pendingApprovals.length > 0 && (
             <div
               style={{
+                marginBottom: '16px',
+                padding: '14px 18px',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--warning-subtle)',
+                border: '1px solid var(--warning-border)',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: 'auto',
-                maxWidth: '540px',
-                textAlign: 'center',
-                gap: '16px',
-                padding: '40px 20px',
+                gap: '8px',
               }}
             >
-              <div
-                style={{
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: 'var(--radius-lg)',
-                  background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  boxShadow: 'var(--shadow-md)',
-                }}
-              >
-                <Icon name="sparkles" size={28} />
+              <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--warning-text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Icon name="alert-triangle" size={14} />
+                <span>Action Approval Required ({pendingApprovals.length})</span>
               </div>
-              <h3 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>
-                How can Lilly help you today?
-              </h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                Directly interact with your laptop runtime, automate workflows, execute in isolated
-                DevBox containers, manage scheduled routines, or ask anything.
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: '8px',
-                  width: '100%',
-                  marginTop: '12px',
-                }}
-              >
-                {[
-                  'Inspect workspace and summarize status',
-                  'Run test suite in DevBox sandbox',
-                  'Schedule routine to clean temporary logs',
-                  'Show active CPU & memory telemetry',
-                ].map((promptText, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => {
-                      setPrompt(promptText)
-                      textareaRef.current?.focus()
-                    }}
-                    className="card card-subtle"
-                    style={{
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontSize: '12px',
-                      color: 'var(--text-main)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span>{promptText}</span>
-                    <Icon name="chevron-right" size={12} style={{ color: 'var(--text-muted)' }} />
-                  </button>
-                ))}
-              </div>
+              {pendingApprovals.map((appr) => (
+                <div key={appr.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                  <div>
+                    <code style={{ fontFamily: 'var(--font-mono)' }}>{appr.tool}</code>: {appr.why || 'Tool call approval requested'}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(appr.id)}
+                      className="btn btn-primary btn-sm"
+                      style={{ padding: '4px 10px', fontSize: '11px' }}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReject(appr.id)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--danger)' }}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ) : (
-            <>
-              {/* Render thread messages */}
-              {messages.map((m) => {
-                const isUser = m.role === 'user'
-                return (
-                  <div key={m.id} className={`chat-bubble-wrapper ${isUser ? 'user' : 'assistant'}`}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '11px', color: 'var(--text-dim)' }}>
-                      <Icon name={isUser ? 'user' : 'bot'} size={12} />
-                      <span>{isUser ? 'You' : 'Lilly'}</span>
-                    </div>
-                    <div className={`chat-bubble ${isUser ? 'user' : 'assistant'}`}>
-                      <Markdown content={m.content} />
-                    </div>
-                  </div>
-                )
-              })}
-
-              {/* Render thread tasks */}
-              {threadTasks.map((t) => {
-                const taskPendingApproval = pendingApprovals.filter((a) => a.task_id === t.id)
-                return (
-                  <div key={t.id} className="chat-bubble-wrapper assistant">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '11px', color: 'var(--text-dim)' }}>
-                      <StatePill state={t.state} />
-                      <TargetPill target={t.target} size="sm" />
-                      <span>Task {t.id.slice(0, 8)}</span>
-                    </div>
-
-                    <div className="card" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
-                        {t.goal}
-                      </div>
-
-                      {t.answer && (
-                        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
-                          <Markdown content={t.answer} />
-                        </div>
-                      )}
-
-                      {t.error && (
-                        <div
-                          style={{
-                            padding: '8px 12px',
-                            backgroundColor: 'var(--danger-subtle)',
-                            border: '1px solid var(--danger-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            color: 'var(--danger-text)',
-                            fontSize: '12px',
-                          }}
-                        >
-                          {t.error}
-                        </div>
-                      )}
-
-                      {/* Inline Approvals required for this task */}
-                      {taskPendingApproval.length > 0 && (
-                        <div
-                          style={{
-                            marginTop: '8px',
-                            padding: '12px',
-                            backgroundColor: 'var(--warning-subtle)',
-                            border: '1px solid var(--warning-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Icon name="alert-triangle" size={16} style={{ color: 'var(--warning-text)' }} />
-                              <span style={{ fontWeight: 600, fontSize: '12px', color: 'var(--warning-text)' }}>
-                                Security Approval Required
-                              </span>
-                            </div>
-                            <RiskPill risk={taskPendingApproval[0].risk} />
-                          </div>
-
-                          <div style={{ fontSize: '12px', color: 'var(--warning-text)' }}>
-                            Tool: <strong>{taskPendingApproval[0].tool}</strong> — {taskPendingApproval[0].why}
-                          </div>
-
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleApprove(taskPendingApproval[0], true)}
-                              className="btn btn-primary btn-sm"
-                            >
-                              <Icon name="check" size={12} />
-                              <span>Approve Execution</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleApprove(taskPendingApproval[0], false)}
-                              className="btn btn-secondary btn-sm"
-                            >
-                              <Icon name="x" size={12} />
-                              <span>Decline</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </>
           )}
-          <div ref={messagesEndRef} />
-        </div>
 
-        {/* Bottom Composer */}
-        <div className="chat-composer-box">
-          <div className="composer-toolbar">
-            <div className="composer-controls">
-              {/* Intent Selector */}
-              <select
-                className="select"
-                style={{ width: 'auto', padding: '3px 8px', fontSize: '11px' }}
-                value={intent}
-                onChange={(e) => setIntent(e.target.value as RequestIntent)}
-                title="Execution intent"
-              >
-                <option value="AUTO">Intent: Auto</option>
-                <option value="ANSWER">Intent: Answer Only</option>
-                <option value="WEB RETRIEVE">Intent: Web Retrieve</option>
-                <option value="NAVIGATE">Intent: Navigate</option>
-                <option value="ACTION">Intent: Action</option>
-              </select>
+          {/* Messages Flow */}
+          <div className="chat-messages-scroll">
+            {loadingMessages && messages.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Loading conversation history...
+              </div>
+            ) : messages.length === 0 && threadTasks.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                No messages yet. Send a prompt below to begin!
+              </div>
+            ) : (
+              messages.map((msg, idx) => {
+                const isUser = msg.role === 'user'
+                return (
+                  <div key={msg.id || idx} className={isUser ? 'chat-msg-user-row' : 'chat-msg-bot-row'}>
+                    <div className={isUser ? 'chat-bubble-user' : 'chat-bubble-bot'}>
+                      <Markdown content={msg.content} />
+                    </div>
+                  </div>
+                )
+              })
+            )}
 
+            {/* Live Task Execution Stream */}
+            {threadTasks.map((task) => (
+              <div key={task.id} className="chat-msg-bot-row">
+                <div className="chat-bubble-bot card-light" style={{ width: '100%', maxWidth: '88%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '14px' }}>Task Goal:</span>
+                      <span style={{ fontWeight: 600 }}>{task.goal}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <TargetPill target={task.target} />
+                      <StatePill state={task.state} />
+                    </div>
+                  </div>
+
+                  {task.answer && (
+                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-subtle)' }}>
+                      <Markdown content={task.answer} />
+                    </div>
+                  )}
+
+                  {task.error && (
+                    <div
+                      style={{
+                        marginTop: '10px',
+                        padding: '10px',
+                        backgroundColor: 'var(--danger-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--danger-text)',
+                        fontSize: '12px',
+                      }}
+                    >
+                      {task.error}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Pill Bar Dock (Reference Screen 3) */}
+          <div className="chat-input-pill-wrapper">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleStartTask(prompt)
+              }}
+              className="chat-input-pill"
+            >
               <button
                 type="button"
-                onClick={() => setTarget(target === 'host' ? 'devbox' : 'host')}
-                className="btn btn-ghost btn-sm"
-                title="Click to toggle execution target"
+                className="btn btn-ghost"
+                style={{ padding: '4px', borderRadius: '50%' }}
+                title="Attach file or context"
               >
-                <TargetPill target={target} size="sm" />
+                <Icon name="paperclip" size={16} />
               </button>
-            </div>
 
-            <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-              Press <strong>Return</strong> to send, <strong>Shift+Return</strong> for new line
-            </span>
-          </div>
+              <input
+                className="chat-input-field"
+                placeholder="Message Lilly..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={submitting}
+              />
 
-          <div className="composer-input-row">
-            <textarea
-              ref={textareaRef}
-              className="composer-textarea"
-              placeholder="Ask Lilly anything or describe a task..."
-              rows={1}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void handleSubmit()
-                }
-              }}
-            />
+              <div className="token-pill" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 10px', fontSize: '11px' }}>
+                <Icon name="sparkles" size={11} />
+                <span>{composerTokenCount}</span>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={!prompt.trim() || submitting}
-              className="btn btn-primary btn-sm btn-icon"
-              style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)' }}
-              title="Submit task"
-            >
-              <Icon name={submitting ? 'refresh' : 'play'} size={14} />
-            </button>
+              <button
+                type="submit"
+                disabled={!prompt.trim() || submitting}
+                className="chat-send-btn"
+                title="Send message"
+              >
+                <Icon name="play" size={14} />
+              </button>
+            </form>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

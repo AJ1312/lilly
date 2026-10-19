@@ -17,12 +17,49 @@ export function errorText(err: unknown): string {
   return 'An unexpected error occurred.'
 }
 
-function getCsrfToken(): string {
-  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)
+let cachedCsrf: string = ''
+try {
+  cachedCsrf = sessionStorage.getItem('lilly_csrf') || ''
+} catch {}
+
+export function setCsrfToken(token: string) {
+  if (!token) return
+  cachedCsrf = token
+  try {
+    sessionStorage.setItem('lilly_csrf', token)
+  } catch {}
+}
+
+export function getCsrfToken(): string {
+  if (cachedCsrf) return cachedCsrf
+  const match = document.cookie.match(/(?:^|;\s*)(?:csrftoken|csrf|lilly_csrf)=([^;]+)/)
   return match ? decodeURIComponent(match[1]) : ''
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+let csrfPromise: Promise<string> | null = null
+async function ensureCsrfToken(): Promise<string> {
+  const current = getCsrfToken()
+  if (current) return current
+  if (csrfPromise) return csrfPromise
+
+  csrfPromise = fetch('/api/session', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data: any) => {
+      if (data && data.csrf) {
+        setCsrfToken(data.csrf)
+        return data.csrf
+      }
+      return ''
+    })
+    .catch(() => '')
+    .finally(() => {
+      csrfPromise = null
+    })
+
+  return csrfPromise
+}
+
+async function request<T>(path: string, options: RequestInit = {}, retryCsrf = true): Promise<T> {
   const headers = new Headers(options.headers || {})
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json')
@@ -30,8 +67,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const method = (options.method || 'GET').toUpperCase()
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    const csrf = getCsrfToken()
-    if (csrf && !headers.has('X-CSRFToken') && !headers.has('x-csrf-token')) {
+    let csrf = getCsrfToken()
+    if (!csrf) {
+      csrf = await ensureCsrfToken()
+    }
+    if (csrf) {
+      headers.set('x-lilly-csrf', csrf)
       headers.set('X-CSRFToken', csrf)
     }
     if (options.body && typeof options.body === 'string' && !headers.has('Content-Type')) {
@@ -57,6 +98,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     data = await response.text()
   }
 
+  if (data && typeof data === 'object' && 'csrf' in data && typeof (data as any).csrf === 'string') {
+    setCsrfToken((data as any).csrf)
+  }
+
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     if (data && typeof data === 'object') {
@@ -71,6 +116,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } else if (typeof data === 'string' && data.trim()) {
       message = data.slice(0, 300)
     }
+
+    if (
+      response.status === 403 &&
+      (message.toLowerCase().includes('csrf') || message.toLowerCase().includes('token')) &&
+      retryCsrf
+    ) {
+      cachedCsrf = ''
+      try {
+        sessionStorage.removeItem('lilly_csrf')
+      } catch {}
+      const refreshed = await ensureCsrfToken()
+      if (refreshed) {
+        const retryHeaders = new Headers(options.headers || {})
+        retryHeaders.set('x-lilly-csrf', refreshed)
+        retryHeaders.set('X-CSRFToken', refreshed)
+        return request<T>(path, { ...options, headers: retryHeaders }, false)
+      }
+    }
+
     throw new ApiError(response.status, message, data)
   }
 

@@ -1,8 +1,9 @@
 import React from 'react'
 import { useAppStore, type NavSection } from '../store'
 import { Icon, type IconName } from './Icon'
-import { LillyMascot } from './LillyMascot'
 import { api, errorText } from '../api'
+
+import { LillyLogo } from './LillyLogo'
 
 interface NavEntry {
   id: NavSection
@@ -25,7 +26,7 @@ export const Sidebar: React.FC = () => {
   const toast = useAppStore((s) => s.toast)
 
   const navItems: NavEntry[] = [
-    { id: 'talk', label: 'Talk', icon: 'chat' },
+    { id: 'talk', label: 'Talk & Assist', icon: 'chat' },
     {
       id: 'workspace',
       label: 'Workspace',
@@ -58,103 +59,112 @@ export const Sidebar: React.FC = () => {
     }
   }
 
-  const toggleTheme = () => {
-    if (theme === 'dark') setTheme('light')
-    else setTheme('dark')
-  }
-
   return (
     <aside className={`rail ${collapsed ? 'collapsed' : ''}`} aria-label="Main Navigation">
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         <div className="sidebar-header">
-          <div className="brand-wrapper" onClick={() => setSection('talk')} title="Click to talk with Lilly">
-            <LillyMascot
-              size={collapsed ? 36 : 42}
-              look={{ hue: 250, eyes: 'happy', accessory: 'none', blush: true }}
-              interactive
-              state={runningTasks > 0 ? 'thinking' : 'idle'}
-            />
+          <div className="brand-wrapper" onClick={() => setSection('talk')} title="Lilly AI Workspace">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <LillyLogo size={collapsed ? 26 : 28} />
+            </div>
             {!collapsed && (
               <div>
                 <span className="brand-title">Lilly</span>
                 <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Agent Workspace
+                  AI Workspace
                 </div>
               </div>
             )}
           </div>
-          <button
-            onClick={toggleSidebar}
-            className="btn btn-ghost btn-sm btn-icon"
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            type="button"
-          >
-            <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} size={14} />
-          </button>
         </div>
 
-        <nav className="sidebar-nav">
-          {!collapsed && <div className="nav-section-label">Navigation</div>}
-          {navItems.map((item) => {
-            const isActive = currentSection === item.id
-            return (
-              <button
-                key={item.id}
-                onClick={() => setSection(item.id)}
-                className={`nav-item ${isActive ? 'active' : ''}`}
-                title={item.label}
-                type="button"
-              >
-                <div className="nav-item-icon">
-                  <Icon name={item.icon} size={16} />
-                </div>
-                {!collapsed && <span className="nav-item-label">{item.label}</span>}
-                {!collapsed && item.badge !== undefined && (
-                  <span
-                    className={`nav-badge ${item.badgeWarn ? 'nav-badge-warn' : 'nav-badge-info'}`}
+        {/* Navigation list */}
+        <nav style={{ flex: 1, overflowY: 'auto' }}>
+          <ul className="nav-list">
+            {navItems.map((item) => {
+              const active = currentSection === item.id
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`nav-link ${active ? 'active' : ''}`}
+                    onClick={() => setSection(item.id)}
+                    title={collapsed ? item.label : undefined}
                   >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+                    <Icon name={item.icon} size={18} />
+                    {!collapsed && <span>{item.label}</span>}
+                    {!collapsed && item.badge !== undefined && (
+                      <span className="nav-link-badge">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         </nav>
-      </div>
 
-      <div className="sidebar-footer">
-        {/* Live SSE status */}
-        <div className="live-indicator" title={liveConnected ? 'Live stream connected to Lilly engine' : 'Connecting to live events stream...'}>
-          <div className={`live-dot ${liveConnected ? 'connected' : ''}`} />
-          {!collapsed && (
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
-              {liveConnected ? 'Live Engine' : 'Reconnecting...'}
-            </span>
-          )}
-        </div>
+        {/* Footer info & Controls */}
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px', marginTop: 'auto' }}>
+          {!collapsed ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span
+                    style={{
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      backgroundColor: liveConnected ? 'var(--success)' : 'var(--danger)',
+                    }}
+                  />
+                  {liveConnected ? 'Live sync' : 'Offline'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  className="btn btn-ghost btn-sm"
+                  style={{ padding: '2px 8px', fontSize: '11px' }}
+                >
+                  <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={12} />
+                  <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+                </button>
+              </div>
 
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-          <button
-            onClick={toggleTheme}
-            className="btn btn-ghost btn-sm"
-            style={{ flex: 1, justifyContent: collapsed ? 'center' : 'flex-start' }}
-            title={`Switch theme (currently ${theme})`}
-            type="button"
-          >
-            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
-            {!collapsed && <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>}
-          </button>
-
-          {runningTasks > 0 && (
-            <button
-              onClick={handleStopAll}
-              className="btn btn-danger btn-sm btn-icon"
-              title="Emergency stop active tasks"
-              type="button"
-            >
-              <Icon name="stop" size={14} />
-            </button>
+              {runningTasks > 0 && (
+                <button
+                  type="button"
+                  onClick={handleStopAll}
+                  className="btn btn-danger btn-sm"
+                  style={{ width: '100%', fontSize: '11px' }}
+                >
+                  <Icon name="stop" size={12} />
+                  <span>Stop All ({runningTasks})</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: liveConnected ? 'var(--success)' : 'var(--danger)',
+                }}
+                title={liveConnected ? 'SSE Live Connected' : 'Offline'}
+              />
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="btn btn-ghost btn-sm"
+                style={{ padding: '4px' }}
+                title="Expand Navigation"
+              >
+                <Icon name="chevron-right" size={14} />
+              </button>
+            </div>
           )}
         </div>
       </div>

@@ -280,17 +280,17 @@ export const ModelsView: React.FC = () => {
   }
 
   return (
-    <div className="view-container" style={{ padding: '24px' }}>
+    <div className="view-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>Models & Provider Catalog</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 className="greeting-text">Models & Catalog</h1>
             <span className="badge badge-primary">{models.length} Active</span>
-          </h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-            Configure pre-existing models from Anthropic, Google Gemini, OpenAI, Ollama, Groq, or connect custom providers.
-          </p>
+          </div>
+          <div className="greeting-sub">
+            Pre-existing models catalog, live ping latency diagnostics, and encrypted credential vault.
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -319,7 +319,9 @@ export const ModelsView: React.FC = () => {
             </div>
           ) : models.length === 0 ? (
             <div className="card" style={{ padding: '32px', textAlign: 'center' }}>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>🤖</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px', color: 'var(--text-muted)' }}>
+                <Icon name="cpu" size={32} />
+              </div>
               <div style={{ fontWeight: 600, fontSize: '14px' }}>No models configured yet</div>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 Add models from the pre-existing catalog below to enable inference!
@@ -457,7 +459,10 @@ export const ModelsView: React.FC = () => {
       <div style={{ marginTop: '36px' }}>
         <div style={{ marginBottom: '16px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>🌟 Pre-Existing Starter Models Catalog</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Icon name="sparkles" size={16} />
+              <span>Pre-Existing Starter Models Catalog</span>
+            </span>
             <span className="badge badge-accent">{catalog.length} Available</span>
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
@@ -504,8 +509,9 @@ export const ModelsView: React.FC = () => {
                     </div>
 
                     {isConfigured ? (
-                      <span className="badge badge-good" style={{ fontSize: '11px' }}>
-                        ✓ Installed
+                      <span className="badge badge-good" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                        <Icon name="check" size={11} />
+                        <span>Installed</span>
                       </span>
                     ) : (
                       <button
@@ -531,9 +537,13 @@ export const ModelsView: React.FC = () => {
                         fontSize: '11px',
                         color: 'var(--text-secondary)',
                         lineHeight: 1.4,
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '6px',
                       }}
                     >
-                      💡 {entry.free_tier.notes}
+                      <Icon name="eye" size={13} style={{ marginTop: '2px', flexShrink: 0 }} />
+                      <span>{entry.free_tier.notes}</span>
                     </div>
                   )}
 
@@ -584,8 +594,9 @@ export const ModelsView: React.FC = () => {
               color: testResult?.ok ? 'var(--good-text)' : 'var(--danger-text)',
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
-              {testResult?.ok ? '✓ Provider Responded Successfully' : '✗ Provider Test Failed'}
+            <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Icon name={testResult?.ok ? 'check' : 'x'} size={15} />
+              <span>{testResult?.ok ? 'Provider Responded Successfully' : 'Provider Test Failed'}</span>
             </div>
             {testResult?.latency_ms !== undefined && (
               <div style={{ fontSize: '12px' }}>Response Latency: {testResult.latency_ms}ms</div>
@@ -606,8 +617,9 @@ export const ModelsView: React.FC = () => {
           <div style={{ fontSize: '13px' }}>
             {ollamaResult?.reachable ? (
               <div>
-                <p style={{ color: 'var(--good-text)', fontWeight: 600, marginBottom: '8px' }}>
-                  ✓ Ollama daemon is reachable (v{ollamaResult.version})
+                <p style={{ color: 'var(--good-text)', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Icon name="check" size={14} />
+                  <span>Ollama daemon is reachable (v{ollamaResult.version})</span>
                 </p>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
                   Installed models on your computer:
