@@ -6,8 +6,19 @@ import type { Agent, ModelStatus } from '../types'
 import { Icon } from '../ui/Icon'
 import { Modal } from '../ui/Modal'
 import { Markdown } from '../ui/Markdown'
+import { AgentPet } from '../ui/AgentPet'
 
 const PASTEL_THEMES = ['peach', 'lime', 'periwinkle', 'mint', 'lilac'] as const
+const PET_SPECIES_OPTIONS = [
+  { id: 'lily', name: 'Lily Fairy', hint: 'Graceful botanical guide' },
+  { id: 'pip', name: 'Pip Bird', hint: 'Speedy bouncy automator' },
+  { id: 'mochi', name: 'Mochi Cat', hint: 'Analytical coding feline' },
+  { id: 'bao', name: 'Bao Panda', hint: 'Gentle memory guardian' },
+  { id: 'fern', name: 'Fern Sprout', hint: 'Curious research explorer' },
+  { id: 'juno', name: 'Juno Fox', hint: 'Sharp terminal hacker' },
+  { id: 'otto', name: 'Otto Otter', hint: 'Playful problem solver' },
+  { id: 'wisp', name: 'Wisp Spirit', hint: 'Ethereal background watcher' },
+] as const
 
 export const AgentsView: React.FC = () => {
   const toast = useAppStore((s) => s.toast)
@@ -36,6 +47,13 @@ export const AgentsView: React.FC = () => {
   const [chatAllowed, setChatAllowed] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Pet companion customizer state
+  const [petSpecies, setPetSpecies] = useState<string>('lily')
+  const [petAccessory, setPetAccessory] = useState<'none' | 'bow' | 'glasses' | 'hat' | 'scarf' | 'crown' | 'headphones'>('none')
+  const [petEyes, setPetEyes] = useState<'round' | 'sparkle' | 'sleepy'>('round')
+  const [petBlush, setPetBlush] = useState<boolean>(true)
+  const [petHue, setPetHue] = useState<number | null>(null)
+
   const openCreate = () => {
     setIsEditingExisting(false)
     setAgentId(`agent_${Date.now()}`)
@@ -48,6 +66,11 @@ export const AgentsView: React.FC = () => {
     setFilesAllowed(true)
     setComputerAllowed(false)
     setChatAllowed(true)
+    setPetSpecies('lily')
+    setPetAccessory('none')
+    setPetEyes('round')
+    setPetBlush(true)
+    setPetHue(null)
     setEditorOpen(true)
   }
 
@@ -63,6 +86,11 @@ export const AgentsView: React.FC = () => {
     setFilesAllowed(ag.files_allowed ?? true)
     setComputerAllowed(ag.computer_allowed ?? false)
     setChatAllowed(ag.chat_allowed ?? true)
+    setPetSpecies(ag.pet || 'lily')
+    setPetAccessory(ag.look?.accessory || 'none')
+    setPetEyes(ag.look?.eyes || 'round')
+    setPetBlush(ag.look?.blush ?? true)
+    setPetHue(ag.look?.hue ?? null)
     setEditorOpen(true)
   }
 
@@ -123,11 +151,12 @@ export const AgentsView: React.FC = () => {
         files_allowed: filesAllowed,
         computer_allowed: computerAllowed,
         chat_allowed: chatAllowed,
+        pet: petSpecies,
         look: {
-          hue: 240,
-          accessory: 'none',
-          eyes: 'round',
-          blush: false,
+          hue: petHue,
+          accessory: petAccessory,
+          eyes: petEyes,
+          blush: petBlush,
         },
       }
 
@@ -195,12 +224,6 @@ export const AgentsView: React.FC = () => {
         <div className="card-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
           {agents.map((ag, index) => {
             const themeClass = PASTEL_THEMES[index % PASTEL_THEMES.length]
-            const initials = ag.name
-              .split(' ')
-              .map((w) => w[0])
-              .join('')
-              .slice(0, 2)
-              .toUpperCase() || 'AG'
 
             return (
               <div
@@ -213,27 +236,27 @@ export const AgentsView: React.FC = () => {
                     <span className="pastel-tag-pill">
                       {ag.model ? ag.model : 'Auto-routed'}
                     </span>
-                    <div
-                      style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        backgroundColor: 'rgba(255, 255, 255, 0.85)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 800,
-                        fontSize: '12px',
-                        color: '#1c1c1e',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
-                      }}
-                    >
-                      {initials}
-                    </div>
+                    <span className="badge badge-accent" style={{ textTransform: 'capitalize', fontSize: '10px' }}>
+                      {ag.pet || 'lily'}
+                    </span>
                   </div>
 
-                  <div className="pastel-card-title" style={{ fontSize: '18px', marginTop: '12px' }}>
-                    {ag.name}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '12px' }}>
+                    <AgentPet
+                      species={ag.pet || 'lily'}
+                      look={ag.look}
+                      size={60}
+                      agentName={ag.name}
+                      interactive={true}
+                    />
+                    <div>
+                      <div className="pastel-card-title" style={{ fontSize: '18px', margin: 0 }}>
+                        {ag.name}
+                      </div>
+                      <div style={{ fontSize: '11px', opacity: 0.75, marginTop: '2px' }}>
+                        Specialist Companion
+                      </div>
+                    </div>
                   </div>
 
                   {ag.instructions && (
@@ -422,6 +445,153 @@ export const AgentsView: React.FC = () => {
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* Pet Companion Customizer */}
+          <div
+            style={{
+              padding: '14px',
+              backgroundColor: 'var(--bg-card-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)' }}>
+                Companion Pet Character & Style
+              </label>
+              <span className="badge badge-primary" style={{ fontSize: '10px', textTransform: 'capitalize' }}>
+                {petSpecies}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+              {/* Live Preview */}
+              <div
+                style={{
+                  width: '94px',
+                  height: '94px',
+                  backgroundColor: 'var(--bg-card)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <AgentPet
+                  species={petSpecies}
+                  look={{
+                    accessory: petAccessory,
+                    eyes: petEyes,
+                    blush: petBlush,
+                    hue: petHue,
+                  }}
+                  size={76}
+                  interactive={false}
+                />
+              </div>
+
+              {/* Controls */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                {/* Species Pills */}
+                <div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>Species</div>
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {PET_SPECIES_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        className={`filter-tab ${petSpecies === opt.id ? 'active' : ''}`}
+                        style={{ fontSize: '11px', padding: '3px 8px' }}
+                        onClick={() => setPetSpecies(opt.id)}
+                        title={opt.hint}
+                      >
+                        {opt.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Accessory & Eyes Selects */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-dim)', marginBottom: '2px' }}>
+                      Accessory
+                    </label>
+                    <select
+                      className="select"
+                      value={petAccessory}
+                      onChange={(e) => setPetAccessory(e.target.value as any)}
+                      style={{ padding: '6px 24px 6px 8px', fontSize: '11px' }}
+                    >
+                      <option value="none">None</option>
+                      <option value="glasses">Glasses</option>
+                      <option value="bow">Ribbon Bow</option>
+                      <option value="crown">Crown</option>
+                      <option value="scarf">Scarf</option>
+                      <option value="headphones">Headphones</option>
+                      <option value="hat">Top Hat</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-dim)', marginBottom: '2px' }}>
+                      Eyes
+                    </label>
+                    <select
+                      className="select"
+                      value={petEyes}
+                      onChange={(e) => setPetEyes(e.target.value as any)}
+                      style={{ padding: '6px 24px 6px 8px', fontSize: '11px' }}
+                    >
+                      <option value="round">Glossy Round</option>
+                      <option value="sparkle">Star Sparkle</option>
+                      <option value="sleepy">Happy / Sleepy</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Blush Toggle & Hue Slider */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={petBlush}
+                      onChange={(e) => setPetBlush(e.target.checked)}
+                    />
+                    <span>Rosy Blush</span>
+                  </label>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
+                    <span style={{ color: 'var(--text-dim)' }}>Hue:</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={359}
+                      value={petHue ?? 0}
+                      onChange={(e) => setPetHue(Number(e.target.value))}
+                      style={{ width: '80px', cursor: 'pointer' }}
+                    />
+                    {petHue !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setPetHue(null)}
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '1px 4px', fontSize: '9px' }}
+                        title="Reset native color"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

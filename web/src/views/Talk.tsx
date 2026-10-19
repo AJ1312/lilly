@@ -6,6 +6,7 @@ import type { Thread, Message, Task, ExecutionTarget, Agent, Approval, Capacity 
 import { Icon } from '../ui/Icon'
 import { TargetPill, StatePill } from '../ui/Pills'
 import { Markdown } from '../ui/Markdown'
+import { AgentPet } from '../ui/AgentPet'
 
 interface QuickPromptCard {
   tag: string
@@ -126,6 +127,11 @@ export const TalkView: React.FC = () => {
   const [target, setTarget] = useState<ExecutionTarget>('host')
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
+
+  const activeAgent = useMemo(() => {
+    if (selectedAgentId) return agents.find((a) => a.id === selectedAgentId) || null
+    return agents[0] || null
+  }, [agents, selectedAgentId])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -252,10 +258,19 @@ export const TalkView: React.FC = () => {
       {!selectedThreadId ? (
         <div style={{ maxWidth: '880px', margin: '0 auto', paddingTop: '10px' }}>
           {/* Top Greeting & Token Left Pill */}
-          <div className="hero-greeting">
-            <div>
-              <h1 className="greeting-text">Hey, Operator</h1>
-              <div className="greeting-sub">What is the plan for today?</div>
+          <div className="hero-greeting" style={{ alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <AgentPet
+                species={activeAgent?.pet || 'lily'}
+                look={activeAgent?.look}
+                size={54}
+                agentName={activeAgent?.name || 'Lilly'}
+                interactive={true}
+              />
+              <div>
+                <h1 className="greeting-text">Hey, Operator</h1>
+                <div className="greeting-sub">What is the plan for today?</div>
+              </div>
             </div>
             <div className="token-pill">
               <Icon name="sparkles" size={13} style={{ color: 'var(--pastel-lime-text)' }} />
@@ -508,19 +523,44 @@ export const TalkView: React.FC = () => {
             )}
 
             {/* Live Task Execution Stream */}
-            {threadTasks.map((task) => (
-              <div key={task.id} className="chat-msg-bot-row">
-                <div className="chat-bubble-bot card-light" style={{ width: '100%', maxWidth: '88%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, fontSize: '14px' }}>Task Goal:</span>
-                      <span style={{ fontWeight: 600 }}>{task.goal}</span>
+            {threadTasks.map((task) => {
+              const taskPetState =
+                task.state === 'WAITING_APPROVAL'
+                  ? 'approval'
+                  : task.state === 'PLANNING'
+                  ? 'thinking'
+                  : task.state === 'RUNNING' || task.state === 'VERIFYING'
+                  ? 'working'
+                  : task.state === 'DONE'
+                  ? 'success'
+                  : 'idle'
+
+              return (
+                <div key={task.id} className="chat-msg-bot-row">
+                  <div className="chat-bubble-bot card-light" style={{ width: '100%', maxWidth: '88%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <AgentPet
+                          species={activeAgent?.pet || 'lily'}
+                          look={activeAgent?.look}
+                          state={taskPetState}
+                          size={46}
+                          interactive={true}
+                          agentName={activeAgent?.name || 'Specialist'}
+                          currentThought={task.goal}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '13px' }}>{task.goal}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                            {task.state} • {task.target === 'devbox' ? 'DevBox Sandbox' : 'Laptop Host'}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <TargetPill target={task.target} />
+                        <StatePill state={task.state} />
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <TargetPill target={task.target} />
-                      <StatePill state={task.state} />
-                    </div>
-                  </div>
 
                   {task.answer && (
                     <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-subtle)' }}>
@@ -544,7 +584,8 @@ export const TalkView: React.FC = () => {
                   )}
                 </div>
               </div>
-            ))}
+            )
+          })}
             <div ref={messagesEndRef} />
           </div>
 

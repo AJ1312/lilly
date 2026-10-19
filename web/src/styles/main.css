@@ -1,7 +1,8 @@
 @import './tokens.css';
 
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/space-grotesk';
 @import '@fontsource-variable/instrument-sans';
-@import '@fontsource-variable/fraunces';
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -203,9 +204,10 @@ html, body, #root {
 }
 
 .greeting-text {
+  font-family: var(--font-display);
   font-size: 26px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.025em;
   color: var(--text-main);
 }
 
@@ -254,11 +256,11 @@ html, body, #root {
 }
 
 .editorial-headline {
-  font-family: var(--font-sans);
-  font-weight: 900;
-  font-size: clamp(28px, 4.2vw, 48px);
-  line-height: 1.08;
-  letter-spacing: -0.04em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(28px, 4.2vw, 46px);
+  line-height: 1.06;
+  letter-spacing: -0.035em;
   text-transform: uppercase;
   max-width: 720px;
 }
@@ -970,4 +972,147 @@ html, body, #root {
   flex-direction: column;
   gap: 16px;
 }
+
+/* Agent Pet Interactive Styles & Motion */
+.agent-pet-root {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform var(--transition-bounce);
+}
+
+.agent-pet-root.idle svg {
+  animation: petBreathe 3.6s ease-in-out infinite;
+}
+
+.agent-pet-root.thinking svg {
+  animation: petBob 1.8s ease-in-out infinite;
+}
+
+.agent-pet-root.working svg {
+  animation: petJiggle 0.4s ease-in-out infinite alternate;
+}
+
+.agent-pet-root.success svg {
+  animation: petHop 0.7s cubic-bezier(0.16, 1, 0.3, 1) infinite alternate;
+}
+
+.agent-pet-root.approval svg {
+  animation: petAlert 1.2s ease-in-out infinite;
+}
+
+@keyframes petBreathe {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.02, 0.98) translateY(-1px); }
+}
+
+@keyframes petBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px) rotate(2deg); }
+}
+
+@keyframes petJiggle {
+  0% { transform: rotate(-1.5deg) scale(1.01); }
+  100% { transform: rotate(1.5deg) scale(0.99); }
+}
+
+@keyframes petHop {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-8px) scale(0.98, 1.05); }
+}
+
+@keyframes petAlert {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+@keyframes floatUpAndFade {
+  0% { transform: translateY(0) scale(0.8); opacity: 1; }
+  100% { transform: translateY(-28px) scale(1.2); opacity: 0; }
+}
+
+@keyframes fadeInScale {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.92); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+.pet-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+}
+
+.pet-state-badge.thinking {
+  background-color: var(--pastel-periwinkle);
+  color: var(--pastel-periwinkle-text);
+  gap: 3px;
+  padding: 4px 8px;
+}
+
+.pet-state-badge.approval {
+  background-color: var(--warning-subtle);
+  color: var(--warning-text);
+  border-color: var(--warning-border);
+}
+
+.pet-state-badge.working {
+  background-color: var(--pastel-lime);
+  color: var(--pastel-lime-text);
+}
+
+.pet-state-badge.success {
+  background-color: var(--good-subtle);
+  color: var(--good-text);
+  border-color: var(--good-border);
+}
+
+.dot-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: dotPulse 1.2s infinite ease-in-out;
+}
+
+.dot-pulse.delay-1 { animation-delay: 0.2s; }
+.dot-pulse.delay-2 { animation-delay: 0.4s; }
+
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* Floating Companion Screen Dock */
+.companion-dock {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.companion-pill-bubble {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 14px;
+  font-size: 12px;
+  max-width: 240px;
+  line-height: 1.4;
+  color: var(--text-main);
+  animation: fadeInScale 200ms ease;
+}
+
 

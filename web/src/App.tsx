@@ -16,6 +16,7 @@ import { ActivityView } from './views/Activity'
 import { ModelsView } from './views/Models'
 import { SettingsView } from './views/Settings'
 import { ResourcesView } from './views/Resources'
+import { CompanionWidget } from './ui/CompanionWidget'
 
 export const App: React.FC = () => {
   const section = useAppStore((s) => s.section)
@@ -104,6 +105,7 @@ export const App: React.FC = () => {
       <main className="app-main" id="main-content">
         {renderView()}
       </main>
+      <CompanionWidget />
       <CommandPalette />
       <ToastContainer />
     </div>
