@@ -1,86 +1,137 @@
 import { create } from 'zustand'
+import type { ThemePref } from './types'
 
-export type ThemePref = 'system' | 'light' | 'dark'
-export type Toast = { id: number; text: string; tone: 'ok' | 'bad' }
+export type NavSection =
+  | 'talk'
+  | 'workspace'
+  | 'agents'
+  | 'memory'
+  | 'skills'
+  | 'routines'
+  | 'approvals'
+  | 'activity'
+  | 'models'
+  | 'settings'
+  | 'resources'
 
-const THEME_KEY = 'lilly-theme'
+export interface ToastItem {
+  id: string
+  text: string
+  kind?: 'normal' | 'good' | 'bad' | 'warn'
+  timeout?: number
+}
 
-function readTheme(): ThemePref {
+interface AppState {
+  section: NavSection
+  subSection: string | null
+  theme: ThemePref
+  commandPaletteOpen: boolean
+  sidebarCollapsed: boolean
+  pendingApprovalsCount: number
+  runningTasksCount: number
+  liveConnected: boolean
+  tick: number
+  toasts: ToastItem[]
+  selectedTaskId: string | null
+  selectedThreadId: string | null
+
+  setSection: (section: NavSection, subSection?: string | null) => void
+  setTheme: (theme: ThemePref) => void
+  setCommandPalette: (open: boolean) => void
+  toggleSidebar: () => void
+  setPendingApprovals: (count: number) => void
+  setRunningTasks: (count: number) => void
+  setLiveConnected: (connected: boolean) => void
+  bump: () => void
+  toast: (text: string, kind?: 'normal' | 'good' | 'bad' | 'warn') => void
+  removeToast: (id: string) => void
+  selectTask: (taskId: string | null) => void
+  selectThread: (threadId: string | null) => void
+}
+
+const THEME_KEY = 'lilly-theme-pref'
+
+function loadSavedTheme(): ThemePref {
   try {
-    const v = localStorage.getItem(THEME_KEY)
-    return v === 'light' || v === 'dark' ? v : 'system'
+    const val = localStorage.getItem(THEME_KEY)
+    if (val === 'light' || val === 'dark' || val === 'system') return val
   } catch {
-    return 'system'
+    // fallback
+  }
+  return 'system'
+}
+
+function applyThemeToDom(theme: ThemePref) {
+  const root = document.documentElement
+  if (theme === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    root.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  } else {
+    root.setAttribute('data-theme', theme)
   }
 }
 
-export function applyTheme(pref: ThemePref): void {
-  const root = document.documentElement
-  if (pref === 'system') root.removeAttribute('data-theme')
-  else root.setAttribute('data-theme', pref)
-}
+export const useAppStore = create<AppState>((set, get) => {
+  const initialTheme = loadSavedTheme()
+  applyThemeToDom(initialTheme)
 
-interface State {
-  auth: 'loading' | 'out' | 'in'
-  theme: ThemePref
-  tick: number // bumps (at most every few hundred ms) whenever the server reports something changed
-  live: boolean
-  pending: number
-  toasts: Toast[]
-  streams: Record<string, string> // text being written right now, by task; never more than the running tasks
-  setStream: (taskId: string, text: string) => void
-  clearStream: (taskId: string) => void
-  setAuth: (a: State['auth']) => void
-  setTheme: (t: ThemePref) => void
-  bump: () => void
-  setLive: (v: boolean) => void
-  setPending: (n: number) => void
-  toast: (text: string, tone?: Toast['tone']) => void
-  dismiss: (id: number) => void
-}
-
-let nextToast = 1
-let bumpTimer: ReturnType<typeof setTimeout> | undefined
-const BUMP_MS = 300 // a burst of server events reloads each live view once, not once per event
-
-export const useApp = create<State>((set, get) => ({
-  auth: 'loading',
-  theme: readTheme(),
-  tick: 0,
-  live: false,
-  pending: 0,
-  toasts: [],
-  streams: {},
-  setStream: (taskId, text) => set((s) => ({ streams: { ...s.streams, [taskId]: text } })),
-  clearStream: (taskId) => set((s) => {
-    if (!(taskId in s.streams)) return s
-    const { [taskId]: _gone, ...rest } = s.streams
-    return { streams: rest }
-  }),
-  setAuth: (auth) => set({ auth }),
-  setTheme: (theme) => {
-    try {
-      if (theme === 'system') localStorage.removeItem(THEME_KEY)
-      else localStorage.setItem(THEME_KEY, theme)
-    } catch {
-      /* private mode: the choice just lasts for this visit */
+  // System theme change listener
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (get().theme === 'system') {
+      applyThemeToDom('system')
     }
-    applyTheme(theme)
-    set({ theme })
-  },
-  bump: () => {
-    if (bumpTimer !== undefined) return
-    bumpTimer = setTimeout(() => {
-      bumpTimer = undefined
-      set((s) => ({ tick: s.tick + 1 }))
-    }, BUMP_MS)
-  },
-  setLive: (live) => set({ live }),
-  setPending: (pending) => set({ pending }),
-  toast: (text, tone = 'ok') => {
-    const id = nextToast++
-    set((s) => ({ toasts: [...s.toasts, { id, text, tone }] }))
-    setTimeout(() => get().dismiss(id), 5000)
-  },
-  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-}))
+  })
+
+  return {
+    section: 'talk',
+    subSection: null,
+    theme: initialTheme,
+    commandPaletteOpen: false,
+    sidebarCollapsed: false,
+    pendingApprovalsCount: 0,
+    runningTasksCount: 0,
+    liveConnected: false,
+    tick: 0,
+    toasts: [],
+    selectedTaskId: null,
+    selectedThreadId: null,
+
+    setSection: (section, subSection = null) => {
+      set({ section, subSection })
+      window.location.hash = subSection ? `/${section}/${subSection}` : `/${section}`
+    },
+
+    setTheme: (theme) => {
+      try {
+        localStorage.setItem(THEME_KEY, theme)
+      } catch {
+        // no-op
+      }
+      applyThemeToDom(theme)
+      set({ theme })
+    },
+
+    setCommandPalette: (open) => set({ commandPaletteOpen: open }),
+    toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+    setPendingApprovals: (count) => set({ pendingApprovalsCount: count }),
+    setRunningTasks: (count) => set({ runningTasksCount: count }),
+    setLiveConnected: (connected) => set({ liveConnected: connected }),
+    bump: () => set((s) => ({ tick: s.tick + 1 })),
+
+    toast: (text, kind = 'normal') => {
+      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      const item: ToastItem = { id, text, kind }
+      set((s) => ({ toasts: [...s.toasts.slice(-4), item] }))
+      setTimeout(() => {
+        get().removeToast(id)
+      }, 4000)
+    },
+
+    removeToast: (id) => {
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+    },
+
+    selectTask: (taskId) => set({ selectedTaskId: taskId }),
+    selectThread: (threadId) => set({ selectedThreadId: threadId }),
+  }
+})

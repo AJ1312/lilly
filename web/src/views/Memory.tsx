@@ -1,105 +1,272 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { api, errorText } from '../api'
-import { useLoad } from '../hooks'
-import { useApp } from '../store'
-import type { MemoryItem } from '../types'
-import { Button, Confirm, Empty, ErrorNote, IconButton, PageHead, Pill } from '../ui/kit'
-import { ago } from '../ui/format'
+import { useLoad, useDebounce } from '../hooks'
+import { useAppStore } from '../store'
+import type { Memory } from '../types'
+import { Icon } from '../ui/Icon'
+import { Modal } from '../ui/Modal'
 
-function Row({ item, onChanged }: { item: MemoryItem; onChanged: () => void }) {
-  const [editing, setEditing] = useState(false)
-  const [text, setText] = useState(item.text)
-  const [tags, setTags] = useState(item.tags.join(', '))
-  const toast = useApp((s) => s.toast)
-  const run = async (fn: () => Promise<unknown>) => {
+export const MemoryView: React.FC = () => {
+  const toast = useAppStore((s) => s.toast)
+  const bump = useAppStore((s) => s.bump)
+
+  const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 250)
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+
+  const { data, loading, reload } = useLoad<{ memory: Memory[] }>('/api/memory')
+  const allItems = data?.memory || []
+
+  // Add/Edit modal
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [memoryText, setMemoryText] = useState('')
+  const [memoryCategory, setMemoryCategory] = useState('general')
+  const [saving, setSaving] = useState(false)
+
+  const filtered = allItems.filter((item) => {
+    const text = item.fact || ''
+    const matchesSearch = text.toLowerCase().includes(debouncedSearch.toLowerCase())
+    const matchesCat = categoryFilter === 'all' || item.category === categoryFilter
+    return matchesSearch && matchesCat
+  })
+
+  const openAdd = () => {
+    setEditingId(null)
+    setMemoryText('')
+    setMemoryCategory('general')
+    setModalOpen(true)
+  }
+
+  const openEdit = (item: Memory) => {
+    setEditingId(item.id)
+    setMemoryText(item.fact)
+    setMemoryCategory(item.category || 'general')
+    setModalOpen(true)
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!memoryText.trim()) return
+
+    setSaving(true)
     try {
-      await fn()
-      onChanged()
-    } catch (e) {
-      toast(errorText(e), 'bad')
+      if (editingId) {
+        await api.patch(`/api/memory/${editingId}`, {
+          fact: memoryText.trim(),
+          category: memoryCategory,
+        })
+        toast('Memory updated', 'good')
+      } else {
+        await api.post('/api/memory', {
+          fact: memoryText.trim(),
+          category: memoryCategory,
+        })
+        toast('Memory saved to knowledge bank', 'good')
+      }
+      setModalOpen(false)
+      bump()
+      await reload()
+    } catch (err) {
+      toast(`Failed to save memory: ${errorText(err)}`, 'bad')
+    } finally {
+      setSaving(false)
     }
   }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to forget this memory item?')) return
+    try {
+      await api.delete(`/api/memory/${id}`)
+      toast('Memory item deleted', 'good')
+      bump()
+      await reload()
+    } catch (err) {
+      toast(`Failed to delete: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleClearAll = async () => {
+    if (!confirm('DANGER: Are you sure you want to clear ALL stored memories? This cannot be undone.')) return
+    try {
+      await api.post('/api/memory/clear')
+      toast('All memories cleared', 'warn')
+      bump()
+      await reload()
+    } catch (err) {
+      toast(`Failed to clear: ${errorText(err)}`, 'bad')
+    }
+  }
+
   return (
-    <li className="memory-row">
-      {editing ? (
-        <div className="memory-edit">
-          <textarea aria-label="Edit memory" value={text} rows={2} onChange={(e) => setText(e.target.value)} />
-          <input aria-label="Memory tags" value={tags} placeholder="Tags, separated by commas" onChange={(e) => setTags(e.target.value)} />
-          <div className="row">
-            <Button small kind="primary" onClick={() => void run(async () => { await api.patch(`/api/memory/${item.id}`, { text, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) }); setEditing(false) })}>Save</Button>
-            <Button small onClick={() => { setText(item.text); setTags(item.tags.join(', ')); setEditing(false) }}>Cancel</Button>
-          </div>
+    <div className="view-container" style={{ padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>Memory Bank</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Curated long-term memory, project guidelines, user preferences, and operational constraints.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {allItems.length > 0 && (
+            <button onClick={handleClearAll} className="btn btn-secondary btn-sm" type="button">
+              <Icon name="trash" size={14} />
+              <span>Clear All</span>
+            </button>
+          )}
+          <button onClick={openAdd} className="btn btn-primary btn-sm" type="button">
+            <Icon name="plus" size={14} />
+            <span>Add Memory</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: '360px' }}>
+          <Icon
+            name="search"
+            size={14}
+            style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }}
+          />
+          <input
+            className="input"
+            style={{ paddingLeft: '30px', fontSize: '12px' }}
+            placeholder="Search remembered facts..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-tabs">
+          {['all', 'general', 'preference', 'project', 'constraint'].map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              className={`filter-tab ${categoryFilter === cat ? 'active' : ''}`}
+              onClick={() => setCategoryFilter(cat)}
+            >
+              {cat.charAt(0).toUpperCase() + cat.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Memory items grid */}
+      {loading && allItems.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          Loading stored memory...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          No memories found matching your search.
         </div>
       ) : (
-        <>
-          <p>{item.text}</p>
-          <div className="row">
-            {item.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
-            <Pill tone={item.label === 'PERSONAL' ? 'warn' : 'mute'}>{item.label === 'PERSONAL' ? 'private' : 'shareable'}</Pill>
-            <span className="hint">{item.source === 'agent' ? 'Lilly noted this' : 'You added this'} · {ago(item.at)}</span>
-            <span className="grow" />
-            <Button small onClick={() => void run(() => api.patch(`/api/memory/${item.id}`, { label: item.label === 'PERSONAL' ? 'PUBLIC' : 'PERSONAL' }))}>
-              {item.label === 'PERSONAL' ? 'Make shareable' : 'Make private'}
-            </Button>
-            <IconButton icon="edit" label="Edit" onClick={() => setEditing(true)} />
-            <IconButton icon="trash" label="Forget this" kind="danger" onClick={() => void run(() => api.del(`/api/memory/${item.id}`))} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
+          {filtered.map((item) => (
+            <div key={item.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: 'var(--primary)',
+                    backgroundColor: 'var(--primary-subtle)',
+                    padding: '2px 6px',
+                    borderRadius: 'var(--radius-xs)',
+                  }}
+                >
+                  {item.category || 'general'}
+                </span>
+
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    onClick={() => openEdit(item)}
+                    className="btn btn-ghost btn-sm btn-icon"
+                    type="button"
+                    title="Edit memory"
+                  >
+                    <Icon name="sliders" size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="btn btn-ghost btn-sm btn-icon"
+                    type="button"
+                    title="Delete memory"
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '13px', color: 'var(--text-main)', lineHeight: 1.5 }}>
+                {item.fact}
+              </div>
+
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: 'auto', paddingTop: '6px' }}>
+                {new Date(item.created_at * 1000).toLocaleDateString()}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add / Edit Dialog */}
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingId ? 'Edit Memory' : 'Add Memory'}
+        footer={
+          <>
+            <button type="button" onClick={() => setModalOpen(false)} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!memoryText.trim() || saving}
+              className="btn btn-primary"
+            >
+              <span>{saving ? 'Saving...' : 'Save'}</span>
+            </button>
+          </>
+        }
+      >
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Category
+            </label>
+            <select
+              className="select"
+              value={memoryCategory}
+              onChange={(e) => setMemoryCategory(e.target.value)}
+            >
+              <option value="general">General Fact</option>
+              <option value="preference">User Preference</option>
+              <option value="project">Project Architecture</option>
+              <option value="constraint">Security / System Constraint</option>
+            </select>
           </div>
-        </>
-      )}
-    </li>
-  )
-}
 
-export function Memory() {
-  const [query, setQuery] = useState('')
-  const [text, setText] = useState('')
-  const [tags, setTags] = useState('')
-  const [wipe, setWipe] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const list = useLoad<{ memory: MemoryItem[] }>(`/api/memory${query ? `?q=${encodeURIComponent(query)}` : ''}`, true)
-  const toast = useApp((s) => s.toast)
-
-  const add = async () => {
-    try {
-      await api.post('/api/memory', { text, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) })
-      setText('')
-      setTags('')
-      setError(null)
-      list.reload()
-    } catch (e) {
-      setError(errorText(e))
-    }
-  }
-
-  return (
-    <div className="page">
-      <PageHead
-        title="Memory"
-        sub="Short facts Lilly keeps about you. Private ones are only shown to models you allow."
-        actions={<Button kind="danger" icon="trash" onClick={() => setWipe(true)}>Forget everything</Button>}
-      />
-      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); void add() }}>
-        <label className="sr-only" htmlFor="new-memory">Add a memory</label>
-        <input id="new-memory" placeholder="For example: I prefer metric units" value={text} maxLength={8000} onChange={(e) => setText(e.target.value)} />
-        <input aria-label="Memory tags" placeholder="Tags, separated by commas" value={tags} onChange={(e) => setTags(e.target.value)} />
-        <Button type="submit" kind="primary" icon="plus" disabled={!text.trim()}>Remember</Button>
-      </form>
-      <ErrorNote text={error ?? list.error} />
-      <input type="search" aria-label="Search memory" placeholder="Search memory" value={query} onChange={(e) => setQuery(e.target.value)} />
-      {list.data?.memory.length === 0 && <Empty title="Nothing remembered yet">Add a fact above, or ask Lilly to remember something.</Empty>}
-      <ul className="memory-list">{list.data?.memory.map((m) => <Row key={m.id} item={m} onChanged={list.reload} />)}</ul>
-      {wipe && (
-        <Confirm
-          title="Forget everything?"
-          danger
-          confirm="Forget everything"
-          body="This permanently deletes every memory. It cannot be undone."
-          onClose={() => setWipe(false)}
-          onConfirm={() => {
-            api.post('/api/memory/clear', { confirm: 'forget everything' }).then(() => { list.reload(); toast('Memory cleared') }).catch((e: unknown) => toast(errorText(e), 'bad'))
-          }}
-        />
-      )}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Memory Statement
+            </label>
+            <textarea
+              className="textarea"
+              rows={4}
+              value={memoryText}
+              onChange={(e) => setMemoryText(e.target.value)}
+              placeholder="e.g. Always write tests with pytest and verify ResourceWarnings are zero..."
+              required
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

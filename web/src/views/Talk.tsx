@@ -1,389 +1,539 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
-import { useApp } from '../store'
-import {
-  APPROVAL_MODES,
-  EXECUTION_TARGETS,
-  LIVE_STATES,
-  REQUEST_INTENTS,
-  type Agent,
-  type ExecutionTarget,
-  type Message,
-  type ModelStatus,
-  type RequestIntent,
-  type Settings,
-  type Skill,
-  type Task,
-  type Thread,
-} from '../types'
-import { Icon, Petals } from '../ui/Icon'
+import { useAppStore } from '../store'
+import type { Thread, Message, Task, ExecutionTarget, RequestIntent, Agent, Approval } from '../types'
+import { Icon } from '../ui/Icon'
+import { TargetPill, StatePill, RiskPill } from '../ui/Pills'
 import { Markdown } from '../ui/Markdown'
-import { Pet, type PetState } from '../ui/Pet'
-import { ReplyCheck } from '../ui/ReplyCheck'
-import { RunCard } from '../ui/RunCard'
-import { Button, Confirm, Dialog, ErrorNote, Field, IconButton, Segmented } from '../ui/kit'
-import { ago } from '../ui/format'
 
-interface ThreadView { thread: Thread; messages: Message[]; tasks: Task[] }
+export const TalkView: React.FC = () => {
+  const selectedThreadId = useAppStore((s) => s.selectedThreadId)
+  const selectThread = useAppStore((s) => s.selectThread)
+  const toast = useAppStore((s) => s.toast)
+  const bump = useAppStore((s) => s.bump)
 
-const IDEAS = [
-  'What should I do about the heaviest apps slowing down this Mac?',
-  'Summarise the latest news on a topic I care about, with sources',
-  'Help me draft a polite reply to a landlord about a repair',
-]
+  // Load threads
+  const { data: threadsData, reload: reloadThreads } = useLoad<{ threads: Thread[] }>('/api/threads', 4000)
+  const threads = useMemo(() => threadsData?.threads || [], [threadsData])
 
-function Composer(props: { conversationId: string | null; onSent: (conversationId: string) => void; initial?: string }) {
-  const [text, setText] = useState(props.initial ?? '')
-  const [agentId, setAgentId] = useState('')
-  const [model, setModel] = useState('')
-  const [intent, setIntent] = useState<RequestIntent>('AUTO')
+  // Load available agents
+  const { data: agentsData } = useLoad<{ agents: Agent[] }>('/api/agents')
+  const agents = useMemo(() => agentsData?.agents || [], [agentsData])
+
+  // Active thread details (messages, tasks)
+  const [activeThread, setActiveThread] = useState<Thread | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [threadTasks, setThreadTasks] = useState<Task[]>([])
+  const [pendingApprovals, setPendingApprovals] = useState<Approval[]>([])
+  const [loadingMessages, setLoadingMessages] = useState(false)
+
+  // Composer state
+  const [prompt, setPrompt] = useState('')
   const [target, setTarget] = useState<ExecutionTarget>('host')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [skills, setSkills] = useState(false)
-  const settings = useLoad<{ settings: Settings; problems: string[] }>('/api/settings')
-  const agents = useLoad<{ agents: Agent[] }>('/api/agents')
-  const models = useLoad<{ models: ModelStatus[] }>('/api/models')
-  const area = useRef<HTMLTextAreaElement>(null)
+  const [intent, setIntent] = useState<RequestIntent>('AUTO')
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('')
+  const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => { area.current?.focus() }, [])
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const send = async (goal: string, extra: Record<string, unknown> = {}) => {
-    if (!goal.trim() || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      const r = await api.post<{ task: Task }>('/api/tasks', {
-        goal,
-        conversation_id: props.conversationId ?? undefined,
-        agent_id: agentId || undefined,
-        pin_model: model || undefined,
-        intent: intent === 'AUTO' ? undefined : intent,
-        target,
-        ...extra,
-      })
-      setText('')
-      props.onSent(r.task.conversation_id ?? '')
-    } catch (e) {
-      setError(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const approvalMode = settings.data?.settings.approval_mode ?? 'MANUAL'
-  const changeApprovalMode = async (mode: Settings['approval_mode']) => {
-    if (!settings.data || mode === approvalMode) return
-    try {
-      settings.replace(await api.put('/api/settings', { ...settings.data.settings, approval_mode: mode }))
-    } catch (e) {
-      setError(errorText(e))
-    }
-  }
-
-  return (
-    <div className="composer">
-      <ErrorNote text={error} />
-      <textarea
-        ref={area}
-        aria-label="Message Lilly"
-        placeholder="Ask Lilly to do something…"
-        rows={2}
-        value={text}
-        maxLength={4000}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault()
-            void send(text)
-          }
-        }}
-      />
-      <div className="composer-bar">
-        <Segmented
-          label="Execution target"
-          value={target}
-          onChange={(value) => setTarget(value as ExecutionTarget)}
-          options={EXECUTION_TARGETS.map((t) => ({ value: t.value, label: t.label, hint: t.hint }))}
-        />
-        <select aria-label="Which agent" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-          <option value="">Default assistant</option>
-          {agents.data?.agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-        <select aria-label="Which model" value={model} onChange={(e) => setModel(e.target.value)}>
-          <option value="">Model: automatic</option>
-          {models.data?.models.filter((m) => m.enabled).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
-        </select>
-        <select aria-label="Request mode" value={intent} onChange={(e) => setIntent(e.target.value as RequestIntent)}>
-          {REQUEST_INTENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-        <Segmented
-          label="Approval mode (global default)"
-          value={approvalMode}
-          onChange={(value) => void changeApprovalMode(value)}
-          options={APPROVAL_MODES.map((mode) => ({ value: mode.value, label: mode.name, hint: mode.blurb }))}
-        />
-        <Button small icon="spark" onClick={() => setSkills(true)}>Skills</Button>
-        <span className="grow" />
-        <Button kind="primary" icon="send" busy={busy} disabled={!text.trim()} onClick={() => void send(text)}>Send</Button>
-      </div>
-      {skills && (
-        <SkillDialog
-          onClose={() => setSkills(false)}
-          onRun={(skill, params) => { setSkills(false); void send(`Run ${skill}`, { skill, params }) }}
-        />
-      )}
-    </div>
-  )
-}
-
-function SkillDialog({ onClose, onRun }: { onClose: () => void; onRun: (skill: string, params: Record<string, string>) => void }) {
-  const skills = useLoad<{ skills: Skill[] }>('/api/skills')
-  const [picked, setPicked] = useState<Skill | null>(null)
-  const [params, setParams] = useState<Record<string, string>>({})
-  return (
-    <Dialog
-      title={picked ? picked.name : 'Skills'}
-      onClose={onClose}
-      footer={picked && (
-        <>
-          <Button onClick={() => setPicked(null)}>Back</Button>
-          <Button kind="primary" disabled={picked.params.some((p) => !params[p]?.trim())} onClick={() => onRun(picked.name, params)}>Run skill</Button>
-        </>
-      )}
-    >
-      {!picked ? (
-        <ul className="plain-list">
-          {skills.data?.skills.map((s) => (
-            <li key={s.name}>
-              <button type="button" className="row-button" onClick={() => { setPicked(s); setParams({}) }}>
-                <strong>{s.name}</strong>
-                <span>{s.summary}</span>
-                <small>{s.risk === 'R0' ? 'Reads only' : 'Changes files, asks first'}</small>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <>
-          <p className="prose">{picked.summary}</p>
-          {picked.params.map((p) => (
-            <Field key={p} label={p === 'topic' ? 'Topic' : p === 'path' ? 'File path' : p === 'folder' ? 'Folder path' : p}>
-              {(id) => <input id={id} value={params[p] ?? ''} onChange={(e) => setParams({ ...params, [p]: e.target.value })} />}
-            </Field>
-          ))}
-          {picked.params.length === 0 && <p className="hint">This skill needs nothing from you.</p>}
-        </>
-      )}
-    </Dialog>
-  )
-}
-
-/** A new install has no key yet: say so before the first message fails, and say where to add one. */
-function NoKeyNote() {
-  const models = useLoad<{ models: ModelStatus[] }>('/api/models')
-  const usable = models.data?.models.some((m) => m.enabled && m.has_key)
-  if (usable !== false) return null
-  return (
-    <p className="callout callout-warn" role="status">
-      Lilly has no model to talk to yet. Add a free API key (or turn on a local model) in <a href="#/settings/models">Settings → Models &amp; keys</a>.
-    </p>
-  )
-}
-
-function Welcome({ onSent }: { onSent: (id: string) => void }) {
-  const [seed, setSeed] = useState('')
-  return (
-    <div className="welcome">
-      <span className="welcome-mark"><Petals size={54} /></span>
-      <h1>What can I help with?</h1>
-      <p className="sub">Lilly runs on this computer. It asks before it touches anything private, and shows its work.</p>
-      <NoKeyNote />
-      <ul className="ideas">
-        {IDEAS.map((i) => <li key={i}><button type="button" onClick={() => setSeed(i)}>{i}</button></li>)}
-      </ul>
-      <Composer key={seed} conversationId={null} onSent={onSent} initial={seed} />
-    </div>
-  )
-}
-
-function Conversation({ id, onDeleted }: { id: string; onDeleted: () => void }) {
-  const view = useLoad<ThreadView>(`/api/threads/${id}`, true)
-  const agents = useLoad<{ agents: Agent[] }>('/api/agents')
-  const bump = useApp((s) => s.bump)
-  const toast = useApp((s) => s.toast)
-  const [rename, setRename] = useState(false)
-  const [confirm, setConfirm] = useState(false)
-  const [showJump, setShowJump] = useState(false)
-  const messagesRef = useRef<HTMLDivElement>(null)
-  const isNearBottomRef = useRef(true)
-  const end = useRef<HTMLDivElement>(null)
-  const v = view.data
-
-  const checkScroll = () => {
-    const el = messagesRef.current
-    if (!el) return
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const near = distanceFromBottom < 90
-    isNearBottomRef.current = near
-    setShowJump(!near)
-  }
-
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    end.current?.scrollIntoView({ behavior, block: 'end' })
-    setShowJump(false)
-  }
-
-  const count = (v?.messages.length ?? 0) + (v?.tasks.length ?? 0)
+  // Sync selected thread
+  const firstThreadId = threads[0]?.id
   useEffect(() => {
-    if (isNearBottomRef.current && count > 0) {
-      end.current?.scrollIntoView({ block: 'end' })
+    if (!selectedThreadId && firstThreadId) {
+      selectThread(firstThreadId)
     }
-  }, [count])
+  }, [firstThreadId, selectedThreadId, selectThread])
 
-  if (!v) return <div className="conversation"><ErrorNote text={view.error} /></div>
-  const byTask = (taskId: string, role: string) => v.messages.find((m) => m.task_id === taskId && m.role === role)
+  // Fetch thread conversation messages
+  useEffect(() => {
+    let active = true
+    if (!selectedThreadId) return
+
+    setLoadingMessages(true)
+    api
+      .get<{ thread: Thread; messages: Message[]; tasks: Task[] }>(`/api/threads/${selectedThreadId}`)
+      .then((res) => {
+        if (!active) return
+        setActiveThread(res.thread)
+        setMessages(res.messages || [])
+        setThreadTasks(res.tasks || [])
+      })
+      .catch((err) => {
+        if (!active) return
+        toast(`Error loading thread: ${errorText(err)}`, 'bad')
+      })
+      .finally(() => {
+        if (active) setLoadingMessages(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [selectedThreadId, toast])
+
+  // Also check for pending approvals
+  const loadApprovals = useCallback(async () => {
+    try {
+      const res = await api.get<{ approvals: Approval[] }>('/api/approvals?status=pending')
+      setPendingApprovals(res.approvals || [])
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadApprovals()
+    const id = setInterval(loadApprovals, 3000)
+    return () => clearInterval(id)
+  }, [loadApprovals])
+
+  // Auto-scroll on new message
+  useEffect(() => {
+    if (messages.length > 0 || threadTasks.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages.length, threadTasks.length])
+
+  const handleNewThread = () => {
+    selectThread(null)
+    setActiveThread(null)
+    setMessages([])
+    setThreadTasks([])
+    textareaRef.current?.focus()
+  }
+
+  const handleDeleteThread = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Are you sure you want to delete this conversation?')) return
+    try {
+      await api.delete(`/api/threads/${id}`)
+      toast('Conversation deleted', 'good')
+      await reloadThreads()
+      if (selectedThreadId === id) {
+        selectThread(null)
+      }
+    } catch (err) {
+      toast(`Cannot delete thread: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const goal = prompt.trim()
+    if (!goal || submitting) return
+
+    setSubmitting(true)
+    try {
+      const payload = {
+        goal,
+        conversation_id: selectedThreadId || undefined,
+        target,
+        intent,
+        agent_id: selectedAgentId || undefined,
+      }
+      const res = await api.post<{ task: Task }>('/api/tasks', payload)
+      setPrompt('')
+      bump()
+
+      // Optimistically append user message and refresh thread
+      if (selectedThreadId) {
+        const reloadRes = await api.get<{ thread: Thread; messages: Message[]; tasks: Task[] }>(
+          `/api/threads/${selectedThreadId}`
+        )
+        setMessages(reloadRes.messages || [])
+        setThreadTasks(reloadRes.tasks || [])
+      } else if (res.task.conversation_id) {
+        selectThread(res.task.conversation_id)
+        await reloadThreads()
+      }
+    } catch (err) {
+      toast(`Failed to submit: ${errorText(err)}`, 'bad')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleApprove = async (approval: Approval, approve: boolean) => {
+    try {
+      await api.post(`/api/approvals/${approval.id}/decide`, {
+        approve,
+        payload_hash: approval.payload_hash,
+        decline_reason: approve ? undefined : 'Declined in talk view',
+      })
+      toast(approve ? 'Action approved' : 'Action declined', approve ? 'good' : 'warn')
+      bump()
+      await loadApprovals()
+    } catch (err) {
+      toast(`Decision failed: ${errorText(err)}`, 'bad')
+    }
+  }
 
   return (
-    <div className="conversation">
-      <header className="conv-head">
-        <h2>{v.thread.title}</h2>
-        <div className="row">
-          <IconButton icon="edit" label="Rename conversation" onClick={() => setRename(true)} />
-          <IconButton icon="trash" label="Delete conversation" kind="danger" onClick={() => setConfirm(true)} />
+    <div className="talk-layout">
+      {/* Threads Sidebar */}
+      <div className="talk-threads-pane">
+        <div className="threads-header">
+          <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-main)' }}>
+            Conversations
+          </span>
+          <button
+            onClick={handleNewThread}
+            className="btn btn-secondary btn-sm"
+            type="button"
+            title="Start new thread"
+          >
+            <Icon name="plus" size={14} />
+            <span>New</span>
+          </button>
         </div>
-      </header>
-      <div className="messages" aria-live="polite" ref={messagesRef} onScroll={checkScroll}>
-        {v.tasks.map((t) => {
-          const user = byTask(t.id, 'user')
-          const reply = byTask(t.id, 'assistant')
-          const agent = agents.data?.agents.find((a) => a.id === t.agent_id)
-          const mood: PetState = t.state === 'WAITING_APPROVAL' ? 'waiting' : LIVE_STATES.includes(t.state) ? 'thinking' : t.state === 'FAILED' || t.state === 'EXPIRED' ? 'error' : 'idle'
-          return (
-            <article key={t.id} className="turn">
-              <div className="bubble bubble-user">{user?.content ?? t.goal}</div>
-              <RunCard taskId={t.id} initialState={t.state} />
-              {(reply || mood !== 'idle') && (
-                <div className="lilly-row">
-                  <Pet id={agent?.pet ?? 'lily'} look={agent?.look} state={reply && mood === 'idle' ? 'done' : mood} size={46} />
-                  {reply && (
-                    <div className="bubble bubble-lilly">
-                      <Markdown text={reply.content} />
-                      {reply.untrusted && <p className="hint">Based partly on web content. Check important facts.</p>}
-                      <ReplyCheck verdict={t.reply_check} />
-                    </div>
-                  )}
+
+        <div className="threads-list">
+          {threads.length === 0 ? (
+            <div style={{ padding: '20px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+              No conversations yet. Start one!
+            </div>
+          ) : (
+            threads.map((th) => {
+              const active = th.id === selectedThreadId
+              return (
+                <div
+                  key={th.id}
+                  onClick={() => selectThread(th.id)}
+                  className={`thread-item ${active ? 'active' : ''}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                    <Icon name="chat" size={14} style={{ color: active ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {th.title || 'Untitled conversation'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteThread(th.id, e)}
+                    className="btn btn-ghost btn-sm btn-icon"
+                    style={{ padding: '2px', opacity: active ? 1 : 0.4 }}
+                    title="Delete thread"
+                    type="button"
+                  >
+                    <Icon name="trash" size={12} />
+                  </button>
                 </div>
-              )}
-            </article>
-          )
-        })}
-        <div ref={end} />
-      </div>
-      {showJump && (
-        <button type="button" className="jump-to-bottom" onClick={() => scrollToBottom('smooth')}>
-          ↓ Jump to latest
-        </button>
-      )}
-      <Composer conversationId={id} onSent={() => bump()} />
-      {rename && <RenameDialog thread={v.thread} onClose={() => setRename(false)} onSaved={() => { setRename(false); bump() }} />}
-      {confirm && (
-        <Confirm
-          title="Delete this conversation?"
-          danger
-          confirm="Delete"
-          body="The messages are removed for good. Activity records of finished tasks are kept until they age out."
-          onClose={() => setConfirm(false)}
-          onConfirm={() => {
-            api.del(`/api/threads/${id}`).then(() => { bump(); onDeleted() }).catch((e: unknown) => toast(errorText(e), 'bad'))
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-function RenameDialog({ thread, onClose, onSaved }: { thread: Thread; onClose: () => void; onSaved: () => void }) {
-  const [title, setTitle] = useState(thread.title)
-  const [error, setError] = useState<string | null>(null)
-  const save = async () => {
-    try {
-      await api.patch(`/api/threads/${thread.id}`, { title })
-      onSaved()
-    } catch (e) {
-      setError(errorText(e))
-    }
-  }
-  return (
-    <Dialog title="Rename conversation" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button kind="primary" onClick={() => void save()}>Save</Button></>}>
-      <Field label="Title">{(id) => <input id={id} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />}</Field>
-      <ErrorNote text={error} />
-    </Dialog>
-  )
-}
-
-export function Talk({ threadId, go }: { threadId: string | null; go: (hash: string) => void }) {
-  const [query, setQuery] = useState('')
-  const [archived, setArchived] = useState(false)
-  const [listOpen, setListOpen] = useState(false)
-  const threads = useLoad<{ threads: Thread[] }>(`/api/threads?${query ? `q=${encodeURIComponent(query)}` : archived ? 'archived=1' : ''}`, true)
-  const toast = useApp((s) => s.toast)
-  const [purgeId, setPurgeId] = useState<string | null>(null)
-
-  const toggleArchive = async (t: Thread) => {
-    try {
-      await api.patch(`/api/threads/${t.id}`, { archived: !t.archived })
-      threads.reload()
-    } catch (e) {
-      toast(errorText(e), 'bad')
-    }
-  }
-
-  return (
-    <div className="talk">
-      <aside className={`thread-list${listOpen ? ' open' : ''}`} aria-label="Conversations">
-        <div className="thread-tools">
-          <Button kind="primary" icon="plus" onClick={() => { go('/talk'); setListOpen(false) }}>New chat</Button>
-          <input type="search" aria-label="Search conversations" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <label className="check"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Show archived</label>
+              )
+            })
+          )}
         </div>
-        <ul>
-          {threads.data?.threads.map((t) => (
-            <li key={t.id} className={t.id === threadId ? 'current' : ''}>
-              <a href={`#/talk/${t.id}`} onClick={() => setListOpen(false)}>
-                <span className="thread-title">{t.title}</span>
-                <span className="thread-when">{ago(t.updated_at)}</span>
-              </a>
-              <IconButton icon={t.archived ? 'up' : 'down'} label={t.archived ? 'Unarchive' : 'Archive'} onClick={() => void toggleArchive(t)} />
-              <IconButton icon="trash" label="Delete session" kind="danger" onClick={() => setPurgeId(t.id)} />
-            </li>
-          ))}
-          {threads.data?.threads.length === 0 && <li className="thread-empty">No conversations yet.</li>}
-        </ul>
-      </aside>
-      <section className="talk-main">
-        <button type="button" className="thread-toggle" onClick={() => setListOpen(!listOpen)} aria-expanded={listOpen}>
-          <Icon name="menu" size={16} /> Conversations
-        </button>
-        {threadId ? <Conversation key={threadId} id={threadId} onDeleted={() => go('/talk')} /> : <Welcome onSent={(id) => go(`/talk/${id}`)} />}
-      </section>
-      {purgeId && (
-        <Confirm
-          title="Delete this session?"
-          danger
-          confirm="Delete session"
-          body="The conversation and its messages will be removed permanently. Finished task records remain in activity history."
-          onClose={() => setPurgeId(null)}
-          onConfirm={() => {
-            api.del(`/api/threads/${purgeId}`).then(() => {
-              if (threadId === purgeId) go('/talk')
-              threads.reload()
-              setPurgeId(null)
-            }).catch((e: unknown) => toast(errorText(e), 'bad'))
-          }}
-        />
-      )}
+      </div>
+
+      {/* Main Conversation Pane */}
+      <div className="talk-conversation-pane">
+        {/* Top Control Bar */}
+        <div className="app-topbar" style={{ backgroundColor: 'var(--bg-card)' }}>
+          <div className="topbar-left">
+            <h2 className="page-title">{activeThread?.title || 'Talk with Lilly'}</h2>
+            <TargetPill target={target} size="sm" />
+          </div>
+
+          <div className="topbar-right">
+            {/* Agent picker */}
+            {agents.length > 0 && (
+              <select
+                className="select"
+                style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }}
+                value={selectedAgentId}
+                onChange={(e) => setSelectedAgentId(e.target.value)}
+                title="Select agent persona"
+              >
+                <option value="">Lilly (Default)</option>
+                {agents.map((ag) => (
+                  <option key={ag.id} value={ag.id}>
+                    {ag.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Target Selector Button */}
+            <div
+              className="filter-tabs"
+              style={{ padding: '2px' }}
+              title="Switch execution target (Host laptop vs DevBox sandbox)"
+            >
+              <button
+                type="button"
+                className={`filter-tab ${target === 'host' ? 'active' : ''}`}
+                onClick={() => setTarget('host')}
+              >
+                Host
+              </button>
+              <button
+                type="button"
+                className={`filter-tab ${target === 'devbox' ? 'active' : ''}`}
+                onClick={() => setTarget('devbox')}
+              >
+                DevBox
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Messages & Execution Flow */}
+        <div className="chat-messages-container">
+          {loadingMessages ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Loading conversation...
+            </div>
+          ) : messages.length === 0 && threadTasks.length === 0 ? (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: 'auto',
+                maxWidth: '540px',
+                textAlign: 'center',
+                gap: '16px',
+                padding: '40px 20px',
+              }}
+            >
+              <div
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: 'var(--radius-lg)',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  boxShadow: 'var(--shadow-md)',
+                }}
+              >
+                <Icon name="sparkles" size={28} />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>
+                How can Lilly help you today?
+              </h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Directly interact with your laptop runtime, automate workflows, execute in isolated
+                DevBox containers, manage scheduled routines, or ask anything.
+              </p>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '8px',
+                  width: '100%',
+                  marginTop: '12px',
+                }}
+              >
+                {[
+                  'Inspect workspace and summarize status',
+                  'Run test suite in DevBox sandbox',
+                  'Schedule routine to clean temporary logs',
+                  'Show active CPU & memory telemetry',
+                ].map((promptText, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setPrompt(promptText)
+                      textareaRef.current?.focus()
+                    }}
+                    className="card card-subtle"
+                    style={{
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      color: 'var(--text-main)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>{promptText}</span>
+                    <Icon name="chevron-right" size={12} style={{ color: 'var(--text-muted)' }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Render thread messages */}
+              {messages.map((m) => {
+                const isUser = m.role === 'user'
+                return (
+                  <div key={m.id} className={`chat-bubble-wrapper ${isUser ? 'user' : 'assistant'}`}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '11px', color: 'var(--text-dim)' }}>
+                      <Icon name={isUser ? 'user' : 'bot'} size={12} />
+                      <span>{isUser ? 'You' : 'Lilly'}</span>
+                    </div>
+                    <div className={`chat-bubble ${isUser ? 'user' : 'assistant'}`}>
+                      <Markdown content={m.content} />
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Render thread tasks */}
+              {threadTasks.map((t) => {
+                const taskPendingApproval = pendingApprovals.filter((a) => a.task_id === t.id)
+                return (
+                  <div key={t.id} className="chat-bubble-wrapper assistant">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '11px', color: 'var(--text-dim)' }}>
+                      <StatePill state={t.state} />
+                      <TargetPill target={t.target} size="sm" />
+                      <span>Task {t.id.slice(0, 8)}</span>
+                    </div>
+
+                    <div className="card" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
+                        {t.goal}
+                      </div>
+
+                      {t.answer && (
+                        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
+                          <Markdown content={t.answer} />
+                        </div>
+                      )}
+
+                      {t.error && (
+                        <div
+                          style={{
+                            padding: '8px 12px',
+                            backgroundColor: 'var(--danger-subtle)',
+                            border: '1px solid var(--danger-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--danger-text)',
+                            fontSize: '12px',
+                          }}
+                        >
+                          {t.error}
+                        </div>
+                      )}
+
+                      {/* Inline Approvals required for this task */}
+                      {taskPendingApproval.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: '8px',
+                            padding: '12px',
+                            backgroundColor: 'var(--warning-subtle)',
+                            border: '1px solid var(--warning-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Icon name="alert-triangle" size={16} style={{ color: 'var(--warning-text)' }} />
+                              <span style={{ fontWeight: 600, fontSize: '12px', color: 'var(--warning-text)' }}>
+                                Security Approval Required
+                              </span>
+                            </div>
+                            <RiskPill risk={taskPendingApproval[0].risk} />
+                          </div>
+
+                          <div style={{ fontSize: '12px', color: 'var(--warning-text)' }}>
+                            Tool: <strong>{taskPendingApproval[0].tool}</strong> — {taskPendingApproval[0].why}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(taskPendingApproval[0], true)}
+                              className="btn btn-primary btn-sm"
+                            >
+                              <Icon name="check" size={12} />
+                              <span>Approve Execution</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(taskPendingApproval[0], false)}
+                              className="btn btn-secondary btn-sm"
+                            >
+                              <Icon name="x" size={12} />
+                              <span>Decline</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Bottom Composer */}
+        <div className="chat-composer-box">
+          <div className="composer-toolbar">
+            <div className="composer-controls">
+              {/* Intent Selector */}
+              <select
+                className="select"
+                style={{ width: 'auto', padding: '3px 8px', fontSize: '11px' }}
+                value={intent}
+                onChange={(e) => setIntent(e.target.value as RequestIntent)}
+                title="Execution intent"
+              >
+                <option value="AUTO">Intent: Auto</option>
+                <option value="ANSWER">Intent: Answer Only</option>
+                <option value="WEB RETRIEVE">Intent: Web Retrieve</option>
+                <option value="NAVIGATE">Intent: Navigate</option>
+                <option value="ACTION">Intent: Action</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setTarget(target === 'host' ? 'devbox' : 'host')}
+                className="btn btn-ghost btn-sm"
+                title="Click to toggle execution target"
+              >
+                <TargetPill target={target} size="sm" />
+              </button>
+            </div>
+
+            <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+              Press <strong>Return</strong> to send, <strong>Shift+Return</strong> for new line
+            </span>
+          </div>
+
+          <div className="composer-input-row">
+            <textarea
+              ref={textareaRef}
+              className="composer-textarea"
+              placeholder="Ask Lilly anything or describe a task..."
+              rows={1}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleSubmit()
+                }
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={!prompt.trim() || submitting}
+              className="btn btn-primary btn-sm btn-icon"
+              style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)' }}
+              title="Submit task"
+            >
+              <Icon name={submitting ? 'refresh' : 'play'} size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

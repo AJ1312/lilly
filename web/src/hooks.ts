@@ -1,67 +1,91 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { api, errorText } from './api'
-import { useApp } from './store'
+import { useAppStore } from './store'
 
-export interface Loaded<T> {
+export interface LoadResult<T> {
   data: T | null
-  error: string | null
   loading: boolean
-  reload: () => void
-  /** Show `data` now, for a path whose fresh copy the caller already holds (such as a save's response). */
+  error: string | null
+  reload: () => Promise<void>
   replace: (data: T) => void
 }
 
-/**
- * Load `path` from the server, and again whenever Lilly reports a change (when `live`).
- * A null path loads nothing. The request is identified by its path alone, so a new path is a new request
- * and never shows what an earlier path returned.
- */
-export function useLoad<T>(path: string | null, live = false): Loaded<T> {
-  const [state, setState] = useState<{ path: string | null; data: T | null; error: string | null }>({ path: null, data: null, error: null })
-  const [manual, setManual] = useState(0)
-  const tick = useApp((s) => s.tick)
-  const liveTick = live ? tick : 0
-  const mine = state.path === path ? state : null
+export function useLoad<T>(url: string | null, pollIntervalMs?: number): LoadResult<T> {
+  const tick = useAppStore((s) => s.tick)
+  const [data, setData] = useState<T | null>(null)
+  const [loading, setLoading] = useState<boolean>(Boolean(url))
+  const [error, setError] = useState<string | null>(null)
+  const activeRef = useRef(true)
+
+  const fetcher = useCallback(async () => {
+    if (!url) return
+    try {
+      const res = await api.get<T>(url)
+      if (activeRef.current) {
+        setData(res)
+        setError(null)
+      }
+    } catch (err) {
+      if (activeRef.current) {
+        setError(errorText(err))
+      }
+    } finally {
+      if (activeRef.current) {
+        setLoading(false)
+      }
+    }
+  }, [url])
 
   useEffect(() => {
-    if (path === null) return
-    let stale = false
-    api
-      .get<T>(path)
-      .then((data) => { if (!stale) setState({ path, data, error: null }) })
-      .catch((e: unknown) => { if (!stale) setState((s) => ({ path, data: s.path === path ? s.data : null, error: errorText(e) })) })
-    return () => { stale = true }
-    // liveTick and manual are deliberate re-run triggers: the effect must run again without `path` changing.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [path, liveTick, manual])
+    activeRef.current = true
+    setLoading(true)
+    if (tick >= 0) {
+      void fetcher()
+    }
 
-  const reload = useCallback(() => setManual((n) => n + 1), [])
-  const replace = useCallback((data: T) => setState({ path, data, error: null }), [path])
-  return { data: mine?.data ?? null, error: mine?.error ?? null, loading: path !== null && mine === null, reload, replace }
-}
+    let intervalId: number | undefined
+    if (pollIntervalMs && pollIntervalMs > 0) {
+      intervalId = window.setInterval(fetcher, pollIntervalMs)
+    }
 
-export function useHash(): [string, (h: string) => void] {
-  const [hash, setHash] = useState(() => window.location.hash.slice(1) || '/talk')
-  useEffect(() => {
-    const on = () => setHash(window.location.hash.slice(1) || '/talk')
-    window.addEventListener('hashchange', on)
-    return () => window.removeEventListener('hashchange', on)
+    return () => {
+      activeRef.current = false
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [fetcher, tick, pollIntervalMs])
+
+  const replace = useCallback((newData: T) => {
+    setData(newData)
   }, [])
-  return [hash, (h) => { window.location.hash = h }]
+
+  return { data, loading, error, reload: fetcher, replace }
 }
 
-export function useEscape(onEscape: () => void): void {
+export function useDebounce<T>(value: T, delayMs: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
   useEffect(() => {
-    const on = (e: KeyboardEvent) => { if (e.key === 'Escape') onEscape() }
-    window.addEventListener('keydown', on)
-    return () => window.removeEventListener('keydown', on)
-  }, [onEscape])
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delayMs)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delayMs])
+
+  return debouncedValue
 }
 
-/** Run `fn` every `ms` while the component is mounted and the tab is visible. */
-export function useInterval(fn: () => void, ms: number): void {
+export function useKeyCombo(key: string, meta: boolean, callback: () => void) {
   useEffect(() => {
-    const id = setInterval(() => { if (!document.hidden) fn() }, ms)
-    return () => clearInterval(id)
-  }, [fn, ms])
+    const handler = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === key.toLowerCase() && (!meta || e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        callback()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [key, meta, callback])
 }

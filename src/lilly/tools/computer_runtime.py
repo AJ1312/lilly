@@ -77,19 +77,23 @@ class VisionGrounder(Protocol):
     async def __call__(self, frame: ComputerFrame, target: str, task_id: str) -> tuple[int, int] | None: ...
 
 
+def _pyautogui_mod() -> Any:
+    try:
+        import pyautogui  # type: ignore[import-untyped]
+        pyautogui.PAUSE = 0.05
+        pyautogui.FAILSAFE = False
+        return pyautogui
+    except Exception as exc:
+        logging.debug("pyautogui unavailable: %s", exc)
+        return None
+
+
 class PyAutoGUIComputerBackend:  # pragma: no cover - exercised by the desktop smoke test
     """Robust desktop control backend powered by open-source PyAutoGUI and native OS hooks."""
 
     def __init__(self) -> None:
         self._screencapture = shutil.which("screencapture")
         self._osascript = shutil.which("osascript")
-        try:
-            import pyautogui  # type: ignore[import-untyped]
-            pyautogui.PAUSE = 0.05
-            pyautogui.FAILSAFE = False
-            self._pyautogui = pyautogui
-        except Exception:
-            self._pyautogui = None
 
     async def observe(self, screenshot_path: Path | None) -> tuple[str | None, str | None, Sequence[A11yElement]]:
         if screenshot_path is not None:
@@ -100,12 +104,14 @@ class PyAutoGUIComputerBackend:  # pragma: no cover - exercised by the desktop s
                     captured = screenshot_path.is_file()
                 except Exception:
                     captured = False
-            if not captured and self._pyautogui is not None:
-                try:
-                    await asyncio.to_thread(self._pyautogui.screenshot, str(screenshot_path))
-                    captured = screenshot_path.is_file()
-                except Exception as exc:
-                    logging.debug("pyautogui screenshot fallback failed: %s", exc)
+            if not captured:
+                mod = _pyautogui_mod()
+                if mod is not None:
+                    try:
+                        await asyncio.to_thread(mod.screenshot, str(screenshot_path))
+                        captured = screenshot_path.is_file()
+                    except Exception as exc:
+                        logging.debug("pyautogui screenshot fallback failed: %s", exc)
 
         app: str | None = None
         window: str | None = None
@@ -173,21 +179,24 @@ end tell'''
         return app or None, window or None, elements
 
     async def click(self, x: int, y: int) -> None:
-        if self._pyautogui is not None:
-            await asyncio.to_thread(self._pyautogui.click, x=x, y=y)
+        mod = _pyautogui_mod()
+        if mod is not None:
+            await asyncio.to_thread(mod.click, x=x, y=y)
             return
         await self._jxa(f"mouseClick({x}, {y})")
 
     async def type_text(self, text: str) -> None:
-        if self._pyautogui is not None:
-            await asyncio.to_thread(self._pyautogui.write, text, interval=0.01)
+        mod = _pyautogui_mod()
+        if mod is not None:
+            await asyncio.to_thread(mod.write, text, interval=0.01)
             return
         escaped = text.replace("\\", "\\\\").replace('"', '\\"')
         await self._script(f'tell application "System Events" to keystroke "{escaped}"')
 
     async def press(self, key: str) -> None:
         normalized = key.casefold().strip().replace(" ", "")
-        if self._pyautogui is not None:
+        mod = _pyautogui_mod()
+        if mod is not None:
             key_map = {
                 "return": "enter", "esc": "escape",
                 "backspace": "backspace", "delete": "delete",
@@ -197,32 +206,34 @@ end tell'''
             mapped = key_map.get(normalized, normalized)
             if "+" in mapped:
                 parts = mapped.split("+")
-                await asyncio.to_thread(self._pyautogui.hotkey, *parts)
+                await asyncio.to_thread(mod.hotkey, *parts)
             else:
-                await asyncio.to_thread(self._pyautogui.press, mapped)
+                await asyncio.to_thread(mod.press, mapped)
             return
         if normalized not in _KEY_CODES:
             raise ValidationFailed(f"unsupported key: {key}")
         await self._script(f'tell application "System Events" to key code {_KEY_CODES[normalized]}')
 
     async def move(self, x: int, y: int) -> None:
-        if self._pyautogui is not None:
-            await asyncio.to_thread(self._pyautogui.moveTo, x=x, y=y)
+        mod = _pyautogui_mod()
+        if mod is not None:
+            await asyncio.to_thread(mod.moveTo, x=x, y=y)
             return
         await self._jxa(f"mouseMove({x}, {y})")
 
     async def scroll(self, amount: int) -> None:
-        if self._pyautogui is not None:
-            await asyncio.to_thread(self._pyautogui.scroll, amount)
+        mod = _pyautogui_mod()
+        if mod is not None:
+            await asyncio.to_thread(mod.scroll, amount)
             return
         await self.press("pagedown" if amount < 0 else "pageup")
 
     async def drag(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
-        if self._pyautogui is not None:
+        mod = _pyautogui_mod()
+        if mod is not None:
             def _drag() -> None:
-                assert self._pyautogui is not None
-                self._pyautogui.moveTo(start_x, start_y)
-                self._pyautogui.dragTo(end_x, end_y, button="left")
+                mod.moveTo(start_x, start_y)
+                mod.dragTo(end_x, end_y, button="left")
             await asyncio.to_thread(_drag)
             return
         await self._jxa(f"mouseDrag({start_x}, {start_y}, {end_x}, {end_y})")

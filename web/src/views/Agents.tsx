@@ -1,178 +1,723 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
-import { useApp } from '../store'
-import { DEFAULT_LOOK, MAX_SKILLS, MODES, PET_ACCESSORIES, PET_EYES, type Agent, type ModelStatus, type PetLook } from '../types'
-import { Pet, type PetState } from '../ui/Pet'
-import { PET_IDS, PETS, speciesHue } from '../ui/petArt'
-import { Button, Confirm, Dialog, Empty, ErrorNote, Field, IconButton, PageHead, Pill, Segmented, Switch } from '../ui/kit'
+import { useAppStore } from '../store'
+import type { Agent, PetLook, ModelStatus } from '../types'
+import { Icon } from '../ui/Icon'
+import { Modal } from '../ui/Modal'
+import { Markdown } from '../ui/Markdown'
+import { LillyMascot, type PetSpecies } from '../ui/LillyMascot'
 
-const BLANK: Omit<Agent, 'id'> = { name: '', instructions: '', mode: 1, research_allowed: true, memory_allowed: true, files_allowed: false, computer_allowed: false, chat_allowed: false, pet: 'lily', look: DEFAULT_LOOK, skills: '', model: '' }
-
-const STATES: { value: PetState; label: string }[] = [
-  { value: 'idle', label: 'Idle' },
-  { value: 'thinking', label: 'Working' },
-  { value: 'waiting', label: 'Waiting' },
-  { value: 'done', label: 'Done' },
-  { value: 'error', label: 'Error' },
-]
-const ACCESSORY_LABEL: Record<PetLook['accessory'], string> = { none: 'None', bow: 'Bow', glasses: 'Glasses', hat: 'Party hat', scarf: 'Scarf', crown: 'Crown', headphones: 'Headphones' }
-const EYES_LABEL: Record<PetLook['eyes'], string> = { round: 'Round', sparkle: 'Sparkly', sleepy: 'Sleepy' }
-
-function AgentDialog({ agent, onClose, onSaved }: { agent: Agent | null; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState<Omit<Agent, 'id'>>(agent ?? BLANK)
-  const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<PetState>('idle')
-  const models = useLoad<{ models: ModelStatus[] }>('/api/models')
-  const set = <K extends keyof typeof draft>(k: K, v: (typeof draft)[K]) => setDraft({ ...draft, [k]: v })
-  const dress = <K extends keyof PetLook>(k: K, v: PetLook[K]) => setDraft({ ...draft, look: { ...draft.look, [k]: v } })
-  const modelNames = models.data?.models.filter((m) => m.enabled).map((m) => m.name) ?? []
-  const save = async () => {
-    try {
-      if (agent) await api.patch(`/api/agents/${agent.id}`, draft)
-      else await api.post('/api/agents', draft)
-      onSaved()
-    } catch (e) {
-      setError(errorText(e))
-    }
-  }
-  return (
-    <Dialog
-      wide
-      title={agent ? 'Edit agent' : 'New agent'}
-      onClose={onClose}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button kind="primary" disabled={!draft.name.trim()} onClick={() => void save()}>Save</Button></>}
-    >
-      <div className="field">
-        <span className="label">Pick a pet</span>
-        <div className="pet-grid" role="radiogroup" aria-label="Pet">
-          {PET_IDS.map((id) => (
-            <button key={id} type="button" role="radio" aria-checked={draft.pet === id} className={`pet-pick${draft.pet === id ? ' on' : ''}`} onClick={() => set('pet', id)} title={PETS[id].blurb}>
-              <Pet id={id} look={draft.look} size={52} state={draft.pet === id ? 'done' : 'idle'} />
-              <span>{PETS[id].name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="pet-studio">
-        <div className="pet-stage">
-          <Pet id={draft.pet} look={draft.look} state={preview} size={128} label={`Preview of ${draft.name.trim() || 'your agent'}, ${PETS[draft.pet].name}, ${STATES.find((x) => x.value === preview)?.label.toLowerCase()}`} />
-          <Segmented label="Preview state" value={preview} onChange={setPreview} options={STATES} />
-        </div>
-        <div className="pet-controls">
-          <Field label="Colour">
-            {(id) => (
-              <div className="row">
-                <input id={id} className="hue" type="range" min={0} max={359} step={1} value={draft.look.hue ?? speciesHue(draft.pet)} aria-valuetext={draft.look.hue === null ? 'Species colour' : `Hue ${draft.look.hue} degrees`} onChange={(e) => dress('hue', Number(e.target.value))} />
-                <Button small disabled={draft.look.hue === null} onClick={() => dress('hue', null)}>Species colour</Button>
-              </div>
-            )}
-          </Field>
-          <Field label="Accessory">
-            {(id) => (
-              <select id={id} value={draft.look.accessory} onChange={(e) => dress('accessory', PET_ACCESSORIES.find((a) => a === e.target.value) ?? 'none')}>
-                {PET_ACCESSORIES.map((a) => <option key={a} value={a}>{ACCESSORY_LABEL[a]}</option>)}
-              </select>
-            )}
-          </Field>
-          <div className="field">
-            <span className="label">Eyes</span>
-            <Segmented label="Eyes" value={draft.look.eyes} onChange={(v) => dress('eyes', v)} options={PET_EYES.map((e) => ({ value: e, label: EYES_LABEL[e] }))} />
-          </div>
-          <Switch label="Rosy cheeks" checked={draft.look.blush} onChange={(v) => dress('blush', v)} />
-        </div>
-      </div>
-      <Field label="Name">{(id) => <input id={id} value={draft.name} maxLength={80} onChange={(e) => set('name', e.target.value)} />}</Field>
-      <Field label="Instructions" hint="How this agent should behave, in plain words.">
-        {(id) => <textarea id={id} rows={4} value={draft.instructions} maxLength={8000} onChange={(e) => set('instructions', e.target.value)} />}
-      </Field>
-      <Field label="Model" hint="A model you choose here is always used for this agent. If it is unavailable, the task fails with a clear message instead of switching to another one.">
-        {(id) => (
-          <select id={id} value={draft.model} onChange={(e) => set('model', e.target.value)}>
-            <option value="">Automatic</option>
-            {draft.model && !modelNames.includes(draft.model) && <option value={draft.model}>{draft.model} (not available)</option>}
-            {modelNames.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        )}
-      </Field>
-      <Field label="Skills (skills.md)" hint={`What this agent knows how to do, in plain text or Markdown. It is added to every task of this agent, so it costs tokens each time. ${draft.skills.length} / ${MAX_SKILLS}`}>
-        {(id) => <textarea id={id} rows={5} value={draft.skills} maxLength={MAX_SKILLS} spellCheck={false} onChange={(e) => set('skills', e.target.value)} />}
-      </Field>
-      <div className="field">
-        <span className="label">How much freedom?</span>
-        <Segmented label="Mode" value={draft.mode} onChange={(v) => set('mode', v)} options={MODES.map((m) => ({ value: m.value, label: m.name, hint: m.blurb }))} />
-        <p className="hint">{MODES[draft.mode].blurb}</p>
-      </div>
-      <Switch label="Search the web" checked={draft.research_allowed} onChange={(v) => set('research_allowed', v)} />
-      <Switch label="Use memory and notes" checked={draft.memory_allowed} onChange={(v) => set('memory_allowed', v)} />
-      <Switch label="Work with files" hint="Only inside the folders you share in Settings → Privacy." checked={draft.files_allowed} onChange={(v) => set('files_allowed', v)} />
-      <Switch
-        label="Control this computer"
-        hint="Open links and apps, list and stop programs, show notifications, run commands in a shared folder. Every single use still asks you first, even in Open mode. Needs Computer control turned on in Settings → Privacy & access."
-        checked={draft.computer_allowed}
-        onChange={(v) => set('computer_allowed', v)}
-      />
-      <Switch
-        label="Reachable from chat apps"
-        hint="Lets this agent answer messages from a chat app you have paired (Settings → Chat apps). Messages from outside are treated as untrusted, and anything that needs approval is shown to you with the exact action."
-        checked={draft.chat_allowed}
-        onChange={(v) => set('chat_allowed', v)}
-      />
-      <ErrorNote text={error} />
-    </Dialog>
-  )
+interface SpeciesInfo {
+  id: PetSpecies
+  name: string
+  emoji: string
+  role: string
+  desc: string
 }
 
-export function Agents() {
-  const list = useLoad<{ agents: Agent[] }>('/api/agents')
-  const [editing, setEditing] = useState<Agent | 'new' | null>(null)
-  const [removing, setRemoving] = useState<Agent | null>(null)
-  const toast = useApp((s) => s.toast)
+const PET_SPECIES: SpeciesInfo[] = [
+  { id: 'lily', name: 'Lily', emoji: '🐰', role: 'Clever Pioneer', desc: 'Curious rabbit with keen instincts for general reasoning.' },
+  { id: 'pip', name: 'Pip', emoji: '🐧', role: 'Speedy Coder', desc: 'Fast, sharp penguin focused on code and system tools.' },
+  { id: 'mochi', name: 'Mochi', emoji: '🍡', role: 'Boba Slime', desc: 'Cozy, squishy blob that excels at memory & creative notes.' },
+  { id: 'bao', name: 'Bao', emoji: '🐼', role: 'Panda Defender', desc: 'Sturdy guardian with extra careful guardrails.' },
+  { id: 'fern', name: 'Fern', emoji: '🦌', role: 'Forest Deer', desc: 'Gentle researcher with deep patience for long documents.' },
+  { id: 'juno', name: 'Juno', emoji: '🐶', role: 'Star Hound', desc: 'Cosmic explorer that tracks remote systems and logs.' },
+  { id: 'otto', name: 'Otto', emoji: '🦦', role: 'Cyber Otter', desc: 'Clever tool technician and automation engineer.' },
+  { id: 'wisp', name: 'Wisp', emoji: '👻', role: 'Spirit Flame', desc: 'Ethereal shadow analyst with minimal token footprint.' },
+]
+
+const COLOR_PRESETS = [
+  { label: 'Lavender', hue: 250 },
+  { label: 'Cyber Cyan', hue: 190 },
+  { label: 'Coral', hue: 350 },
+  { label: 'Amber', hue: 38 },
+  { label: 'Emerald', hue: 145 },
+  { label: 'Bubblegum', hue: 320 },
+  { label: 'Indigo', hue: 225 },
+]
+
+export const AgentsView: React.FC = () => {
+  const toast = useAppStore((s) => s.toast)
+  const bump = useAppStore((s) => s.bump)
+
+  const { data, loading, reload } = useLoad<{ agents: Agent[] }>('/api/agents')
+  const agents = data?.agents || []
+
+  const { data: modelsData } = useLoad<{ models: ModelStatus[] }>('/api/models')
+  const availableModels = modelsData?.models || []
+
+  const [promptPreview, setPromptPreview] = useState<string | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [isEditingExisting, setIsEditingExisting] = useState(false)
+
+  // Form fields
+  const [agentId, setAgentId] = useState('')
+  const [name, setName] = useState('')
+  const [instructions, setInstructions] = useState('')
+  const [pinnedModel, setPinnedModel] = useState('')
+  const [pet, setPet] = useState<PetSpecies>('lily')
+  const [mode, setMode] = useState<number>(1)
+  const [researchAllowed, setResearchAllowed] = useState(true)
+  const [memoryAllowed, setMemoryAllowed] = useState(true)
+  const [filesAllowed, setFilesAllowed] = useState(true)
+  const [computerAllowed, setComputerAllowed] = useState(false)
+  const [chatAllowed, setChatAllowed] = useState(true)
+
+  const [petLook, setPetLook] = useState<PetLook>({
+    hue: 250,
+    accessory: 'none',
+    eyes: 'round',
+    blush: true,
+  })
+  const [saving, setSaving] = useState(false)
+
+  const openCreate = () => {
+    setIsEditingExisting(false)
+    setAgentId(`agent_${Date.now()}`)
+    setName('')
+    setInstructions('')
+    setPinnedModel('')
+    setPet('lily')
+    setMode(1)
+    setResearchAllowed(true)
+    setMemoryAllowed(true)
+    setFilesAllowed(true)
+    setComputerAllowed(false)
+    setChatAllowed(true)
+    setPetLook({ hue: 250, accessory: 'none', eyes: 'round', blush: true })
+    setEditorOpen(true)
+  }
+
+  const openEdit = (ag: Agent) => {
+    setIsEditingExisting(true)
+    setAgentId(ag.id)
+    setName(ag.name)
+    setInstructions(ag.instructions || '')
+    setPinnedModel(ag.model || '')
+    setPet((ag.pet as PetSpecies) || 'lily')
+    setMode(ag.mode ?? 1)
+    setResearchAllowed(ag.research_allowed ?? true)
+    setMemoryAllowed(ag.memory_allowed ?? true)
+    setFilesAllowed(ag.files_allowed ?? true)
+    setComputerAllowed(ag.computer_allowed ?? false)
+    setChatAllowed(ag.chat_allowed ?? true)
+    setPetLook(ag.look || { hue: 250, accessory: 'none', eyes: 'round', blush: true })
+    setEditorOpen(true)
+  }
+
+  const handlePreviewPrompt = async (id: string) => {
+    try {
+      const res = await api.get<{ prompt: string }>(`/api/agents/${id}/prompt-preview`)
+      setPromptPreview(res.prompt)
+    } catch (err) {
+      toast(`Cannot preview prompt: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleExportAgent = async (id: string, agentName: string) => {
+    try {
+      const res = await api.get<any>(`/api/agents/${id}/export`)
+      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${agentName.toLowerCase().replace(/\s+/g, '_')}_agent.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast(`Exported ${agentName} specification`, 'good')
+    } catch (err) {
+      toast(`Export failed: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleValidateInstructions = async () => {
+    try {
+      const res = await api.post<{ ok: boolean; diagnostics?: { message: string }[] }>('/api/agents/validate-sheet', {
+        sheet: instructions,
+      })
+      if (res.ok) {
+        toast('Agent instructions sheet is valid!', 'good')
+      } else {
+        const issues = (res.diagnostics || []).map((d) => d.message).join(', ')
+        toast(`Validation problems: ${issues || 'syntax problem'}`, 'warn')
+      }
+    } catch (err) {
+      toast(`Validation error: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+
+    setSaving(true)
+    try {
+      const payload = {
+        name: name.trim(),
+        instructions: instructions.trim() || undefined,
+        model: pinnedModel.trim() || undefined,
+        pet,
+        mode,
+        research_allowed: researchAllowed,
+        memory_allowed: memoryAllowed,
+        files_allowed: filesAllowed,
+        computer_allowed: computerAllowed,
+        chat_allowed: chatAllowed,
+        look: {
+          hue: petLook.hue,
+          accessory: petLook.accessory,
+          eyes: petLook.eyes,
+          blush: petLook.blush,
+        },
+      }
+
+      if (isEditingExisting) {
+        await api.patch(`/api/agents/${agentId}`, payload)
+        toast('Agent updated successfully', 'good')
+      } else {
+        await api.post('/api/agents', { id: agentId, ...payload })
+        toast('Agent created successfully', 'good')
+      }
+
+      setEditorOpen(false)
+      bump()
+      await reload()
+    } catch (err) {
+      toast(`Failed to save agent: ${errorText(err)}`, 'bad')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id: string, agentName: string) => {
+    if (!confirm(`Are you sure you want to delete agent "${agentName}"?`)) return
+    try {
+      await api.delete(`/api/agents/${id}`)
+      toast(`Agent ${agentName} deleted`, 'warn')
+      bump()
+      await reload()
+    } catch (err) {
+      toast(`Failed to delete agent: ${errorText(err)}`, 'bad')
+    }
+  }
+
   return (
-    <div className="page">
-      <PageHead
-        title="Your team"
-        sub="Each agent has its own pet, instructions and permissions. Pick one when you start a chat; its pet shows what it is doing."
-        actions={<Button kind="primary" icon="plus" onClick={() => setEditing('new')}>New agent</Button>}
-      />
-      <ErrorNote text={list.error} />
-      {list.data?.agents.length === 0 && <Empty title="No agents yet">Lilly uses its default settings until you make one. Try a Locked “Researcher” that can only search the web, or a “Fixer” that may control this computer.</Empty>}
-      <ul className="team">
-        {list.data?.agents.map((a) => (
-          <li key={a.id} className="teammate">
-            <div className="teammate-pet"><Pet id={a.pet} look={a.look} size={84} state="idle" label={`${a.name}, a pet`} /></div>
-            <div className="teammate-body">
-              <div className="row between">
-                <h3>{a.name}</h3>
-                <div className="row">
-                  <IconButton icon="edit" label={`Edit ${a.name}`} onClick={() => setEditing(a)} />
-                  <IconButton icon="trash" label={`Delete ${a.name}`} kind="danger" onClick={() => setRemoving(a)} />
+    <div className="view-container" style={{ padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>Agents & Pet Crew</span>
+            <span className="badge badge-primary">{agents.length} Active</span>
+          </h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Design specialized agents, choose 3D companion personas, tune system instructions, and assign tools.
+          </p>
+        </div>
+        <button onClick={openCreate} className="btn btn-primary" type="button">
+          <Icon name="plus" size={14} />
+          <span>Create Agent</span>
+        </button>
+      </div>
+
+      {loading && agents.length === 0 ? (
+        <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          Loading agents...
+        </div>
+      ) : agents.length === 0 ? (
+        <div className="card" style={{ padding: '48px', textAlign: 'center' }}>
+          <LillyMascot size={100} speech="Create your first agent companion!" />
+          <h3 style={{ fontSize: '16px', fontWeight: 600, marginTop: '16px' }}>No custom agents yet</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+            Build specialized personas with dedicated instructions, cute 3D mascots, and custom model routing.
+          </p>
+          <button onClick={openCreate} className="btn btn-primary" type="button">
+            Create Your First Agent
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
+          {agents.map((ag) => {
+            const speciesData = PET_SPECIES.find((p) => p.id === (ag.pet || 'lily')) || PET_SPECIES[0]
+            return (
+              <div
+                key={ag.id}
+                className="card card-hover"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                  {/* Interactive Mini Mascot Avatar */}
+                  <div
+                    style={{
+                      flexShrink: 0,
+                      backgroundColor: 'var(--bg-card-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '4px',
+                      border: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <LillyMascot
+                      pet={ag.pet || 'lily'}
+                      look={ag.look}
+                      size={54}
+                      interactive={false}
+                    />
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)' }}>
+                        {ag.name}
+                      </span>
+                      <span className="badge badge-accent" style={{ fontSize: '10px' }}>
+                        {speciesData.emoji} {speciesData.name}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                      {speciesData.role} • {ag.model ? `Pinned: ${ag.model}` : 'Auto-routed model'}
+                    </div>
+
+                    {ag.instructions && (
+                      <p
+                        style={{
+                          fontSize: '12px',
+                          color: 'var(--text-secondary)',
+                          marginTop: '6px',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {ag.instructions}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Capability Badges */}
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {ag.computer_allowed && (
+                    <span className="badge badge-warn" style={{ fontSize: '10px' }}>💻 Computer</span>
+                  )}
+                  {ag.files_allowed && (
+                    <span className="badge badge-secondary" style={{ fontSize: '10px' }}>📁 Files</span>
+                  )}
+                  {ag.research_allowed && (
+                    <span className="badge badge-secondary" style={{ fontSize: '10px' }}>🔍 Web</span>
+                  )}
+                  {ag.memory_allowed && (
+                    <span className="badge badge-secondary" style={{ fontSize: '10px' }}>🧠 Memory</span>
+                  )}
+                  <span className="badge badge-neutral" style={{ fontSize: '10px' }}>
+                    Accessory: {ag.look?.accessory || 'none'}
+                  </span>
+                </div>
+
+                {/* Actions Footer */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderTop: '1px solid var(--border-subtle)',
+                    paddingTop: '10px',
+                    marginTop: 'auto',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handlePreviewPrompt(ag.id)}
+                      className="btn btn-ghost btn-sm"
+                      title="Inspect System Prompt"
+                      style={{ fontSize: '11px', padding: '3px 8px' }}
+                    >
+                      <Icon name="eye" size={11} />
+                      <span>Prompt</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportAgent(ag.id, ag.name)}
+                      className="btn btn-ghost btn-sm"
+                      title="Export Agent Spec"
+                      style={{ fontSize: '11px', padding: '3px 8px' }}
+                    >
+                      <Icon name="copy" size={11} />
+                      <span>Export</span>
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => openEdit(ag)}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '11px', padding: '3px 10px' }}
+                    >
+                      <Icon name="sliders" size={11} />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(ag.id, ag.name)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: 'var(--danger-text)', padding: '3px 6px' }}
+                      title="Delete Agent"
+                    >
+                      <Icon name="trash" size={11} />
+                    </button>
+                  </div>
                 </div>
               </div>
-              <p className="clamp">{a.instructions || 'No special instructions.'}</p>
-              <div className="row wrap">
-                <Pill tone={a.mode === 2 ? 'warn' : 'mute'}>{MODES[a.mode].name}</Pill>
-                {a.research_allowed && <Pill>web</Pill>}
-                {a.memory_allowed && <Pill>memory</Pill>}
-                {a.files_allowed && <Pill>files</Pill>}
-                {a.computer_allowed && <Pill tone="warn">computer</Pill>}
-                {a.chat_allowed && <Pill>chat</Pill>}
+            )
+          })}
+        </div>
+      )}
+
+      {/* Prompt Preview Modal */}
+      <Modal
+        isOpen={Boolean(promptPreview)}
+        onClose={() => setPromptPreview(null)}
+        title="Compiled Agent System Prompt"
+        maxWidth={640}
+      >
+        <div style={{ fontSize: '13px' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '12px' }}>
+            This is the exact combined system prompt and tools guidance injected into the model for this agent:
+          </p>
+          <div
+            style={{
+              padding: '12px',
+              backgroundColor: 'var(--bg-card-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              maxHeight: '400px',
+              overflowY: 'auto',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <Markdown content={`\`\`\`markdown\n${promptPreview || ''}\n\`\`\``} />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Highly Customizable Agent & Pet Studio Modal */}
+      <Modal
+        isOpen={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        title={isEditingExisting ? `Edit Agent: ${name || 'Agent'}` : 'Create New Agent & Pet Companion'}
+        maxWidth={720}
+        footer={
+          <>
+            <button type="button" onClick={() => setEditorOpen(false)} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!name.trim() || saving}
+              className="btn btn-primary"
+            >
+              <span>{saving ? 'Saving...' : isEditingExisting ? 'Save Changes' : 'Create Agent'}</span>
+            </button>
+          </>
+        }
+      >
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Header Live Preview Banner */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '20px',
+              padding: '16px 20px',
+              backgroundColor: 'var(--bg-card-subtle)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <LillyMascot
+              pet={pet}
+              look={petLook}
+              size={110}
+              state="happy"
+              interactive
+              speech={name ? `Hi! I'm ${name}!` : undefined}
+            />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700 }}>
+                Live Pet Companion Preview
+              </div>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>
+                {name || 'Unnamed Agent'}
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Click me to test bouncy animations! Your pet appearance and personality update in real-time.
+              </p>
+            </div>
+          </div>
+
+          {/* Basic Identity */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                Agent Name *
+              </label>
+              <input
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Code Reviewer, Lilly, Otto Tech"
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                Pinned LLM Model (Optional)
+              </label>
+              <select
+                className="select"
+                value={pinnedModel}
+                onChange={(e) => setPinnedModel(e.target.value)}
+              >
+                <option value="">Auto-Route (Best model dynamically)</option>
+                {availableModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name} ({m.provider} - {m.lane === 1 ? 'Fast' : 'Heavy'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* 3D Pet Character Species Selector */}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
+              Pet Companion Species ({PET_SPECIES.length} options)
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+              {PET_SPECIES.map((p) => {
+                const isSelected = pet === p.id
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPet(p.id)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      padding: '10px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                      backgroundColor: isSelected ? 'var(--primary-subtle)' : 'var(--bg-card)',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span style={{ fontSize: '24px', marginBottom: '2px' }}>{p.emoji}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>{p.name}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '1px' }}>{p.role}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Pet Look Visual Customizer */}
+          <div
+            className="card card-subtle"
+            style={{
+              padding: '14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              backgroundColor: 'var(--bg-card-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600 }}>Pet Customization Studio</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={petLook.blush}
+                  onChange={(e) => setPetLook({ ...petLook, blush: e.target.checked })}
+                />
+                <span>Blush Cheeks</span>
+              </label>
+            </div>
+
+            {/* Hue Slider + Color Presets */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Color Spectrum Wheel ({petLook.hue ?? 250}°)</span>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '16px',
+                    height: '16px',
+                    borderRadius: '50%',
+                    backgroundColor: `hsl(${petLook.hue ?? 250}, 85%, 60%)`,
+                    border: '1px solid rgba(0,0,0,0.1)',
+                  }}
+                />
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="359"
+                value={petLook.hue ?? 250}
+                onChange={(e) => setPetLook({ ...petLook, hue: Number(e.target.value) })}
+                style={{ width: '100%', cursor: 'pointer' }}
+              />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                {COLOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setPetLook({ ...petLook, hue: preset.hue })}
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '12px' }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: `hsl(${preset.hue}, 85%, 60%)`,
+                        marginRight: '4px',
+                      }}
+                    />
+                    {preset.label}
+                  </button>
+                ))}
               </div>
             </div>
-          </li>
-        ))}
-      </ul>
-      {editing && <AgentDialog agent={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); list.reload() }} />}
-      {removing && (
-        <Confirm
-          title={`Delete ${removing.name}?`}
-          danger
-          confirm="Delete"
-          body="Past conversations keep their messages."
-          onClose={() => setRemoving(null)}
-          onConfirm={() => { api.del(`/api/agents/${removing.id}`).then(() => list.reload()).catch((e: unknown) => toast(errorText(e), 'bad')) }}
-        />
-      )}
+
+            {/* Accessories & Eyes */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Accessory
+                </label>
+                <select
+                  className="select"
+                  value={petLook.accessory}
+                  onChange={(e) => setPetLook({ ...petLook, accessory: e.target.value as any })}
+                >
+                  <option value="none">None (Natural)</option>
+                  <option value="glasses">👓 Smart Glasses</option>
+                  <option value="bow">🎀 Satin Bow</option>
+                  <option value="hat">🧙 Party / Wizard Hat</option>
+                  <option value="scarf">🧣 Cozy Warm Scarf</option>
+                  <option value="crown">👑 Royal Gold Crown</option>
+                  <option value="headphones">🎧 Cyber DJ Headphones</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Eyes Expression
+                </label>
+                <select
+                  className="select"
+                  value={petLook.eyes}
+                  onChange={(e) => setPetLook({ ...petLook, eyes: e.target.value as any })}
+                >
+                  <option value="round">👀 Round Curious</option>
+                  <option value="sparkle">✨ Star Sparkle</option>
+                  <option value="sleepy">😴 Sleepy Relaxed</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Tool Capabilities Toggles */}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
+              Allowed Capabilities & Tool Access
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={researchAllowed}
+                  onChange={(e) => setResearchAllowed(e.target.checked)}
+                />
+                <span>🔍 Web Search</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={memoryAllowed}
+                  onChange={(e) => setMemoryAllowed(e.target.checked)}
+                />
+                <span>🧠 Long Memory</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={filesAllowed}
+                  onChange={(e) => setFilesAllowed(e.target.checked)}
+                />
+                <span>📁 Files Access</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={computerAllowed}
+                  onChange={(e) => setComputerAllowed(e.target.checked)}
+                />
+                <span>💻 Computer Use</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={chatAllowed}
+                  onChange={(e) => setChatAllowed(e.target.checked)}
+                />
+                <span>💬 Bridges / Chat</span>
+              </label>
+            </div>
+          </div>
+
+          {/* System Instructions Sheet */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600 }}>System Instructions Sheet</label>
+              <button
+                type="button"
+                onClick={handleValidateInstructions}
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: '11px', padding: '2px 8px' }}
+              >
+                Validate Sheet
+              </button>
+            </div>
+            <textarea
+              className="textarea"
+              rows={5}
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="Standing instructions, persona constraints, formatting rules..."
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

@@ -1,98 +1,143 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
-import { useApp } from '../store'
-import { LIVE_STATES, type LilEvent, type Task, type TaskDetail } from '../types'
-import { StepNode } from '../ui/RunCard'
-import { Button, Empty, ErrorNote, PageHead, Segmented, StatePill } from '../ui/kit'
-import { ago, clock } from '../ui/format'
+import { useAppStore } from '../store'
+import type { DecisionLog } from '../types'
+import { Icon } from '../ui/Icon'
 
-type Filter = 'all' | 'live' | 'problems'
+export const ActivityView: React.FC = () => {
+  const toast = useAppStore((s) => s.toast)
+  const bump = useAppStore((s) => s.bump)
 
-function TaskList({ go }: { go: (h: string) => void }) {
-  const [filter, setFilter] = useState<Filter>('all')
-  const states = filter === 'live' ? LIVE_STATES.join(',') : filter === 'problems' ? 'FAILED,EXPIRED,CANCELLED' : ''
-  const list = useLoad<{ tasks: Task[] }>(`/api/tasks?limit=100${states ? `&state=${states}` : ''}`, true)
-  return (
-    <div className="page">
-      <PageHead title="Activity" sub="Everything Lilly has done, with a tamper-evident record of each task." />
-      <Segmented
-        label="Filter"
-        value={filter}
-        onChange={setFilter}
-        options={[{ value: 'all', label: 'All' }, { value: 'live', label: 'Running' }, { value: 'problems', label: 'Stopped or failed' }]}
-      />
-      <ErrorNote text={list.error} />
-      {list.data?.tasks.length === 0 && <Empty title="Nothing here yet">Tasks you start in Talk appear here.</Empty>}
-      <ul className="ledger ledger-tasks">
-        {list.data?.tasks.map((t) => (
-          <li key={t.id}>
-            <button type="button" className="row-button" onClick={() => go(`/activity/${t.id}`)}>
-              <strong>{t.goal.slice(0, 120)}</strong>
-              <span className="row-meta"><StatePill state={t.state} /> <span className="hint">{ago(t.created_at)}</span></span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
+  const [kindFilter, setKindFilter] = useState<string>('all')
 
-function TaskDetailView({ id, go }: { id: string; go: (h: string) => void }) {
-  const detail = useLoad<TaskDetail>(`/api/tasks/${id}`, true)
-  const events = useLoad<{ events: LilEvent[] }>(`/api/tasks/${id}/events?limit=500`, true)
-  const [intact, setIntact] = useState<boolean | null>(null)
-  const toast = useApp((s) => s.toast)
-  const d = detail.data
+  const url = kindFilter === 'all' ? '/api/decisions' : `/api/decisions?kind=${kindFilter}`
+  const { data, loading, reload } = useLoad<{ decisions: DecisionLog[]; summary?: any[] }>(url, 4000)
+  const decisions = data?.decisions || []
+  const summary = data?.summary || []
 
-  const verify = async () => {
+  const handleMarkOutcome = async (logId: number, outcome: string) => {
     try {
-      setIntact((await api.get<{ intact: boolean }>(`/api/tasks/${id}/verify`)).intact)
-    } catch (e) {
-      toast(errorText(e), 'bad')
+      await api.post(`/api/decisions/${logId}/outcome`, { outcome })
+      toast(`Marked decision outcome as ${outcome}`, 'good')
+      bump()
+      await reload()
+    } catch (err) {
+      toast(`Failed to mark outcome: ${errorText(err)}`, 'bad')
     }
   }
 
-  if (!d) return <div className="page"><ErrorNote text={detail.error} /></div>
   return (
-    <div className="page">
-      <PageHead
-        title={d.task.goal.slice(0, 90)}
-        sub={`Started ${ago(d.task.created_at)}`}
-        actions={<Button icon="chevron" onClick={() => go('/activity')}>All activity</Button>}
-      />
-      <div className="facts">
-        <StatePill state={d.task.state} />
-        <span className="tag">mode {['locked', 'ask', 'open'][d.task.mode]}</span>
-        <span className="tag">data seen: {d.task.label.toLowerCase()}</span>
-        {d.task.tainted && <span className="tag tag-warn">read web content</span>}
-        {d.task.pinned_model && <span className="tag">model: {d.task.pinned_model}</span>}
-      </div>
-      {d.task.error && <p className="run-error">{d.task.error}</p>}
-      {d.task.answer && <section><h2 className="section-title">Answer</h2><p className="prose pre-wrap">{d.task.answer}</p></section>}
-      {d.steps.length > 0 && <section><h2 className="section-title">Steps</h2><ol className="stem">{d.steps.map((s) => <StepNode key={s.id} step={s} />)}</ol></section>}
-      <section>
-        <div className="row between">
-          <h2 className="section-title">Record</h2>
-          <div className="row">
-            {intact !== null && <span className={intact ? 'ok-text' : 'bad-text'}>{intact ? 'Record is intact' : 'Record was altered'}</span>}
-            <Button small icon="shield" onClick={() => void verify()}>Verify record</Button>
-          </div>
+    <div className="view-container" style={{ padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>Activity & Decision Log</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Audit trail of classifier choices, routing judgements, and grounding decisions.
+          </p>
         </div>
-        <ol className="events">
-          {events.data?.events.map((e) => (
-            <li key={e.seq}>
-              <time>{clock(e.at)}</time>
-              <strong>{e.kind}</strong>
-              <code>{JSON.stringify(e.payload).slice(0, 220)}</code>
-            </li>
+
+        <div className="filter-tabs">
+          {['all', 'reply_check', 'intent', 'risk', 'tool_pick'].map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`filter-tab ${kindFilter === k ? 'active' : ''}`}
+              onClick={() => setKindFilter(k)}
+            >
+              {k.replace('_', ' ')}
+            </button>
           ))}
-        </ol>
-      </section>
+        </div>
+      </div>
+
+      {/* Summary KPI cards */}
+      {summary.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+          {summary.map((s, idx) => (
+            <div key={idx} className="card card-subtle">
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600 }}>
+                {s.kind || 'Kind'}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', marginTop: '4px' }}>
+                {s.count ?? 0}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading && decisions.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          Loading activity log...
+        </div>
+      ) : decisions.length === 0 ? (
+        <div className="card" style={{ padding: '48px', textAlign: 'center' }}>
+          <Icon name="activity" size={36} style={{ color: 'var(--text-dim)', margin: '0 auto 12px auto' }} />
+          <h3 style={{ fontSize: '16px', fontWeight: 600 }}>No decisions recorded yet</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 0 0' }}>
+            Decision logs will populate automatically as tasks and routing checks are processed.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {decisions.map((dec) => (
+            <div key={dec.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: 600,
+                      backgroundColor: 'var(--primary-subtle)',
+                      color: 'var(--primary)',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-xs)',
+                    }}
+                  >
+                    {dec.kind}
+                  </span>
+                  <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-main)' }}>
+                    Choice: {dec.choice}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                  {new Date(dec.created_at * 1000).toLocaleTimeString()}
+                </div>
+              </div>
+
+              {dec.prompt && (
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-input)', padding: '8px 12px', borderRadius: 'var(--radius-xs)', maxHeight: '80px', overflowY: 'auto' }}>
+                  {dec.prompt}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid var(--border-subtle)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Outcome: <strong>{dec.outcome || 'uncalibrated'}</strong>
+                </span>
+
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {['correct', 'incorrect'].map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => handleMarkOutcome(dec.id, opt)}
+                      className={`btn btn-sm ${dec.outcome === opt ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ fontSize: '11px', padding: '2px 8px' }}
+                    >
+                      {opt === 'correct' ? <Icon name="check" size={10} /> : <Icon name="x" size={10} />}
+                      <span>{opt}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
-}
-
-export function Activity({ taskId, go }: { taskId: string | null; go: (h: string) => void }) {
-  return taskId ? <TaskDetailView id={taskId} go={go} /> : <TaskList go={go} />
 }

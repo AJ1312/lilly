@@ -1,206 +1,381 @@
-import { useCallback, useState } from 'react'
+import React, { useState } from 'react'
 import { api, errorText } from '../api'
-import { useInterval, useLoad } from '../hooks'
-import { useApp } from '../store'
-import type { Agent, ExecutionTarget, Routine, Schedule } from '../types'
-import { STATE_LABEL, ago, when } from '../ui/format'
-import { Button, Confirm, Dialog, Empty, ErrorNote, Field, IconButton, PageHead, Pill, Segmented, Switch, TargetPill } from '../ui/kit'
+import { useLoad } from '../hooks'
+import { useAppStore } from '../store'
+import type { Routine, Playbook, ExecutionTarget } from '../types'
+import { Icon } from '../ui/Icon'
+import { TargetPill } from '../ui/Pills'
+import { Modal } from '../ui/Modal'
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const WEEKDAYS = [0, 1, 2, 3, 4]
-const UNITS = [{ value: 1, label: 'minutes' }, { value: 60, label: 'hours' }, { value: 1440, label: 'days' }] as const
+export const RoutinesView: React.FC = () => {
+  const toast = useAppStore((s) => s.toast)
+  const bump = useAppStore((s) => s.bump)
 
-interface Draft {
-  name: string
-  goal: string
-  agent_id: string
-  target: ExecutionTarget
-  kind: 'at' | 'every'
-  at: string
-  days: number[]
-  amount: number
-  unit: number
-}
+  const [activeTab, setActiveTab] = useState<'routines' | 'playbooks'>('routines')
 
-function toDraft(r: Routine | null): Draft {
-  const base: Draft = { name: '', goal: '', agent_id: '', target: 'host', kind: 'at', at: '08:30', days: WEEKDAYS, amount: 1, unit: 60 }
-  if (!r) return base
-  const common = { ...base, name: r.name, goal: r.goal, agent_id: r.agent_id ?? '', target: r.target ?? 'host' }
-  if (r.schedule.kind === 'at') return { ...common, kind: 'at', at: r.schedule.at, days: r.schedule.days }
-  const n = r.schedule.every_minutes
-  const unit = n % 1440 === 0 ? 1440 : n % 60 === 0 ? 60 : 1
-  return { ...common, kind: 'every', amount: n / unit, unit }
-}
+  // Routines data
+  const { data: routinesData, loading: loadingRoutines, reload: reloadRoutines } =
+    useLoad<{ routines: Routine[] }>('/api/routines')
+  const routines = routinesData?.routines || []
 
-function toSchedule(d: Draft): Schedule {
-  return d.kind === 'at' ? { kind: 'at', at: d.at, days: d.days } : { kind: 'every', every_minutes: d.amount * d.unit }
-}
+  // Playbooks data
+  const { data: playbooksData, loading: loadingPlaybooks } =
+    useLoad<{ playbooks: Playbook[] }>('/api/playbooks')
+  const playbooks = playbooksData?.playbooks || []
 
-function RoutineDialog({ routine, agents, onClose, onSaved }: { routine: Routine | null; agents: Agent[]; onClose: () => void; onSaved: () => void }) {
-  const [d, setD] = useState<Draft>(() => toDraft(routine))
-  const [error, setError] = useState<string | null>(null)
-  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD({ ...d, [k]: v })
-  const toggleDay = (i: number) => set('days', d.days.includes(i) ? d.days.filter((x) => x !== i) : [...d.days, i].sort())
-  const ready = d.name.trim() !== '' && d.goal.trim() !== '' && (d.kind === 'every' ? d.amount >= 1 : d.days.length > 0 && d.at !== '')
-  const save = async () => {
-    const body = { name: d.name, goal: d.goal, agent_id: d.agent_id || null, schedule: toSchedule(d), target: d.target }
+  // Create routine modal
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [title, setTitle] = useState('')
+  const [goal, setGoal] = useState('')
+  const [scheduleType, setScheduleType] = useState<'cron' | 'interval'>('interval')
+  const [cron, setCron] = useState('0 9 * * *')
+  const [intervalMins, setIntervalMins] = useState(60)
+  const [target, setTarget] = useState<ExecutionTarget>('host')
+  const [saving, setSaving] = useState(false)
+
+  const openCreate = () => {
+    setEditingId(null)
+    setTitle('')
+    setGoal('')
+    setScheduleType('interval')
+    setCron('0 9 * * *')
+    setIntervalMins(60)
+    setTarget('host')
+    setModalOpen(true)
+  }
+
+  const handleToggleEnabled = async (routine: Routine) => {
     try {
-      if (routine) await api.patch(`/api/routines/${routine.id}`, body)
-      else await api.post('/api/routines', body)
-      onSaved()
-    } catch (e) {
-      setError(errorText(e))
+      await api.patch(`/api/routines/${routine.id}`, { enabled: !routine.enabled })
+      toast(routine.enabled ? 'Routine paused' : 'Routine enabled', 'good')
+      bump()
+      await reloadRoutines()
+    } catch (err) {
+      toast(`Failed to toggle: ${errorText(err)}`, 'bad')
     }
   }
+
+  const handleRunNow = async (id: string) => {
+    try {
+      await api.post(`/api/routines/${id}/run`)
+      toast('Routine triggered immediately', 'good')
+      bump()
+    } catch (err) {
+      toast(`Trigger failed: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this routine?')) return
+    try {
+      await api.delete(`/api/routines/${id}`)
+      toast('Routine deleted', 'good')
+      bump()
+      await reloadRoutines()
+    } catch (err) {
+      toast(`Failed to delete: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleSaveRoutine = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!title.trim() || !goal.trim()) return
+
+    setSaving(true)
+    try {
+      const payload: Record<string, unknown> = {
+        name: title.trim(),
+        goal: goal.trim(),
+        target,
+        enabled: true,
+      }
+      if (scheduleType === 'cron') {
+        payload.cron = cron.trim()
+      } else {
+        payload.interval_s = intervalMins * 60
+      }
+
+      if (editingId) {
+        await api.patch(`/api/routines/${editingId}`, payload)
+        toast('Routine updated', 'good')
+      } else {
+        await api.post('/api/routines', payload)
+        toast('Routine created', 'good')
+      }
+      setModalOpen(false)
+      bump()
+      await reloadRoutines()
+    } catch (err) {
+      toast(`Failed to save routine: ${errorText(err)}`, 'bad')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <Dialog
-      wide
-      title={routine ? 'Edit routine' : 'New routine'}
-      onClose={onClose}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button kind="primary" disabled={!ready} onClick={() => void save()}>Save</Button></>}
-    >
-      <Field label="Name">{(id) => <input id={id} value={d.name} maxLength={80} placeholder="Morning brief" onChange={(e) => set('name', e.target.value)} />}</Field>
-      <Field label="What should Lilly do?" hint="Write it as you would in a chat. It runs the same way, with the same approvals.">
-        {(id) => <textarea id={id} rows={4} value={d.goal} maxLength={4000} placeholder="Read my notes from yesterday and list what I should follow up on today." onChange={(e) => set('goal', e.target.value)} />}
-      </Field>
-      <div className="field">
-        <span className="label">Execution target</span>
-        <Segmented
-          label="Execution target"
-          value={d.target}
-          onChange={(v) => set('target', v as ExecutionTarget)}
-          options={[
-            { value: 'host', label: 'This laptop' },
-            { value: 'devbox', label: 'Isolated DevBox' },
-          ]}
-        />
-        <p className="hint">
-          {d.target === 'devbox'
-            ? 'Runs in a locked-down container with shared folder only.'
-            : 'Can use permitted local files, browser, and computer controls.'}
-        </p>
+    <div className="view-container" style={{ padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>Routines & Playbooks</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Automated background workflows, periodic system checks, and multi-agent playbooks.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="filter-tabs">
+            <button
+              type="button"
+              className={`filter-tab ${activeTab === 'routines' ? 'active' : ''}`}
+              onClick={() => setActiveTab('routines')}
+            >
+              Routines ({routines.length})
+            </button>
+            <button
+              type="button"
+              className={`filter-tab ${activeTab === 'playbooks' ? 'active' : ''}`}
+              onClick={() => setActiveTab('playbooks')}
+            >
+              Playbooks ({playbooks.length})
+            </button>
+          </div>
+
+          <button onClick={openCreate} className="btn btn-primary btn-sm" type="button">
+            <Icon name="plus" size={14} />
+            <span>New Routine</span>
+          </button>
+        </div>
       </div>
-      <Field label="Who does it?" hint="The agent's permissions decide what the routine may touch. Anything that needs approval waits for you in Approvals.">
-        {(id) => (
-          <select id={id} value={d.agent_id} onChange={(e) => set('agent_id', e.target.value)}>
-            <option value="">Default assistant</option>
-            {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        )}
-      </Field>
-      <div className="field">
-        <span className="label">When</span>
-        <Segmented label="Kind of schedule" value={d.kind} onChange={(v) => set('kind', v)} options={[{ value: 'at', label: 'At a time' }, { value: 'every', label: 'Repeating' }]} />
-      </div>
-      {d.kind === 'at' ? (
-        <>
-          <Field label="Time" hint="Your computer's local time.">{(id) => <input id={id} type="time" value={d.at} onChange={(e) => set('at', e.target.value)} />}</Field>
-          <div className="field">
-            <span className="label">Days</span>
-            <div className="day-row" role="group" aria-label="Days">
-              {DAYS.map((name, i) => (
-                <button key={name} type="button" aria-pressed={d.days.includes(i)} className={`day-chip${d.days.includes(i) ? ' on' : ''}`} onClick={() => toggleDay(i)}>{name}</button>
+
+      {activeTab === 'routines' ? (
+        <div>
+          {loadingRoutines && routines.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Loading routines...
+            </div>
+          ) : routines.length === 0 ? (
+            <div className="card" style={{ padding: '48px', textAlign: 'center' }}>
+              <Icon name="routines" size={36} style={{ color: 'var(--text-dim)', margin: '0 auto 12px auto' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600 }}>No recurring routines configured</h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 16px 0' }}>
+                Automate periodic tasks like repository health audits, disk checks, or daily summaries.
+              </p>
+              <button onClick={openCreate} className="btn btn-primary btn-sm" type="button">
+                Schedule First Routine
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
+              {routines.map((r) => (
+                <div key={r.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)' }}>{r.name}</h3>
+                        <TargetPill target={r.target} size="sm" />
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                        {r.when || 'Schedule'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        onClick={() => handleToggleEnabled(r)}
+                        className={`btn btn-sm ${r.enabled ? 'btn-secondary' : 'btn-ghost'}`}
+                        type="button"
+                        title={r.enabled ? 'Pause routine' : 'Enable routine'}
+                      >
+                        <Icon name={r.enabled ? 'pause' : 'play'} size={12} />
+                        <span>{r.enabled ? 'Active' : 'Paused'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        className="btn btn-ghost btn-sm btn-icon"
+                        type="button"
+                        title="Delete routine"
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>
+                    {r.goal}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)', marginTop: 'auto' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      Last run: {r.last_run ? new Date(r.last_run * 1000).toLocaleString() : 'Never'}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRunNow(r.id)}
+                      className="btn btn-primary btn-sm"
+                    >
+                      <Icon name="play" size={12} />
+                      <span>Run Now</span>
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-        </>
+          )}
+        </div>
       ) : (
-        <div className="field">
-          <span className="label">Repeat every</span>
-          <div className="row">
-            <input aria-label="How many" type="number" min={1} className="num" value={d.amount} onChange={(e) => set('amount', Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
-            <select aria-label="Unit" value={d.unit} onChange={(e) => set('unit', Number(e.target.value))}>
-              {UNITS.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
-            </select>
-          </div>
-          <p className="hint">At least every 5 minutes.</p>
+        /* Playbooks view */
+        <div>
+          {loadingPlaybooks && playbooks.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Loading playbooks...
+            </div>
+          ) : playbooks.length === 0 ? (
+            <div className="card" style={{ padding: '48px', textAlign: 'center' }}>
+              <Icon name="sparkles" size={36} style={{ color: 'var(--text-dim)', margin: '0 auto 12px auto' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600 }}>No multi-agent playbooks</h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                Playbooks orchestrate complex sequential workflows between multiple specialist agents.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+              {playbooks.map((pb) => (
+                <div key={pb.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text-main)' }}>{pb.name}</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{pb.description}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Version {pb.version} • Successes: {pb.success_count}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      <ErrorNote text={error} />
-    </Dialog>
-  )
-}
 
-const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+      {/* Routine Creator Modal */}
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingId ? 'Edit Routine' : 'Create Routine'}
+        footer={
+          <>
+            <button type="button" onClick={() => setModalOpen(false)} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveRoutine}
+              disabled={!title.trim() || !goal.trim() || saving}
+              className="btn btn-primary"
+            >
+              <span>{saving ? 'Saving...' : 'Save Routine'}</span>
+            </button>
+          </>
+        }
+      >
+        <form onSubmit={handleSaveRoutine} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Title
+            </label>
+            <input
+              className="input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Daily Workspace Health Audit"
+              required
+            />
+          </div>
 
-function status(r: Routine): { tone: 'ok' | 'warn' | 'bad' | 'mute'; text: string } {
-  if (!r.enabled) return { tone: 'warn', text: capitalise(r.pause_reason ?? 'paused') }
-  if (r.last_state === 'running') return { tone: 'ok', text: 'Running now' }
-  return { tone: 'ok', text: r.next_run ? `Next ${when(r.next_run)}` : 'Waiting' }
-}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Task Goal / Prompt
+            </label>
+            <textarea
+              className="textarea"
+              rows={3}
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              placeholder="e.g. Run tests, verify git status, and summarize warnings..."
+              required
+            />
+          </div>
 
-export function Routines() {
-  const list = useLoad<{ routines: Routine[] }>('/api/routines', true)
-  const team = useLoad<{ agents: Agent[] }>('/api/agents')
-  // A run's result is recorded by the scheduler, which raises no live event: look while a routine is scheduled or running.
-  const scheduled = list.data?.routines.some((r) => r.enabled || r.last_state === 'running') ?? false
-  const reload = list.reload
-  const poll = useCallback(() => { if (scheduled) reload() }, [scheduled, reload])
-  useInterval(poll, 5000)
-  const [editing, setEditing] = useState<Routine | 'new' | null>(null)
-  const [removing, setRemoving] = useState<Routine | null>(null)
-  const toast = useApp((s) => s.toast)
-  const agents = team.data?.agents ?? []
-  const fail = (e: unknown) => toast(errorText(e), 'bad')
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
+              Schedule Type
+            </label>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="scheduleType"
+                  checked={scheduleType === 'interval'}
+                  onChange={() => setScheduleType('interval')}
+                />
+                <span>Interval (Minutes)</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="scheduleType"
+                  checked={scheduleType === 'cron'}
+                  onChange={() => setScheduleType('cron')}
+                />
+                <span>Cron Expression</span>
+              </label>
+            </div>
 
-  const toggle = (r: Routine) => api.patch(`/api/routines/${r.id}`, { enabled: !r.enabled }).then(list.reload).catch(fail)
-  const runNow = (r: Routine) => api.post(`/api/routines/${r.id}/run`, {}).then(() => { toast(`${r.name} started`); list.reload() }).catch(fail)
+            {scheduleType === 'interval' ? (
+              <input
+                type="number"
+                min="1"
+                className="input"
+                value={intervalMins}
+                onChange={(e) => setIntervalMins(Number(e.target.value))}
+                placeholder="Minutes between runs (e.g. 60)"
+              />
+            ) : (
+              <input
+                className="input"
+                value={cron}
+                onChange={(e) => setCron(e.target.value)}
+                placeholder="0 9 * * *"
+              />
+            )}
+          </div>
 
-  return (
-    <div className="page">
-      <PageHead
-        title="Routines"
-        sub="Requests Lilly runs on a schedule while it is open. Each run is a normal task: it follows the same rules and waits for your approval when it needs it."
-        actions={<Button kind="primary" icon="plus" onClick={() => setEditing('new')}>New routine</Button>}
-      />
-      <ErrorNote text={list.error} />
-      {list.data?.routines.length === 0 && (
-        <Empty title="No routines yet">Try “Every weekday at 08:30, summarise my notes from yesterday”, or “Every 2 hours, check which programs use the most memory”. Stop all pauses every routine.</Empty>
-      )}
-      <ul className="routines">
-        {list.data?.routines.map((r) => {
-          const s = status(r)
-          return (
-            <li key={r.id} className={`routine${r.enabled ? '' : ' paused'}`}>
-              <div className="row between">
-                <h3>{r.name}</h3>
-                <div className="row">
-                  <Button small icon="play" disabled={r.last_state === 'running'} onClick={() => void runNow(r)}>Run now</Button>
-                  <IconButton icon="edit" label={`Edit ${r.name}`} onClick={() => setEditing(r)} />
-                  <IconButton icon="trash" label={`Delete ${r.name}`} kind="danger" onClick={() => setRemoving(r)} />
-                </div>
-              </div>
-              <p className="clamp">{r.goal}</p>
-              <div className="row wrap">
-                <TargetPill target={r.target ?? 'host'} />
-                {r.playbook_id && <Pill tone="ok">Playbook v{r.playbook_version ?? 1}</Pill>}
-                <Pill tone="mute">{r.when}</Pill>
-                <Pill tone={s.tone}>{s.text}</Pill>
-                {r.last_run !== null && r.last_state && r.last_state !== 'running' && (
-                  <a className="pill pill-mute" href={r.last_task_id ? `#/activity/${r.last_task_id}` : undefined}>
-                    Last run {ago(r.last_run)}: {STATE_LABEL[r.last_state.toUpperCase()] ?? r.last_state}
-                  </a>
-                )}
-              </div>
-              {r.last_error && r.last_state === 'failed' && <p className="hint">{r.last_error}</p>}
-              <Switch label={r.enabled ? 'On' : 'Paused'} checked={r.enabled} onChange={() => void toggle(r)} />
-            </li>
-          )
-        })}
-      </ul>
-      {editing && (
-        <RoutineDialog routine={editing === 'new' ? null : editing} agents={agents} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); list.reload() }} />
-      )}
-      {removing && (
-        <Confirm
-          title={`Delete ${removing.name}?`}
-          danger
-          confirm="Delete"
-          body="Runs it already did stay in Activity."
-          onClose={() => setRemoving(null)}
-          onConfirm={() => { api.del(`/api/routines/${removing.id}`).then(list.reload).catch(fail) }}
-        />
-      )}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
+              Execution Target
+            </label>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="routineTarget"
+                  checked={target === 'host'}
+                  onChange={() => setTarget('host')}
+                />
+                <span>Host (This Laptop)</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="routineTarget"
+                  checked={target === 'devbox'}
+                  onChange={() => setTarget('devbox')}
+                />
+                <span>DevBox (Container)</span>
+              </label>
+            </div>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
