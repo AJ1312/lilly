@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { useAppStore } from '../store'
 import { AgentPet, type PetState } from './AgentPet'
 import { Icon } from './Icon'
+import { useLoad } from '../hooks'
 import { api } from '../api'
-import type { Task, Agent } from '../types'
+import type { Task, Agent, Settings } from '../types'
 
 export const CompanionWidget: React.FC = () => {
   const [minimized, setMinimized] = useState(false)
@@ -43,9 +44,18 @@ export const CompanionWidget: React.FC = () => {
     }
   }, [runningTasksCount])
 
+  // Load autonomy & approval mode settings
+  const { data: settingsData } = useLoad<{ settings: Settings }>('/api/settings', 6000)
+  const approvalMode = settingsData?.settings?.approval_mode || 'MANUAL'
+
   // Derive pet state from real agent activity
   let petState: PetState = 'idle'
-  let currentThought = 'Ready to assist with automations or questions.'
+  let currentThought =
+    approvalMode === 'OFF'
+      ? 'Off mode: all agentic tasks stopped, ready for conversational chat.'
+      : approvalMode === 'AUTO'
+      ? 'Auto mode: ready to move without asking permission.'
+      : 'Ask mode: ready to assist; I will ask for permission before acting.'
 
   if (pendingApprovalsCount > 0) {
     petState = 'approval'
@@ -121,9 +131,33 @@ export const CompanionWidget: React.FC = () => {
       {/* Live Thought Bubble */}
       <div className="companion-pill-bubble">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-          <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
-            {agentName} • {petState}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
+              {agentName} • {petState}
+            </span>
+            <span
+              style={{
+                fontSize: '9px',
+                fontWeight: 700,
+                padding: '1px 5px',
+                borderRadius: '8px',
+                backgroundColor:
+                  approvalMode === 'AUTO'
+                    ? 'var(--primary-subtle)'
+                    : approvalMode === 'MANUAL'
+                    ? 'var(--warning-subtle)'
+                    : 'var(--bg-subtle)',
+                color:
+                  approvalMode === 'AUTO'
+                    ? 'var(--primary)'
+                    : approvalMode === 'MANUAL'
+                    ? 'var(--warning-text)'
+                    : 'var(--text-muted)',
+              }}
+            >
+              {approvalMode === 'AUTO' ? 'Auto' : approvalMode === 'MANUAL' ? 'Ask' : 'Off'}
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => setMinimized(true)}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useAppStore } from '../store'
-import type { Thread, Message, Task, ExecutionTarget, Agent, Approval, Capacity } from '../types'
+import type { Thread, Message, Task, ExecutionTarget, Agent, Approval, Capacity, ApprovalMode, Settings } from '../types'
 import { Icon } from '../ui/Icon'
 import { TargetPill, StatePill } from '../ui/Pills'
 import { Markdown } from '../ui/Markdown'
@@ -71,6 +71,31 @@ export const TalkView: React.FC = () => {
   // Load available agents
   const { data: agentsData } = useLoad<{ agents: Agent[] }>('/api/agents')
   const agents = useMemo(() => agentsData?.agents || [], [agentsData])
+
+  // Autonomy and Approval Mode settings (Auto / Ask / Off)
+  const { data: settingsData, reload: reloadSettings } = useLoad<{ settings: Settings }>('/api/settings')
+  const approvalMode: ApprovalMode = settingsData?.settings?.approval_mode || 'MANUAL'
+
+  const handleSetApprovalMode = async (newMode: ApprovalMode) => {
+    if (!settingsData?.settings || newMode === approvalMode) return
+    try {
+      await api.put('/api/settings', {
+        ...settingsData.settings,
+        approval_mode: newMode,
+      })
+      const modeLabel =
+        newMode === 'AUTO'
+          ? 'Auto Mode (Move without permission)'
+          : newMode === 'MANUAL'
+          ? 'Ask Mode (Ask for permission)'
+          : 'Off Mode (Responses only)'
+      toast(`Switched to ${modeLabel}`, 'good')
+      await reloadSettings()
+      bump()
+    } catch (err) {
+      toast(`Failed to update mode: ${errorText(err)}`, 'bad')
+    }
+  }
 
   // Load live capacity & token limits
   const { data: capacityData } = useLoad<Capacity>('/api/capacity', 5000)
@@ -204,6 +229,9 @@ export const TalkView: React.FC = () => {
       }
       if (selectedThreadId) {
         payload.thread_id = selectedThreadId
+      }
+      if (approvalMode === 'OFF') {
+        payload.intent = 'ANSWER'
       }
 
       const res = await api.post<{ task: Task }>('/api/tasks', payload)
@@ -369,6 +397,16 @@ export const TalkView: React.FC = () => {
               <div style={{ display: 'flex', gap: '6px' }}>
                 <select
                   className="composer-pill-select"
+                  value={approvalMode}
+                  onChange={(e) => handleSetApprovalMode(e.target.value as ApprovalMode)}
+                  title="Autonomy: Auto (move without permission), Ask (ask permission), Off (responses only)"
+                >
+                  <option value="AUTO">Auto (Move without permission)</option>
+                  <option value="MANUAL">Ask (Ask for permission)</option>
+                  <option value="OFF">Off (Responses only)</option>
+                </select>
+                <select
+                  className="composer-pill-select"
                   value={target}
                   onChange={(e) => setTarget(e.target.value as ExecutionTarget)}
                 >
@@ -437,6 +475,37 @@ export const TalkView: React.FC = () => {
                   <span>{messages.length} messages</span>
                   <span>•</span>
                   <span>Target: {target}</span>
+                  <span>•</span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      backgroundColor:
+                        approvalMode === 'AUTO'
+                          ? 'var(--primary-subtle)'
+                          : approvalMode === 'MANUAL'
+                          ? 'var(--warning-subtle)'
+                          : 'var(--bg-subtle)',
+                      color:
+                        approvalMode === 'AUTO'
+                          ? 'var(--primary)'
+                          : approvalMode === 'MANUAL'
+                          ? 'var(--warning-text)'
+                          : 'var(--text-muted)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <Icon
+                      name={approvalMode === 'AUTO' ? 'play' : approvalMode === 'MANUAL' ? 'shield' : 'chat'}
+                      size={11}
+                    />
+                    <span>{approvalMode === 'AUTO' ? 'Auto Mode' : approvalMode === 'MANUAL' ? 'Ask Mode' : 'Off Mode (Chat)'}</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -598,6 +667,28 @@ export const TalkView: React.FC = () => {
               }}
               className="chat-input-pill"
             >
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <select
+                  className="composer-pill-select"
+                  value={approvalMode}
+                  onChange={(e) => handleSetApprovalMode(e.target.value as ApprovalMode)}
+                  title="Autonomy: Auto (move without permission), Ask (ask permission), Off (responses only)"
+                >
+                  <option value="AUTO">Auto</option>
+                  <option value="MANUAL">Ask</option>
+                  <option value="OFF">Off</option>
+                </select>
+                <select
+                  className="composer-pill-select"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value as ExecutionTarget)}
+                  title="Execution environment"
+                >
+                  <option value="host">Host</option>
+                  <option value="devbox">DevBox</option>
+                </select>
+              </div>
+
               <button
                 type="button"
                 className="btn btn-ghost"

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useAppStore } from '../store'
-import type { DevboxStatus, McpServer, Settings, ThemePref, LayaCheck } from '../types'
+import { APPROVAL_MODES, type DevboxStatus, type McpServer, type Settings, type ThemePref, type LayaCheck } from '../types'
 import { Icon } from '../ui/Icon'
 import { Modal } from '../ui/Modal'
 
@@ -271,29 +271,48 @@ export const SettingsView: React.FC = () => {
               Controls whether Lilly asks for approval before executing file changes, bash commands, and computer controls.
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
-              {[
-                { id: 'manual', title: 'Manual (Prompt Every Action)', desc: 'Asks approval for every mutating tool call.' },
-                { id: 'supervised', title: 'Supervised (Risky Only)', desc: 'Asks approval for deletions, bash, and external requests.' },
-                { id: 'auto', title: 'Autonomous Mode', desc: 'No prompts; executes tools autonomously within guardrails.' },
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => handleUpdate({ approval_mode: opt.id as any })}
-                  style={{
-                    padding: '12px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: settings.approval_mode === opt.id ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: settings.approval_mode === opt.id ? 'var(--primary-subtle)' : 'var(--bg-card)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-main)' }}>{opt.title}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{opt.desc}</div>
-                </button>
-              ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+              {APPROVAL_MODES.map((opt) => {
+                const active = settings.approval_mode === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleUpdate({ approval_mode: opt.value })}
+                    style={{
+                      padding: '14px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: active ? '2px solid var(--primary)' : '1px solid var(--border)',
+                      backgroundColor: active ? 'var(--primary-subtle)' : 'var(--bg-card)',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.15s ease, background-color 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-main)' }}>
+                        {opt.name} Mode
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: '10px',
+                          backgroundColor: active ? 'var(--primary)' : 'var(--bg-subtle)',
+                          color: active ? '#fff' : 'var(--text-dim)',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {opt.tagline}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.4 }}>
+                      {opt.blurb}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>

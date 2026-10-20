@@ -190,8 +190,8 @@ class TaskRunner:
             await self._execute_plan()
             return
 
-        # Quick Actions hook (P2-A)
-        if self._d.quick is not None and not self._spec.skill and self._spec.intent is None:
+        # Quick Actions hook (P2-A): disabled in OFF mode where only conversational responses are given
+        if self._d.quick is not None and not self._spec.skill and self._spec.intent is None and self._rec.ctx.approval_mode is not ApprovalMode.OFF:
             tools = dict(self._d.tools())
             allowed = self._spec.sheet.tools if self._spec.sheet else None
             allowed_names = {n for n in tools if allowed is None or n in allowed}

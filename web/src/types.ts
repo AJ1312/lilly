@@ -502,10 +502,25 @@ export const REQUEST_INTENTS: Array<{ value: RequestIntent; label: string; hint:
   { value: 'ACTION', label: 'Act', hint: 'Execute steps until outcome is independently verified.' },
 ]
 
-export const APPROVAL_MODES: Array<{ value: ApprovalMode; name: string; blurb: string }> = [
-  { value: 'MANUAL', name: 'Manual', blurb: 'Ask for confirmation before sensitive or mutating steps.' },
-  { value: 'AUTO', name: 'Auto', blurb: 'Work autonomously on safe actions; prompts for high-risk operations.' },
-  { value: 'OFF', name: 'Off', blurb: 'Work autonomously without prompts (policy and file scopes still enforced).' },
+export const APPROVAL_MODES: Array<{ value: ApprovalMode; name: string; blurb: string; tagline: string }> = [
+  {
+    value: 'AUTO',
+    name: 'Auto',
+    tagline: 'Move without permission',
+    blurb: 'Move without my permission; executes tasks and actions autonomously within safety guardrails.',
+  },
+  {
+    value: 'MANUAL',
+    name: 'Ask',
+    tagline: 'Ask for my permission',
+    blurb: 'Ask mode; pauses and requests your permission before taking any actions.',
+  },
+  {
+    value: 'OFF',
+    name: 'Off',
+    tagline: 'Responses only',
+    blurb: 'Off mode; stops all agentic tasks and tool execution, giving direct conversational responses only.',
+  },
 ]
 
 export const FREEDOM_MODES: Array<{ value: FreedomMode; name: string; blurb: string }> = [

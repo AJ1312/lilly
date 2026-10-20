@@ -14,7 +14,7 @@ from typing import Any
 from lilly.core.shortlist import CONTROL_TOOLS, discover
 from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
-from lilly.domain.labels import Risk, Verdict
+from lilly.domain.labels import ApprovalMode, Risk, Verdict
 from lilly.domain.payload import canonical, payload_hash
 from lilly.domain.plan import FINAL_TOOL, tool_call
 from lilly.domain.policy import PathScope, decide
@@ -200,6 +200,9 @@ class AgentLoop:
         })
 
     def _get_visible_tools(self) -> dict[str, Tool]:
+        if self._rec.ctx.approval_mode is ApprovalMode.OFF:
+            # OFF mode stops all agentic tasks: direct conversational responses only
+            return {}
         all_tools = dict(self._tools())
         if self._target is ExecutionTarget.DEVBOX:
             allowed_prefixes = ("devbox.", "result.", "agent.", "skill.")
@@ -281,6 +284,8 @@ class AgentLoop:
 
     async def _capabilities(self, visible: dict[str, Tool]) -> dict[str, Tool]:
         """Expose core tools + discovered/used tools, loading schemas on demand to save tokens."""
+        if not visible:
+            return {}
         if len(visible) <= 12:
             return visible
 

@@ -80,3 +80,14 @@ def test_a_valid_file_leaves_nothing_behind(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     save_settings(path, default_settings())
     assert load_settings(path)[1] == [] and not (tmp_path / "settings.json.invalid").exists()
+
+
+def test_approval_mode_parses_auto_manual_and_off() -> None:
+    from lilly.domain.labels import ApprovalMode
+    s_auto, errs = parse(approval_mode="AUTO")
+    assert not errs and s_auto.approval_mode == ApprovalMode.AUTO
+    s_manual, errs = parse(approval_mode="MANUAL")
+    assert not errs and s_manual.approval_mode == ApprovalMode.MANUAL
+    s_off, errs = parse(approval_mode="OFF")
+    assert not errs and s_off.approval_mode == ApprovalMode.OFF
+

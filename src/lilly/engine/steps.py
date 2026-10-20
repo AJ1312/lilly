@@ -174,10 +174,13 @@ class StepExecutor:
             own = tool.review(args, rec.task_id)
             if own[0] > verdict:
                 verdict, why = own
-            # When approval_mode is AUTO or OFF, non-denied interaction runs
+            # In OFF mode, stop all agentic mutations and tools
+            if rec.ctx.approval_mode is ApprovalMode.OFF:
+                verdict, why = Verdict.DENY, "agentic tools are disabled in OFF mode (responses only)"
+            # When approval_mode is AUTO, non-denied interaction runs
             # autonomously without prompting the user, preserving isolation and
             # prompt-injection safety (tainted R2+ operations still prompt).
-            if rec.ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF) \
+            elif rec.ctx.approval_mode is ApprovalMode.AUTO \
                     and verdict is Verdict.NEEDS_APPROVAL \
                     and not (rec.ctx.tainted and spec.risk >= Risk.R2):
                 verdict, why = Verdict.ALLOW, f"approval mode is {rec.ctx.approval_mode.value}"
@@ -186,7 +189,7 @@ class StepExecutor:
             await rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=row_id)
             raise StepFailed(f"{name} is blocked: {why}", kind="policy")
         verdict, why = await self._doubted(verdict, why, name, spec, args)
-        if rec.ctx.approval_mode in (ApprovalMode.AUTO, ApprovalMode.OFF) \
+        if rec.ctx.approval_mode is ApprovalMode.AUTO \
                 and verdict is Verdict.NEEDS_APPROVAL and why == DOUBT:
             verdict, why = Verdict.ALLOW, f"approval mode is {rec.ctx.approval_mode.value}"
         payload: dict[str, Any] = {"tool": name, "args": args}
