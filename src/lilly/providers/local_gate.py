@@ -3,6 +3,7 @@
 A local model uses most of a laptop's memory while it is loaded, and two answering at once make each other slow. So
 calls to the same Ollama server take turns, and when a call names a different model than the last, the last one is
 unloaded first. Waiting for a turn counts against the call's own deadline."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,7 @@ UNLOAD_TIMEOUT_S = 10.0
 class LocalGate:
     def __init__(self) -> None:
         self._turn = asyncio.Lock()
-        self._loaded: dict[str, str] = {}      # server address -> the model last used on it
+        self._loaded: dict[str, str] = {}  # server address -> the model last used on it
 
     @contextlib.asynccontextmanager
     async def use(self, client: httpx.AsyncClient, base_url: str, model: str) -> AsyncIterator[None]:

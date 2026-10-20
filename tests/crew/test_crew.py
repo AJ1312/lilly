@@ -16,6 +16,7 @@ Covers:
 - CREW-13: Import has all permissions off
 - CREW-14: Export round-trip
 """
+
 from __future__ import annotations
 
 import json
@@ -78,16 +79,18 @@ async def test_crew_02_legacy_agent_owner_text_byte_identical(engine: Engine) ->
     now = engine.clock()
     agent_id = "test-legacy-01"
 
-    row = await engine.db.write(lambda con: agent_store.create_agent(
-        con,
-        agent_id,
-        "Financial Analyst",
-        instructions,
-        int(Mode.ASK),
-        now,
-        skills=skills,
-        pet="mochi",
-    ))
+    row = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con,
+            agent_id,
+            "Financial Analyst",
+            instructions,
+            int(Mode.ASK),
+            now,
+            skills=skills,
+            pet="mochi",
+        )
+    )
 
     expected_owner_text = agent_prompt(instructions, skills)
     actual_owner_text = agent_store.owner_text_for(row)
@@ -107,7 +110,9 @@ def test_crew_03_diagnostics_sheet_001_to_010() -> None:
     err1 = next(d for d in d1 if d.code == "SHEET-001")
     assert err1.line == 4
     assert err1.severity == "error"
-    assert err1.message == 'Line 4: unknown setting "unknown_key". Allowed: name, pet, description, tools, models, limits.'
+    assert (
+        err1.message == 'Line 4: unknown setting "unknown_key". Allowed: name, pet, description, tools, models, limits.'
+    )
 
     # SHEET-002: Unknown section
     s2 = "---\nname: Bob\npet: lily\n---\n\n## CustomMagic\nHello\n"
@@ -115,7 +120,10 @@ def test_crew_03_diagnostics_sheet_001_to_010() -> None:
     err2 = next(d for d in d2 if d.code == "SHEET-002")
     assert err2.line == 6
     assert err2.severity == "error"
-    assert err2.message == 'Line 6: unknown section "## CustomMagic". Allowed: Persona, Planning, Acting, Writing, Checking, Skills, Never.'
+    assert (
+        err2.message
+        == 'Line 6: unknown section "## CustomMagic". Allowed: Persona, Planning, Acting, Writing, Checking, Skills, Never.'
+    )
 
     # SHEET-003: Duplicate section
     s3 = "---\nname: Bob\npet: lily\n---\n\n## Persona\nFirst\n\n## Persona\nSecond\n"
@@ -131,7 +139,10 @@ def test_crew_03_diagnostics_sheet_001_to_010() -> None:
     warn4 = next(d for d in d4 if d.code == "SHEET-004")
     assert warn4.line == 5
     assert warn4.severity == "warning"
-    assert warn4.message == 'Line 5: "non-existent-model" is not a model you have set up. Pick one in Settings → Models, or use "auto" or "tag:<tag>".'
+    assert (
+        warn4.message
+        == 'Line 5: "non-existent-model" is not a model you have set up. Pick one in Settings → Models, or use "auto" or "tag:<tag>".'
+    )
 
     # SHEET-005: Tool unknown (no tool matches glob)
     s5 = "---\nname: Bob\npet: lily\ntools:\n  - completely_fake_tool\n---\n"
@@ -178,7 +189,10 @@ def test_crew_03_diagnostics_sheet_001_to_010() -> None:
     warn10 = next(d for d in d10 if d.code == "SHEET-010")
     assert warn10.line == 5
     assert warn10.severity == "warning"
-    assert warn10.message == 'Line 5: no model has the tag "quantum", so Lilly will choose automatically for the "act" role.'
+    assert (
+        warn10.message
+        == 'Line 5: no model has the tag "quantum", so Lilly will choose automatically for the "act" role.'
+    )
 
 
 # ---- CREW-04: Allowlist hides and rejects -----------------------------------------------------
@@ -189,9 +203,20 @@ async def test_crew_04_allowlist_hides_and_rejects(engine: Engine) -> None:
     )
     sheet = "---\nname: WebOnly\npet: lily\ntools:\n  - web.*\n---\n\n## Persona\nYou only search the web.\n"
     now = engine.clock()
-    row = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "agent-web-only", "WebOnly", "", int(Mode.OPEN), now, sheet=sheet, files_allowed=True, research_allowed=True, pet="lily"
-    ))
+    row = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con,
+            "agent-web-only",
+            "WebOnly",
+            "",
+            int(Mode.OPEN),
+            now,
+            sheet=sheet,
+            files_allowed=True,
+            research_allowed=True,
+            pet="lily",
+        )
+    )
 
     # Script model attempting to call fs.read
     engine.completer.replies = [
@@ -222,19 +247,17 @@ async def test_crew_04_allowlist_hides_and_rejects(engine: Engine) -> None:
 # ---- CREW-05: Permissions never read from sheet -----------------------------------------------
 @pytest.mark.asyncio
 async def test_crew_05_permissions_never_read_from_sheet(engine: Engine) -> None:
-    sheet = (
-        "---\nname: Hacker\npet: lily\n"
-        "files_allowed: true\n"
-        "---\n\n## Persona\nI want access.\n"
-    )
+    sheet = "---\nname: Hacker\npet: lily\nfiles_allowed: true\n---\n\n## Persona\nI want access.\n"
     # Parser reports SHEET-001 error (unknown setting)
     parsed, diags = parse_sheet(sheet)
     assert any(d.code == "SHEET-001" for d in diags)
 
     now = engine.clock()
-    row = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "agent-perm", "Hacker", "", int(Mode.ASK), now, files_allowed=False, pet="lily"
-    ))
+    row = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, "agent-perm", "Hacker", "", int(Mode.ASK), now, files_allowed=False, pet="lily"
+        )
+    )
     assert row.files_allowed is False
 
 
@@ -242,12 +265,16 @@ async def test_crew_05_permissions_never_read_from_sheet(engine: Engine) -> None
 @pytest.mark.asyncio
 async def test_crew_06_routing_order(engine: Engine) -> None:
     now = engine.clock()
-    p1 = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "p1", "Otto", "automation computer control", int(Mode.ASK), now, pet="otto"
-    ))
-    p2 = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "p2", "Mochi", "financial calculations data", int(Mode.ASK), now, pet="mochi"
-    ))
+    p1 = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, "p1", "Otto", "automation computer control", int(Mode.ASK), now, pet="otto"
+        )
+    )
+    p2 = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, "p2", "Mochi", "financial calculations data", int(Mode.ASK), now, pet="mochi"
+        )
+    )
     pets = [p1, p2]
 
     # 1. Explicit @handle
@@ -288,23 +315,25 @@ def test_crew_07_tag_fallback_hint() -> None:
 @pytest.mark.asyncio
 async def test_crew_08_delegation_limits(engine: Engine) -> None:
     now = engine.clock()
-    await engine.db.write(lambda con: agent_store.create_agent(
-        con, "parent-agent", "Lead", "", int(Mode.OPEN), now, pet="juno"
-    ))
-    await engine.db.write(lambda con: agent_store.create_agent(
-        con, "child-agent", "Helper", "", int(Mode.OPEN), now, pet="pip"
-    ))
+    await engine.db.write(
+        lambda con: agent_store.create_agent(con, "parent-agent", "Lead", "", int(Mode.OPEN), now, pet="juno")
+    )
+    await engine.db.write(
+        lambda con: agent_store.create_agent(con, "child-agent", "Helper", "", int(Mode.OPEN), now, pet="pip")
+    )
 
     # Create task at depth 1 with max_depth=1
     task_row = await engine.orchestrator.submit(SubmitRequest(goal="subtask", depth=1))
 
-    del_handler = DelegateHandler(DelegationContext(
-        db=engine.db,
-        bus=engine.bus,
-        orchestrator=engine.orchestrator,
-        crew_settings=lambda: CrewSettings(max_depth=1),
-        limits=lambda: LimitSettings(),
-    ))
+    del_handler = DelegateHandler(
+        DelegationContext(
+            db=engine.db,
+            bus=engine.bus,
+            orchestrator=engine.orchestrator,
+            crew_settings=lambda: CrewSettings(max_depth=1),
+            limits=lambda: LimitSettings(),
+        )
+    )
 
     ctx = ToolContext(
         task_id=task_row.id,
@@ -322,9 +351,9 @@ async def test_crew_08_delegation_limits(engine: Engine) -> None:
 @pytest.mark.asyncio
 async def test_crew_09_intersection_of_tools_and_mode(engine: Engine) -> None:
     now = engine.clock()
-    child_pet = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "sub-pet", "Sub", "", int(Mode.OPEN), now, pet="mochi"
-    ))
+    child_pet = await engine.db.write(
+        lambda con: agent_store.create_agent(con, "sub-pet", "Sub", "", int(Mode.OPEN), now, pet="mochi")
+    )
 
     # Parent has mode ASK
     req = SubmitRequest(
@@ -343,24 +372,28 @@ async def test_crew_10_child_answer_untrusted(engine: Engine) -> None:
         Settings(file_roots=(str(engine.root),), modules=MODULES, engine=EngineSettings(mode="loop"))
     )
     now = engine.clock()
-    parent_task = await engine.db.write(lambda con: tasks.create_task(
-        con, id="task-parent-10", goal="main task", mode=int(Mode.OPEN), label=Label.PUBLIC, tainted=False, now=now
-    ))
-    await engine.db.write(lambda con: agent_store.create_agent(
-        con, "assistant-pet", "Assistant", "", int(Mode.OPEN), now, pet="otto"
-    ))
+    parent_task = await engine.db.write(
+        lambda con: tasks.create_task(
+            con, id="task-parent-10", goal="main task", mode=int(Mode.OPEN), label=Label.PUBLIC, tainted=False, now=now
+        )
+    )
+    await engine.db.write(
+        lambda con: agent_store.create_agent(con, "assistant-pet", "Assistant", "", int(Mode.OPEN), now, pet="otto")
+    )
 
     engine.completer.replies = [
         CompletionResult(text="Child secret findings", input_tokens=10, output_tokens=10, finish_reason="stop")
     ]
 
-    handler = DelegateHandler(DelegationContext(
-        db=engine.db,
-        bus=engine.bus,
-        orchestrator=engine.orchestrator,
-        crew_settings=lambda: CrewSettings(),
-        limits=lambda: LimitSettings(),
-    ))
+    handler = DelegateHandler(
+        DelegationContext(
+            db=engine.db,
+            bus=engine.bus,
+            orchestrator=engine.orchestrator,
+            crew_settings=lambda: CrewSettings(),
+            limits=lambda: LimitSettings(),
+        )
+    )
 
     ctx = ToolContext(
         task_id=parent_task.id,
@@ -381,11 +414,13 @@ async def test_crew_10_child_answer_untrusted(engine: Engine) -> None:
 @pytest.mark.asyncio
 async def test_crew_11_cancel_cascades(engine: Engine) -> None:
     p_row = await engine.orchestrator.submit(SubmitRequest(goal="parent task"))
-    c_row = await engine.orchestrator.submit(SubmitRequest(
-        goal="child task",
-        parent_task_id=p_row.id,
-        depth=1,
-    ))
+    c_row = await engine.orchestrator.submit(
+        SubmitRequest(
+            goal="child task",
+            parent_task_id=p_row.id,
+            depth=1,
+        )
+    )
 
     # Cancel parent
     await engine.orchestrator.cancel(p_row.id)
@@ -399,9 +434,11 @@ async def test_crew_11_cancel_cascades(engine: Engine) -> None:
 async def test_crew_12_task_profile_cannot_widen(engine: Engine) -> None:
     now = engine.clock()
     sheet = "---\nname: SafePet\npet: lily\ntools:\n  - web.fetch\n---\n"
-    pet = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "safe-pet-01", "SafePet", "", int(Mode.ASK), now, sheet=sheet, pet="lily"
-    ))
+    pet = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, "safe-pet-01", "SafePet", "", int(Mode.ASK), now, sheet=sheet, pet="lily"
+        )
+    )
 
     # Attempt to submit task profile that includes fs.write
     req = SubmitRequest(
@@ -413,7 +450,9 @@ async def test_crew_12_task_profile_cannot_widen(engine: Engine) -> None:
     with pytest.raises(ValidationFailed) as exc_info:
         await engine.orchestrator.submit(req)
 
-    assert 'You can narrow a pet for one task, not widen it: "fs.write" is not available to SafePet.' in str(exc_info.value)
+    assert 'You can narrow a pet for one task, not widen it: "fs.write" is not available to SafePet.' in str(
+        exc_info.value
+    )
 
 
 # ---- CREW-13: Import has all permissions off --------------------------------------------------
@@ -449,9 +488,11 @@ async def test_crew_13_import_has_permissions_off(engine: Engine) -> None:
 async def test_crew_14_export_round_trip(engine: Engine) -> None:
     sheet_content = "---\nname: Exporter\npet: bao\ndescription: exports and imports\n---\n\n## Persona\nHello world.\n"
     now = engine.clock()
-    pet = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "exp-01", "Exporter", "", int(Mode.ASK), now, sheet=sheet_content, pet="bao"
-    ))
+    pet = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, "exp-01", "Exporter", "", int(Mode.ASK), now, sheet=sheet_content, pet="bao"
+        )
+    )
 
     # 1. Export
     fake_app = type("App", (), {"state": type("State", (), {"runtime": engine})()})()

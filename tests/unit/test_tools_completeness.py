@@ -1,4 +1,5 @@
 """Completeness test for tool registry and action classification."""
+
 from __future__ import annotations
 
 from lilly.domain.labels import Risk
@@ -12,18 +13,36 @@ from lilly.engine.agent_loop import (
 # Known mutating tools that modify state on the system, browser, files, or persistent stores
 EXPECTED_MUTATING_TOOLS = {
     # File mutations
-    "fs.write", "fs.edit", "fs.apply_moves", "fs.trash",
+    "fs.write",
+    "fs.edit",
+    "fs.apply_moves",
+    "fs.trash",
     # Persistent stores
-    "notes.write", "memory.write",
+    "notes.write",
+    "memory.write",
     # Sandbox / shell execution
-    "devbox.run", "computer.run", "computer.stop_process",
+    "devbox.run",
+    "computer.run",
+    "computer.stop_process",
     # Computer control / interaction
-    "computer.click", "computer.type", "computer.press", "computer.move",
-    "computer.scroll", "computer.drag", "computer.open_app", "computer.open_url",
+    "computer.click",
+    "computer.type",
+    "computer.press",
+    "computer.move",
+    "computer.scroll",
+    "computer.drag",
+    "computer.open_app",
+    "computer.open_url",
     "computer.notify",
     # Browser state mutations
-    "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
-    "browser.scroll", "browser.back", "browser.close",
+    "browser.click",
+    "browser.type",
+    "browser.select",
+    "browser.submit",
+    "browser.press",
+    "browser.scroll",
+    "browser.back",
+    "browser.close",
 }
 
 

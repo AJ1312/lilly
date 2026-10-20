@@ -1,4 +1,5 @@
 """All configured MCP servers: lazy start, the approval check before every first call, restarts, idle stop."""
+
 from __future__ import annotations
 
 import asyncio
@@ -40,10 +41,10 @@ class Discovery:
 @dataclass(frozen=True, slots=True)
 class ServerStatus:
     name: str
-    state: str                 # stopped | starting | running | failed | changed
+    state: str  # stopped | starting | running | failed | changed
     error: str
     tool_count: int
-    idle_s: float | None       # seconds since the last use; None when never used
+    idle_s: float | None  # seconds since the last use; None when never used
     restarts: int
 
 
@@ -57,17 +58,24 @@ class _Server:
     tool_count: int = 0
     last_used: float | None = None
     restarts: int = 0
-    verified: bool = False      # the tool list was compared with the approval since this client started
-    sticky: bool = False        # failed or changed: refuses everything until configure() is called again
-    active: int = 0             # calls and discoveries in progress
+    verified: bool = False  # the tool list was compared with the approval since this client started
+    sticky: bool = False  # failed or changed: refuses everything until configure() is called again
+    active: int = 0  # calls and discoveries in progress
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class McpManager:
-    def __init__(self, resolve_secret: Callable[[str], str | None], *, monotonic: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, base_dir: Path | None = None,
-                 call_timeout: float = CALL_TIMEOUT_S, start_timeout: float = START_TIMEOUT_S,
-                 parent_env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        resolve_secret: Callable[[str], str | None],
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        base_dir: Path | None = None,
+        call_timeout: float = CALL_TIMEOUT_S,
+        start_timeout: float = START_TIMEOUT_S,
+        parent_env: Mapping[str, str] | None = None,
+    ) -> None:
         self._resolve, self._mono, self._sleep, self._base = resolve_secret, monotonic, sleep, base_dir
         self._call_timeout, self._start_timeout = call_timeout, start_timeout
         self._parent_env = parent_env if parent_env is not None else os.environ
@@ -97,9 +105,10 @@ class McpManager:
             if srv is None:
                 self._servers[name] = _Server(cfg, approval, tool_count=len(approval.tools) if approval else 0)
                 continue
-            if srv.sticky or (srv.approval is not None and approval is not None
-                              and srv.approval.fingerprint != approval.fingerprint):
-                await self._stop(srv)   # a failed or changed server, or newly approved tools: start afresh
+            if srv.sticky or (
+                srv.approval is not None and approval is not None and srv.approval.fingerprint != approval.fingerprint
+            ):
+                await self._stop(srv)  # a failed or changed server, or newly approved tools: start afresh
             srv.approval = approval
             srv.verified = False
         self._wake.set()
@@ -119,9 +128,17 @@ class McpManager:
 
     def status(self) -> list[ServerStatus]:
         now = self._mono()
-        return [ServerStatus(s.cfg.name, s.state, s.error, s.tool_count,
-                             None if s.last_used is None else max(0.0, now - s.last_used), s.restarts)
-                for s in self._servers.values()]
+        return [
+            ServerStatus(
+                s.cfg.name,
+                s.state,
+                s.error,
+                s.tool_count,
+                None if s.last_used is None else max(0.0, now - s.last_used),
+                s.restarts,
+            )
+            for s in self._servers.values()
+        ]
 
     async def aclose(self) -> None:
         """Stop every server and the idle watcher. No process or task is left behind."""
@@ -166,7 +183,7 @@ class McpManager:
                 client = await self._verified(srv, approval)
             try:
                 result = await client.call_tool(tool, arguments, timeout)
-                srv.restarts = 0     # a server that works is not on its way to being marked failed
+                srv.restarts = 0  # a server that works is not on its way to being marked failed
                 return result
             except McpConnectionError as exc:
                 await self._drop(srv, client, str(exc))
@@ -217,13 +234,19 @@ class McpManager:
 
     async def _start(self, srv: _Server) -> McpClient:
         cwd = self._base / srv.cfg.name if self._base is not None else None
-        client = McpClient(srv.cfg, self._resolve, cwd=cwd, call_timeout=self._call_timeout,
-                           start_timeout=self._start_timeout, parent_env=self._parent_env)
+        client = McpClient(
+            srv.cfg,
+            self._resolve,
+            cwd=cwd,
+            call_timeout=self._call_timeout,
+            start_timeout=self._start_timeout,
+            parent_env=self._parent_env,
+        )
         self._set(srv, "starting")
         try:
             await client.start()
         except McpStartRefused as exc:
-            srv.state, srv.error = "failed", str(exc)   # fixable without reconfiguring: not sticky
+            srv.state, srv.error = "failed", str(exc)  # fixable without reconfiguring: not sticky
             raise
         except ToolError as exc:
             self._failure(srv, str(exc))

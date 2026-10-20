@@ -2,6 +2,7 @@
 
 Everything a server sends is untrusted. These helpers only parse and build messages; they never act on them.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,9 +13,9 @@ from typing import Any
 from lilly.domain.errors import ToolError
 
 METHOD_NOT_FOUND = -32601
-MAX_BAD_LINES = 20       # invalid JSON lines tolerated before the connection is cut
-MAX_IN_FLIGHT = 4        # concurrent tools/call requests on one server
-MAX_ID_CHARS = 256       # a server request id longer than this is not echoed back
+MAX_BAD_LINES = 20  # invalid JSON lines tolerated before the connection is cut
+MAX_IN_FLIGHT = 4  # concurrent tools/call requests on one server
+MAX_ID_CHARS = 256  # a server request id longer than this is not echoed back
 
 
 class McpConnectionError(ToolError):

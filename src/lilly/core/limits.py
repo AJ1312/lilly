@@ -1,4 +1,5 @@
 """Rate limiter, daily quota and circuit breaker. Clocks are injected."""
+
 from __future__ import annotations
 
 import time
@@ -45,8 +46,12 @@ class SlidingWindowLimiter:
 class DailyQuota:
     """Per-day counter that resets at local midnight of `tz` (Gemini: Pacific)."""
 
-    def __init__(self, limit: int, tz: str = "America/Los_Angeles",
-                 now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
+    def __init__(
+        self,
+        limit: int,
+        tz: str = "America/Los_Angeles",
+        now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ):
         self.limit, self._zone, self._now = limit, ZoneInfo(tz), now
         self._day = self._today()
         self._used = 0
@@ -86,8 +91,7 @@ class DailyQuota:
 
     def seconds_to_reset(self) -> float:
         local = self._now().astimezone(self._zone)
-        nxt = datetime.combine(local.date() + timedelta(days=1), datetime.min.time(),
-                               tzinfo=self._zone)
+        nxt = datetime.combine(local.date() + timedelta(days=1), datetime.min.time(), tzinfo=self._zone)
         return (nxt.astimezone(timezone.utc) - local.astimezone(timezone.utc)).total_seconds()
 
 
@@ -99,12 +103,12 @@ class LimitWatch:
     before trying again means a daily limit, a short one a per-minute limit."""
 
     DAY_S = 86_400.0
-    LONG_WAIT_S = 600.0       # a retry-after longer than this means the daily limit, not the minute's
+    LONG_WAIT_S = 600.0  # a retry-after longer than this means the daily limit, not the minute's
     MAX_CALLS = 5_000
-    MARGIN = 0.9              # suggest a little under what was seen to work
+    MARGIN = 0.9  # suggest a little under what was seen to work
 
-    FIRST_WAIT_S = 5.0        # how long to leave a model alone after a refusal that says nothing about how long
-    MAX_WAIT_S = 60.0         # ... doubling with each refusal in a row, up to this
+    FIRST_WAIT_S = 5.0  # how long to leave a model alone after a refusal that says nothing about how long
+    MAX_WAIT_S = 60.0  # ... doubling with each refusal in a row, up to this
 
     def __init__(self, clock: Clock = time.monotonic) -> None:
         self._clock = clock
@@ -207,8 +211,12 @@ class TokenWindow:
 class DailyTokens:
     """Per-day token counter that resets at local midnight of `tz`."""
 
-    def __init__(self, limit: int, tz: str = "America/Los_Angeles",
-                 now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
+    def __init__(
+        self,
+        limit: int,
+        tz: str = "America/Los_Angeles",
+        now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ):
         self.limit, self._zone, self._now = limit, ZoneInfo(tz), now
         self._day = self._today()
         self._used = 0
@@ -249,25 +257,23 @@ class DailyTokens:
 
     def seconds_to_reset(self) -> float:
         local = self._now().astimezone(self._zone)
-        nxt = datetime.combine(local.date() + timedelta(days=1), datetime.min.time(),
-                               tzinfo=self._zone)
+        nxt = datetime.combine(local.date() + timedelta(days=1), datetime.min.time(), tzinfo=self._zone)
         return (nxt.astimezone(timezone.utc) - local.astimezone(timezone.utc)).total_seconds()
 
 
-def backoff(attempt: int, base: float = 1.0, cap: float = 60.0,
-            rand: Callable[[], float] | None = None) -> float:
+def backoff(attempt: int, base: float = 1.0, cap: float = 60.0, rand: Callable[[], float] | None = None) -> float:
     """Full jitter exponential backoff."""
     import secrets
+
     r = rand() if rand is not None else secrets.SystemRandom().random()
-    temp = min(cap, base * (2.0 ** attempt))
+    temp = min(cap, base * (2.0**attempt))
     return r * temp
 
 
 class CircuitBreaker:
     """closed -> open (after N failures) -> half-open (one probe) -> closed/open."""
 
-    def __init__(self, threshold: int = 3, cooldown_s: float = 60.0,
-                 clock: Clock = time.monotonic):
+    def __init__(self, threshold: int = 3, cooldown_s: float = 60.0, clock: Clock = time.monotonic):
         self.threshold, self.cooldown_s, self._clock = threshold, cooldown_s, clock
         self._fails = 0
         self._open_until: float | None = None

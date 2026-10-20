@@ -1,4 +1,5 @@
 """The reply checker on its own: bounded, quiet, and gone when closed."""
+
 from __future__ import annotations
 
 import asyncio
@@ -87,7 +88,7 @@ async def test_a_note_that_cannot_be_recorded_is_dropped_quietly() -> None:
     c.start("t", Brief("g"), "r", record)
     laya.release.set()
     await asyncio.sleep(0.05)
-    await c.aclose()         # nothing left over, nothing raised
+    await c.aclose()  # nothing left over, nothing raised
 
 
 async def test_closing_cancels_what_is_waiting_and_closing_twice_is_fine() -> None:

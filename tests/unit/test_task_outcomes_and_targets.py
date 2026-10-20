@@ -1,4 +1,5 @@
 """Unit tests for Phase A (truthful task outcomes) and Phase B (execution targets)."""
+
 from __future__ import annotations
 
 from lilly.domain.labels import Label
@@ -154,7 +155,9 @@ def test_target_bound_in_approval_payload_hash() -> None:
 
 
 def test_loop_answer_properties() -> None:
-    ans = LoopAnswer("Done successfully", outcome=TaskOutcome.SUCCESS, outcome_reason="Verified file match", verified=True)
+    ans = LoopAnswer(
+        "Done successfully", outcome=TaskOutcome.SUCCESS, outcome_reason="Verified file match", verified=True
+    )
     assert isinstance(ans, str)
     assert ans == "Done successfully"
     assert ans.outcome == TaskOutcome.SUCCESS
@@ -173,19 +176,29 @@ def test_task_store_outcomes_and_targets_migration_and_query(tmp_path: Path) -> 
     con = open_db(db_file)
 
     now = 1000.0
-    t1 = tasks.create_task(con, id="t1", goal="Goal 1", mode=0, label=Label.PUBLIC,
-                           tainted=False, now=now, target=ExecutionTarget.HOST)
+    t1 = tasks.create_task(
+        con, id="t1", goal="Goal 1", mode=0, label=Label.PUBLIC, tainted=False, now=now, target=ExecutionTarget.HOST
+    )
     assert t1.outcome == TaskOutcome.UNVERIFIED
     assert t1.target == ExecutionTarget.HOST
 
-    t2 = tasks.create_task(con, id="t2", goal="Goal 2 in container", mode=0, label=Label.PUBLIC,
-                           tainted=False, now=now + 1, target=ExecutionTarget.DEVBOX)
+    t2 = tasks.create_task(
+        con,
+        id="t2",
+        goal="Goal 2 in container",
+        mode=0,
+        label=Label.PUBLIC,
+        tainted=False,
+        now=now + 1,
+        target=ExecutionTarget.DEVBOX,
+    )
     assert t2.target == ExecutionTarget.DEVBOX
 
     # Move t1 through PLANNING to DONE with explicit SUCCESS outcome
     tasks.set_state(con, "t1", TaskState.PLANNING, now + 2)
-    t1_updated = tasks.set_state(con, "t1", TaskState.DONE, now + 10,
-                                 answer="Done", outcome=TaskOutcome.SUCCESS, outcome_reason="Verified")
+    t1_updated = tasks.set_state(
+        con, "t1", TaskState.DONE, now + 10, answer="Done", outcome=TaskOutcome.SUCCESS, outcome_reason="Verified"
+    )
     assert t1_updated.state == TaskState.DONE
     assert t1_updated.outcome == TaskOutcome.SUCCESS
     assert t1_updated.outcome_reason == "Verified"

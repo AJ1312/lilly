@@ -1,4 +1,5 @@
 """An approved MCP tool as a Lilly Tool. Its answers are untrusted text: returned as data, never interpreted."""
+
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +44,7 @@ def args_summary(schema: Mapping[str, Any]) -> str:
             text = kind if isinstance(kind, str) and kind in _JSON_TYPES else "any"
             out[key] = text if key in req else f"{text}, optional"
     text = json.dumps(out, separators=(",", ":"))
-    return text if len(text) <= MAX_ARGS_SUMMARY else text[:MAX_ARGS_SUMMARY - 1] + "…"
+    return text if len(text) <= MAX_ARGS_SUMMARY else text[: MAX_ARGS_SUMMARY - 1] + "…"
 
 
 def render_content(items: tuple[Mapping[str, Any], ...]) -> str:
@@ -64,8 +65,10 @@ def render_content(items: tuple[Mapping[str, Any], ...]) -> str:
                 parts.append(res["text"])
             else:
                 blob = res.get("blob")
-                parts.append(f"[resource: {_short(res.get('uri'), 'unnamed')}, "
-                             f"{len(blob) * 3 // 4 if isinstance(blob, str) else 0} bytes omitted]")
+                parts.append(
+                    f"[resource: {_short(res.get('uri'), 'unnamed')}, "
+                    f"{len(blob) * 3 // 4 if isinstance(blob, str) else 0} bytes omitted]"
+                )
         elif kind == "resource_link":
             parts.append(f"[resource link: {_short(item.get('uri'), 'unnamed')} not fetched]")
         else:
@@ -80,7 +83,7 @@ def _short(value: object, default: str) -> str:
 def cap_output(text: str) -> str:
     if len(text) <= MAX_OUTPUT_CHARS:
         return text
-    return text[:MAX_OUTPUT_CHARS - len(_TRUNCATED)] + _TRUNCATED
+    return text[: MAX_OUTPUT_CHARS - len(_TRUNCATED)] + _TRUNCATED
 
 
 class McpTool(Tool):
@@ -89,10 +92,17 @@ class McpTool(Tool):
     def __init__(self, caller: Caller, cfg: McpServerConfig, info: McpToolInfo, risk: Risk) -> None:
         self.name = exposed_name(cfg.name, info.name)
         self._caller, self._cfg, self._tool = caller, cfg, info.name
-        self._spec = ToolSpec(risk=risk, egress=True, reads_label=cfg.data_label, untrusted=True, path_args=(),
-                              confirm=False, module=None,
-                              doc=f"(MCP server {cfg.name}) {info.description or info.name}",
-                              args=args_summary(info.input_schema))
+        self._spec = ToolSpec(
+            risk=risk,
+            egress=True,
+            reads_label=cfg.data_label,
+            untrusted=True,
+            path_args=(),
+            confirm=False,
+            module=None,
+            doc=f"(MCP server {cfg.name}) {info.description or info.name}",
+            args=args_summary(info.input_schema),
+        )
 
     @property
     def spec(self) -> ToolSpec:

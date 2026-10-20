@@ -158,6 +158,7 @@ def test_format_listings_csv() -> None:
 # Playbooks and Routines Persistence Tests
 # ==============================================================================
 
+
 @pytest.fixture
 def memory_db(tmp_path: Path) -> sqlite3.Connection:
     return open_db(tmp_path / "test.db")

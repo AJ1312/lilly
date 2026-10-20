@@ -1,5 +1,6 @@
 """Shared helpers for the MCP tests: a config for the fake server, approvals built from what it lists, and checks
 that nothing is left running."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,8 +35,13 @@ async def listed(config: McpServerConfig) -> tuple[McpToolInfo, ...]:
         await client.close()
 
 
-async def approve(config: McpServerConfig, *, risk: Risk = Risk.R0, only: tuple[str, ...] | None = None,
-                  reviewed_with: McpServerConfig | None = None) -> McpApproval:
+async def approve(
+    config: McpServerConfig,
+    *,
+    risk: Risk = Risk.R0,
+    only: tuple[str, ...] | None = None,
+    reviewed_with: McpServerConfig | None = None,
+) -> McpApproval:
     """What the owner would approve after reviewing `reviewed_with` (default: the same server)."""
     tools = await listed(reviewed_with or config)
     return McpApproval(config.name, tools, {t.name: risk for t in tools if only is None or t.name in only})
@@ -77,4 +83,3 @@ class FakeClock:
 
     def advance(self, seconds: float) -> None:
         self.t += seconds
-

@@ -1,4 +1,5 @@
 """Build a provider adapter from a ModelSpec."""
+
 from __future__ import annotations
 
 import re
@@ -22,40 +23,74 @@ _MISTRAL_URL = "https://api.mistral.ai/v1"
 _OPENROUTER_URL = "https://openrouter.ai/api/v1"
 
 
-def build_provider(spec: ModelSpec, client: httpx.AsyncClient, keys: KeyStore,
-                   local_client: httpx.AsyncClient | None = None, gate: LocalGate | None = None,
-                   keep_alive_s: Callable[[], int] | None = None) -> Provider:
+def build_provider(
+    spec: ModelSpec,
+    client: httpx.AsyncClient,
+    keys: KeyStore,
+    local_client: httpx.AsyncClient | None = None,
+    gate: LocalGate | None = None,
+    keep_alive_s: Callable[[], int] | None = None,
+) -> Provider:
     """The adapter for `spec`. A model's key reference defaults to its provider name. Servers on this computer
     use `local_client`, which never goes through a proxy."""
     ref = spec.key_ref or spec.provider
     json_ok = bool(spec.caps & Cap.JSON)
     p: Provider
     if spec.provider == "mistral":
-        p = OpenAICompatProvider("mistral", client, keys, ref, spec.model_id, spec.base_url or _MISTRAL_URL,
-                                 json_mode=json_ok)
+        p = OpenAICompatProvider(
+            "mistral", client, keys, ref, spec.model_id, spec.base_url or _MISTRAL_URL, json_mode=json_ok
+        )
     elif spec.provider == "openai":
-        reasoning = bool(_REASONING.match(spec.model_id))   # these models take no temperature and think before answering
-        p = OpenAICompatProvider("openai", client, keys, ref, spec.model_id, spec.base_url or _OPENAI_URL,
-                                 json_mode=json_ok, limit_field="max_completion_tokens",
-                                 send_temperature=not reasoning, limit_factor=REASONING_TOKEN_FACTOR if reasoning else 1,
-                                 stream_usage=True)
+        reasoning = bool(_REASONING.match(spec.model_id))  # these models take no temperature and think before answering
+        p = OpenAICompatProvider(
+            "openai",
+            client,
+            keys,
+            ref,
+            spec.model_id,
+            spec.base_url or _OPENAI_URL,
+            json_mode=json_ok,
+            limit_field="max_completion_tokens",
+            send_temperature=not reasoning,
+            limit_factor=REASONING_TOKEN_FACTOR if reasoning else 1,
+            stream_usage=True,
+        )
     elif spec.provider == "openrouter":
-        p = OpenAICompatProvider("openrouter", client, keys, ref, spec.model_id, spec.base_url or _OPENROUTER_URL,
-                                 {"X-Title": "Lilly"}, json_mode=json_ok)
+        p = OpenAICompatProvider(
+            "openrouter",
+            client,
+            keys,
+            ref,
+            spec.model_id,
+            spec.base_url or _OPENROUTER_URL,
+            {"X-Title": "Lilly"},
+            json_mode=json_ok,
+        )
     elif spec.provider == "gemini":
-        p = GeminiProvider(client, keys, ref, spec.model_id, spec.base_url or "https://generativelanguage.googleapis.com/v1beta")
+        p = GeminiProvider(
+            client, keys, ref, spec.model_id, spec.base_url or "https://generativelanguage.googleapis.com/v1beta"
+        )
     elif spec.provider == "ollama":
-        p = OllamaProvider(local_client or client, spec.model_id, spec.base_url, gate,
-                           keep_alive_s or (lambda: DEFAULT_KEEP_ALIVE_S))
+        p = OllamaProvider(
+            local_client or client, spec.model_id, spec.base_url, gate, keep_alive_s or (lambda: DEFAULT_KEEP_ALIVE_S)
+        )
     elif spec.provider == "omniroute":
         target_client = local_client or client if spec.local else client
-        p = OpenAICompatProvider("omniroute", target_client, keys, ref, spec.model_id,
-                                 spec.base_url or "http://127.0.0.1:20128/v1",
-                                 {"X-Title": "Lilly"}, json_mode=json_ok)
+        p = OpenAICompatProvider(
+            "omniroute",
+            target_client,
+            keys,
+            ref,
+            spec.model_id,
+            spec.base_url or "http://127.0.0.1:20128/v1",
+            {"X-Title": "Lilly"},
+            json_mode=json_ok,
+        )
     else:
         raise ConfigurationError(f"unknown provider {spec.provider!r}")
 
     if spec.tools == "protocol":
         from lilly.providers.action_protocol import ActionProtocolAdapter
+
         return ActionProtocolAdapter(p, spec.name)
     return p

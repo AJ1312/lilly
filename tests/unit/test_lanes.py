@@ -1,4 +1,5 @@
 """The lane scheduler with fake steps: ordering, overlap, barriers, the worst-case rule, failure and cancellation."""
+
 from __future__ import annotations
 
 import asyncio
@@ -84,12 +85,18 @@ class Harness:
 
 
 def test_dependencies_come_from_references_in_plan_order() -> None:
-    steps = [step("a"), step("b"), step("c", text="$b.output and $a.output"), step("d", n=["$c.output"], m="$zz.output")]
+    steps = [
+        step("a"),
+        step("b"),
+        step("c", text="$b.output and $a.output"),
+        step("d", n=["$c.output"], m="$zz.output"),
+    ]
     assert dependencies(steps) == {"a": (), "b": (), "c": ("a", "b"), "d": ("c",)}
 
 
-@pytest.mark.parametrize("tool, ok", [("read", True), ("write", False), ("press", False), ("llm.work", False),
-                                      ("nope", False)])
+@pytest.mark.parametrize(
+    "tool, ok", [("read", True), ("write", False), ("press", False), ("llm.work", False), ("nope", False)]
+)
 def test_only_plain_reads_may_run_beside_others(tool: str, ok: bool) -> None:
     assert parallel_eligible(step("a", tool), SPECS.get(tool), TaskCtx(mode=Mode.OPEN), SCOPE) is ok
 
@@ -104,7 +111,7 @@ async def test_a_step_never_starts_before_the_steps_it_uses_have_finished() -> N
     await h.go([step("a"), step("b"), step("c", x="$a.output"), step("d", x="$b.output $c.output")])
     assert h.at("end", "a") < h.at("start", "c") and h.at("end", "b") < h.at("start", "d")
     assert h.at("end", "c") < h.at("start", "d")
-    assert h.at("start", "b") < h.at("end", "a")          # b did not wait for a
+    assert h.at("start", "b") < h.at("end", "a")  # b did not wait for a
     assert h.outputs == {"a": "out-a", "b": "out-b", "c": "out-c", "d": "out-d"}
 
 
@@ -130,14 +137,15 @@ async def test_no_more_steps_run_at_once_than_there_are_lanes() -> None:
 
 
 @pytest.mark.parametrize("barrier, mode", [("write", Mode.ASK), ("write", Mode.OPEN), ("press", Mode.OPEN)])
-async def test_a_change_or_a_computer_action_runs_alone_with_everything_else_before_or_after(barrier: str,
-                                                                                            mode: Mode) -> None:
+async def test_a_change_or_a_computer_action_runs_alone_with_everything_else_before_or_after(
+    barrier: str, mode: Mode
+) -> None:
     h = Harness(ctx=TaskCtx(mode=mode), delays={"r1": 0.03, "r2": 0.03, "w": 0.03, "r3": 0.01, "r4": 0.01})
     await h.go([step("r1"), step("r2"), step("w", barrier), step("r3"), step("r4")], lanes=4)
     assert max(h.at("end", "r1"), h.at("end", "r2")) < h.at("start", "w")
     assert h.at("end", "w") == h.at("start", "w") + 1
     assert h.at("end", "w") < min(h.at("start", "r3"), h.at("start", "r4"))
-    assert h.at("start", "r3") < h.at("end", "r4")        # the reads after the barrier overlap again
+    assert h.at("start", "r3") < h.at("end", "r4")  # the reads after the barrier overlap again
 
 
 async def test_the_final_model_step_and_unknown_tools_are_barriers() -> None:
@@ -146,7 +154,7 @@ async def test_the_final_model_step_and_unknown_tools_are_barriers() -> None:
     assert h.at("end", "r2") < h.at("start", "fin") and h.peak == 2
 
     h = Harness()
-    with pytest.raises(KeyError):                        # no spec: it is held back to run alone, and fails there
+    with pytest.raises(KeyError):  # no spec: it is held back to run alone, and fails there
         await h.go([step("r1"), step("x", "ghost")], specs={"read": SPECS["read"]})
     assert h.at("end", "r1") == 1
 
@@ -158,11 +166,11 @@ async def test_a_read_that_policy_would_stop_after_an_earlier_read_does_not_run_
     h = Harness(ctx=tainted_open, delays={"p": 0.03, "w": 0.03})
     await h.go([step("p", "private"), step("w", "send")])
     assert h.at("end", "p") < h.at("start", "w")
-    assert h.verdicts["w"] is Verdict.NEEDS_APPROVAL      # and it is asked, as in a sequential run
+    assert h.verdicts["w"] is Verdict.NEEDS_APPROVAL  # and it is asked, as in a sequential run
 
     free = Harness(ctx=tainted_open, delays={"p": 0.03, "w": 0.03})
     await free.go([step("p", "read"), step("w", "send")])
-    assert free.at("start", "w") < free.at("end", "p")    # nothing private ahead of it: they overlap
+    assert free.at("start", "w") < free.at("end", "p")  # nothing private ahead of it: they overlap
 
 
 async def test_steps_that_need_approval_are_never_asked_about_together() -> None:
@@ -191,7 +199,7 @@ async def test_a_step_that_finishes_while_its_neighbours_are_being_stopped_keeps
         try:
             await asyncio.sleep(5.0)
         except asyncio.CancelledError:
-            return "wrapped up"      # it was already finishing when the stop arrived
+            return "wrapped up"  # it was already finishing when the stop arrived
         return "not reached"
 
     sched = LaneScheduler(SPECS, SCOPE, 3, lambda: h.ctx)
@@ -229,14 +237,19 @@ async def test_stopping_the_whole_run_stops_every_step_and_leaves_no_task_behind
 
 # ---- property: any plan, any width, same verdicts and same final context as running one at a time ----------------
 
+
 def random_plan(rng: random.Random) -> tuple[dict[str, ToolSpec], list[dict[str, Any]], dict[str, int], TaskCtx]:
     specs: dict[str, ToolSpec] = {}
     for i in range(rng.randint(2, 6)):
         confirm = rng.random() < 0.15
         specs[f"t{i}"] = ToolSpec(
-            risk=rng.choice([Risk.R0, Risk.R0, Risk.R0, Risk.R1, Risk.R2]), egress=rng.random() < 0.4,
+            risk=rng.choice([Risk.R0, Risk.R0, Risk.R0, Risk.R1, Risk.R2]),
+            egress=rng.random() < 0.4,
             reads_label=rng.choice([Label.PUBLIC, Label.PUBLIC, Label.PERSONAL, Label.SECRET]),
-            untrusted=rng.random() < 0.4, confirm=confirm, path_args=())
+            untrusted=rng.random() < 0.4,
+            confirm=confirm,
+            path_args=(),
+        )
     specs["llm.work"] = SPECS["llm.work"]
     steps: list[dict[str, Any]] = []
     for i in range(rng.randint(1, 10)):

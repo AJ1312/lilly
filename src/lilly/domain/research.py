@@ -1,4 +1,5 @@
 """Research domain: research strategy, structured job listings, and deduplication/ranking."""
+
 from __future__ import annotations
 
 import csv
@@ -95,13 +96,33 @@ def format_listings_csv(listings: list[JobListing]) -> str:
     """Format listings as CSV text."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "title", "company", "location", "posted_date", "salary",
-        "experience_level", "canonical_url", "source", "status", "verified_at"
-    ])
+    writer.writerow(
+        [
+            "title",
+            "company",
+            "location",
+            "posted_date",
+            "salary",
+            "experience_level",
+            "canonical_url",
+            "source",
+            "status",
+            "verified_at",
+        ]
+    )
     for job in listings:
-        writer.writerow([
-            job.title, job.company, job.location, job.posted_date, job.salary,
-            job.experience_level, job.canonical_url, job.source, job.status, job.verified_at or ""
-        ])
+        writer.writerow(
+            [
+                job.title,
+                job.company,
+                job.location,
+                job.posted_date,
+                job.salary,
+                job.experience_level,
+                job.canonical_url,
+                job.source,
+                job.status,
+                job.verified_at or "",
+            ]
+        )
     return output.getvalue()

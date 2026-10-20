@@ -4,6 +4,7 @@ One model call decides the next action from everything seen so far.
 Supports parallel read calls, serial execution for mutating steps, observation
 generation, decline continuation, loop guard warnings, and budget enforcement.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -11,12 +12,12 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lilly.core.shortlist import CONTROL_TOOLS, discover
+from lilly.core.shortlist import discover
 from lilly.decide.system1 import System1Engine
 from lilly.domain.caps import Cap
 from lilly.domain.labels import ApprovalMode, Risk, Verdict
 from lilly.domain.payload import canonical, payload_hash
-from lilly.domain.plan import FINAL_TOOL, tool_call
+from lilly.domain.plan import tool_call
 from lilly.domain.policy import PathScope, decide
 from lilly.domain.ports import (
     Completed,
@@ -64,26 +65,69 @@ log = logging.getLogger("lilly.agent_loop")
 # An ACTION request is complete only after a state-changing interaction and a
 # fresh browser/desktop observation. Read-only web research is intentionally
 # outside this contract.
-_ACTION_TOOLS = frozenset({
-    "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
-    "browser.scroll", "browser.back", "browser.close",
-    "computer.click", "computer.type", "computer.press", "computer.move",
-    "computer.scroll", "computer.drag", "computer.open_app", "computer.open_url",
-    "computer.stop_process", "computer.run", "computer.notify", "devbox.run",
-    "fs.write", "fs.edit", "fs.apply_moves", "fs.trash",
-    "notes.write", "memory.write",
-})
-_ACTION_OBSERVATION_TOOLS = frozenset({
-    "browser.open", "browser.read", "browser.find", "browser.back",
-    "computer.observe", "computer.processes",
-    "fs.read", "fs.list", "fs.search", "notes.read", "notes.search", "memory.search",
-})
-_ACTION_TOOLS_WITH_FRESH_STATE = frozenset({
-    "browser.click", "browser.type", "browser.select", "browser.submit", "browser.press",
-    "browser.scroll", "browser.back",
-    "computer.click", "computer.type", "computer.press", "computer.move",
-    "computer.scroll", "computer.drag",
-})
+_ACTION_TOOLS = frozenset(
+    {
+        "browser.click",
+        "browser.type",
+        "browser.select",
+        "browser.submit",
+        "browser.press",
+        "browser.scroll",
+        "browser.back",
+        "browser.close",
+        "computer.click",
+        "computer.type",
+        "computer.press",
+        "computer.move",
+        "computer.scroll",
+        "computer.drag",
+        "computer.open_app",
+        "computer.open_url",
+        "computer.stop_process",
+        "computer.run",
+        "computer.notify",
+        "devbox.run",
+        "fs.write",
+        "fs.edit",
+        "fs.apply_moves",
+        "fs.trash",
+        "notes.write",
+        "memory.write",
+    }
+)
+_ACTION_OBSERVATION_TOOLS = frozenset(
+    {
+        "browser.open",
+        "browser.read",
+        "browser.find",
+        "browser.back",
+        "computer.observe",
+        "computer.processes",
+        "fs.read",
+        "fs.list",
+        "fs.search",
+        "notes.read",
+        "notes.search",
+        "memory.search",
+    }
+)
+_ACTION_TOOLS_WITH_FRESH_STATE = frozenset(
+    {
+        "browser.click",
+        "browser.type",
+        "browser.select",
+        "browser.submit",
+        "browser.press",
+        "browser.scroll",
+        "browser.back",
+        "computer.click",
+        "computer.type",
+        "computer.press",
+        "computer.move",
+        "computer.scroll",
+        "computer.drag",
+    }
+)
 
 
 class AgentLoop:
@@ -177,8 +221,11 @@ class AgentLoop:
             routed_goal, models, tools, self._rec.task_id
         )
         self._task_complexity = {
-            "TRIVIAL": 0.1, "SIMPLE": 0.3, "MODERATE": 0.6,
-            "COMPLEX": 0.8, "EXPERT": 0.95,
+            "TRIVIAL": 0.1,
+            "SIMPLE": 0.3,
+            "MODERATE": 0.6,
+            "COMPLEX": 0.8,
+            "EXPERT": 0.95,
         }.get(complexity.level.name, 0.5)
         self._system1_capability = capability.primary_capability
         self._system1_requires_vision = capability.needs_vision
@@ -188,16 +235,19 @@ class AgentLoop:
             self._rec.task_id, routed_goal, self._task_complexity, classification.task_class
         )
         self._system1_verification = verification.level.name
-        await self._rec.event("system1", {
-            "intent": self._intent.value,
-            "classification": classification.task_class.name,
-            "complexity": complexity.level.name,
-            "model_tier": tier.tier.name,
-            "capability": capability.primary_capability.name,
-            "tool_family": tool_family.primary_family.name,
-            "verification": verification.level.name,
-            "reasoning": complexity.reasoning[:300],
-        })
+        await self._rec.event(
+            "system1",
+            {
+                "intent": self._intent.value,
+                "classification": classification.task_class.name,
+                "complexity": complexity.level.name,
+                "model_tier": tier.tier.name,
+                "capability": capability.primary_capability.name,
+                "tool_family": tool_family.primary_family.name,
+                "verification": verification.level.name,
+                "reasoning": complexity.reasoning[:300],
+            },
+        )
 
     def _get_visible_tools(self) -> dict[str, Tool]:
         if self._rec.ctx.approval_mode is ApprovalMode.OFF:
@@ -211,7 +261,7 @@ class AgentLoop:
             all_tools = {k: v for k, v in all_tools.items() if not k.startswith("devbox.")}
 
         visible: dict[str, Tool] = {}
-        ALWAYS_VISIBLE = frozenset({"agent.ask"})   # the one tool a pet needs even with everything else off
+        ALWAYS_VISIBLE = frozenset({"agent.ask"})  # the one tool a pet needs even with everything else off
 
         for name, tool in all_tools.items():
             if name not in ALWAYS_VISIBLE:
@@ -238,26 +288,53 @@ class AgentLoop:
         """Determine truthful goal outcome and verification state."""
         lower = text.lower()
         blocked_indicators = (
-            "not optimized for", "isn't optimized for", "not supported",
-            "blocked by policy", "unable to play", "cannot play",
-            "access denied", "permission denied",
+            "not optimized for",
+            "isn't optimized for",
+            "not supported",
+            "blocked by policy",
+            "unable to play",
+            "cannot play",
+            "access denied",
+            "permission denied",
+            "don't have direct access",
+            "don’t have direct access",
+            "don't have access",
+            "don’t have access",
+            "do not have access",
+            "cannot access",
+            "unable to access",
+            "no direct access",
+            "cannot open",
+            "unable to open",
+            "lacks access",
+            "don't have permission",
+            "don’t have permission",
         )
         is_blocked_text = any(phrase in lower for phrase in blocked_indicators)
 
         question_indicators = (
-            "would you like me to", "do you want me to", "should i",
-            "how would you like to proceed", "what would you like to do",
-            "let me know how to proceed", "please let me know",
-            "would you prefer", "or try another",
+            "would you like me to",
+            "do you want me to",
+            "should i",
+            "how would you like to proceed",
+            "what would you like to do",
+            "let me know how to proceed",
+            "please let me know",
+            "would you prefer",
+            "or try another",
         )
         asks_user = any(phrase in lower for phrase in question_indicators) or (
             "?" in text and ("switch" in lower or "proceed" in lower or "instead" in lower or "choose" in lower)
         )
 
         if had_blocked or is_blocked_text:
-            return TaskOutcome.BLOCKED, "action was blocked by platform or policy", False
+            return TaskOutcome.BLOCKED, "action was blocked by platform, permissions, or lack of access", False
         if had_declined:
             return TaskOutcome.NEEDS_USER, "action approval was declined", False
+
+        # If goal requested a concrete action or local interaction, check execution
+        goal_lower = getattr(self, "_goal", "").lower()
+        goal_asked_action = any(kw in goal_lower for kw in ("open", "launch", "play", "click", "type", "run", "press"))
 
         if intent is Intent.ACTION:
             if asks_user:
@@ -275,6 +352,12 @@ class AgentLoop:
                 return TaskOutcome.SUCCESS, "navigated to destination", True
             return TaskOutcome.PARTIAL, "destination not reached", False
 
+        # If user goal explicitly asked for an action but intent was classified as WEB_RETRIEVE/ANSWER
+        if goal_asked_action and not action_performed and not action_verified:
+            if asks_user:
+                return TaskOutcome.NEEDS_USER, "action not completed; user clarification requested", False
+            return TaskOutcome.PARTIAL, "requested action was not executed", False
+
         # Intent is WEB_RETRIEVE or ANSWER
         if had_failed_step:
             return TaskOutcome.PARTIAL, "completed with errors during retrieval", False
@@ -283,37 +366,12 @@ class AgentLoop:
         return TaskOutcome.SUCCESS, None, False
 
     async def _capabilities(self, visible: dict[str, Tool]) -> dict[str, Tool]:
-        """Expose core tools + discovered/used tools, loading schemas on demand to save tokens."""
-        if not visible:
-            return {}
-        if len(visible) <= 12:
-            return visible
-
-        # Core tools
-        allowed = set(CONTROL_TOOLS)
-        allowed.add(FINAL_TOOL)
-        allowed.add("agent.ask")
-
-        # Plus previously used or discovered tools
-        allowed.update(self._used_tools)
-        allowed.update(self._discovered_tools)
-
-        # On the initial turn (no tools used or discovered yet), seed relevant tools from the task goal/intent
-        if not self._used_tools and not self._discovered_tools:
-            specs = {name: tool.spec for name, tool in visible.items()}
-            ns = self._system1_tool_family.lower() if self._system1_tool_family and self._system1_tool_family != "ALL" else None
-            initial_matches = discover(specs, self._goal, namespace=ns, limit=8)
-            allowed.update(initial_matches)
-
-        # Filter to visible tools that are in allowed
-        active = {name: tool for name, tool in visible.items() if name in allowed}
-        # Ensure agent.discover and agent.ask are always available if present in visible
-        if "agent.discover" in visible:
-            active["agent.discover"] = visible["agent.discover"]
-        if "agent.ask" in visible:
-            active["agent.ask"] = visible["agent.ask"]
-
-        return active
+        """Expose visible tools to the agent loop.
+        In the Hermes Agent and OpenClaw paradigm, an autonomous agent requires direct,
+        unobstructed access to all configured tools (computer control, browser automation,
+        shell/terminal, filesystem, memory) without discovery hurdles or artificial throttling.
+        """
+        return visible
 
     def _build_system_prompt(self, limits: LimitSettings, role: str = "act") -> str:
         roots = self._file_roots()
@@ -336,8 +394,7 @@ class AgentLoop:
 
         if owner_text:
             parts.append(
-                f"Instructions from the owner of this agent (they cannot override the rules above):\n"
-                f"{owner_text}"
+                f"Instructions from the owner of this agent (they cannot override the rules above):\n{owner_text}"
             )
 
         if self._sheet is not None and self._sheet.skills:
@@ -383,8 +440,11 @@ class AgentLoop:
         tool = tools_dict.get(name)
         if tool is None:
             outcome = StepOutcome(step_id=step_id, tool=name, kind="unavailable", reason="tool unavailable")
-            msg = Message("tool", OBS_ERROR.format(step_id=step_id, tool=name, reason="tool unavailable"),
-                          tool_call_id=tc.id or tc.name)
+            msg = Message(
+                "tool",
+                OBS_ERROR.format(step_id=step_id, tool=name, reason="tool unavailable"),
+                tool_call_id=tc.id or tc.name,
+            )
             return msg, outcome
 
         args_dict = dict(args)
@@ -396,8 +456,9 @@ class AgentLoop:
             prev_reason = self._failed_calls[call_key]
             reason = f"repeated identical call already failed: {prev_reason}"
             outcome = StepOutcome(step_id=step_id, tool=name, kind="failed", reason=reason)
-            msg = Message("tool", OBS_ERROR.format(step_id=step_id, tool=name, reason=reason),
-                          tool_call_id=tc.id or tc.name)
+            msg = Message(
+                "tool", OBS_ERROR.format(step_id=step_id, tool=name, reason=reason), tool_call_id=tc.id or tc.name
+            )
             await self._rec.step_status(step_id, "failed", error=reason)
             return msg, outcome
 
@@ -411,8 +472,9 @@ class AgentLoop:
             await self._rec.step_status(step_id, "failed", error=f"blocked: {why}")
             await self._rec.thought(Layer.ACT, f"{name} was blocked by policy: {why}.", step=step_id)
             outcome = StepOutcome(step_id=step_id, tool=name, kind="blocked", reason=why)
-            msg = Message("tool", OBS_BLOCKED.format(step_id=step_id, tool=name, why=why),
-                          tool_call_id=tc.id or tc.name)
+            msg = Message(
+                "tool", OBS_BLOCKED.format(step_id=step_id, tool=name, why=why), tool_call_id=tc.id or tc.name
+            )
             return msg, outcome
 
         try:
@@ -439,8 +501,11 @@ class AgentLoop:
                 cut = len(output) > obs_chars
                 body = output[:obs_chars] if cut else output
             shown_suffix = f", showing the first {obs_chars}" if cut else ""
-            truncated_suffix = (f'\n[truncated: call result.read with {{"step": "{step_id}", "offset": {obs_chars}}} for more]'
-                                if cut else "")
+            truncated_suffix = (
+                f'\n[truncated: call result.read with {{"step": "{step_id}", "offset": {obs_chars}}} for more]'
+                if cut
+                else ""
+            )
 
             obs = OBS_OK.format(
                 step_id=step_id,
@@ -452,12 +517,12 @@ class AgentLoop:
             )
             # Use the tool's terminal flag and summary method
             outcome = StepOutcome(
-                step_id=step_id, 
-                tool=name, 
-                kind="ok", 
+                step_id=step_id,
+                tool=name,
+                kind="ok",
                 output=output,
                 terminal=spec.terminal,
-                summary=tool.summary(args, output)
+                summary=tool.summary(args, output),
             )
             return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
         except StepDeclined as dec:
@@ -466,7 +531,9 @@ class AgentLoop:
                 obs = OBS_DECLINED_REASON.format(step_id=step_id, tool=name, reason=dec.user_reason)
             else:
                 obs = OBS_DECLINED.format(step_id=step_id, tool=name)
-            outcome = StepOutcome(step_id=step_id, tool=name, kind="declined", reason=dec.user_reason or "declined by the user")
+            outcome = StepOutcome(
+                step_id=step_id, tool=name, kind="declined", reason=dec.user_reason or "declined by the user"
+            )
             return Message("tool", obs, tool_call_id=tc.id or tc.name), outcome
         except StepFailed as failed:
             self._failed_calls[call_key] = failed.reason
@@ -551,17 +618,22 @@ class AgentLoop:
             remaining_steps = max_steps - turn
             remaining_tokens = max_tokens - tokens_used
 
-            is_final_call = (remaining_calls <= 1 or remaining_steps <= 0 or remaining_tokens <= 0)
+            is_final_call = remaining_calls <= 1 or remaining_steps <= 0 or remaining_tokens <= 0
             tool_choice = "none" if is_final_call else "auto"
 
             if is_final_call:
                 role = "write"
-                budget_reason = "steps" if remaining_steps <= 0 else ("tokens" if remaining_tokens <= 0 else "model calls")
+                budget_reason = (
+                    "steps" if remaining_steps <= 0 else ("tokens" if remaining_tokens <= 0 else "model calls")
+                )
                 messages.append(Message(role="user", content=NOTICE_BUDGET_EXHAUSTED))
             elif remaining_steps == 1 or remaining_calls == 2:
-                messages.append(Message(role="user", content=NOTICE_BUDGET_WARN.format(
-                    steps_left=remaining_steps, calls_left=remaining_calls
-                )))
+                messages.append(
+                    Message(
+                        role="user",
+                        content=NOTICE_BUDGET_WARN.format(steps_left=remaining_steps, calls_left=remaining_calls),
+                    )
+                )
 
             # Update system prompt if role has changed
             if messages and messages[0].role == "system":
@@ -582,7 +654,10 @@ class AgentLoop:
             role_pin, _tag_hint = resolve_ref(raw_pin, (), role=role)
 
             messages = await self._context_mgr.prepare(
-                messages, label=self._rec.ctx.label, mode=self._rec.ctx.mode, task_id=self._rec.task_id,
+                messages,
+                label=self._rec.ctx.label,
+                mode=self._rec.ctx.mode,
+                task_id=self._rec.task_id,
                 actual_tokens=last_input_tokens,
             )
 
@@ -610,17 +685,29 @@ class AgentLoop:
                 digest = payload_hash(self._rec.task_id, f"turn_{t}_{c}", "loop", {"goal": self._goal})
                 if getattr(self._completer, "supports_system1_routing", False):
                     done = await self._completer.complete(
-                        r, need=self._system1_capability, label=self._rec.ctx.label, task_id=self._rec.task_id,
-                        payload_hash=digest, mode=self._rec.ctx.mode, pin=p,
+                        r,
+                        need=self._system1_capability,
+                        label=self._rec.ctx.label,
+                        task_id=self._rec.task_id,
+                        payload_hash=digest,
+                        mode=self._rec.ctx.mode,
+                        pin=p,
                         task_complexity=self._task_complexity,
-                        requires_tools=bool(r.tools), requires_vision=self._system1_requires_vision,
-                        model_tier=self._system1_model_tier, tool_family=self._system1_tool_family,
+                        requires_tools=bool(r.tools),
+                        requires_vision=self._system1_requires_vision,
+                        model_tier=self._system1_model_tier,
+                        tool_family=self._system1_tool_family,
                         verification=self._system1_verification,
                     )
                 else:
                     done = await self._completer.complete(
-                        r, need=self._system1_capability, label=self._rec.ctx.label, task_id=self._rec.task_id,
-                        payload_hash=digest, mode=self._rec.ctx.mode, pin=p,
+                        r,
+                        need=self._system1_capability,
+                        label=self._rec.ctx.label,
+                        task_id=self._rec.task_id,
+                        payload_hash=digest,
+                        mode=self._rec.ctx.mode,
+                        pin=p,
                     )
                 self._rec.models.append(done.model)
                 return done
@@ -652,18 +739,25 @@ class AgentLoop:
                 # mutation whose resulting state has not been inspected. The
                 # next turn is deliberately model-driven; this guard only
                 # enforces the user's requested outcome boundary.
-                if (intent.value == "ACTION" and not action_verified and tool_choice != "none"
-                        and remaining_calls > 1 and (not action_prompted or action_performed)):
+                if (
+                    intent.value == "ACTION"
+                    and not action_verified
+                    and tool_choice != "none"
+                    and remaining_calls > 1
+                    and (not action_prompted or action_performed)
+                ):
                     action_prompted = True
                     messages.append(Message(role="assistant", content=candidate_answer))
-                    messages.append(Message(
-                        role="user",
-                        content=(
-                            "This is an ACTION request. Do not report completion yet. "
-                            "Perform the requested interaction if it has not happened, then inspect a fresh "
-                            "browser/desktop state and verify the user-visible outcome."
-                        ),
-                    ))
+                    messages.append(
+                        Message(
+                            role="user",
+                            content=(
+                                "This is an ACTION request. Do not report completion yet. "
+                                "Perform the requested interaction if it has not happened, then inspect a fresh "
+                                "browser/desktop state and verify the user-visible outcome."
+                            ),
+                        )
+                    )
                     turn += 1
                     candidate_answer = None
                     continue
@@ -682,7 +776,6 @@ class AgentLoop:
                             candidate_answer = self._grounding.remove_unseen(candidate_answer, unseen)
                             await self._rec.event("ground", {"unseen": list(unseen), "action": "removed"})
                 break
-
 
             if done.result.text.strip():
                 await self._rec.thought(
@@ -720,7 +813,9 @@ class AgentLoop:
                     parts = err_msg.split(": ", 1)
                     schema_path = parts[0]
                     prob = parts[1] if len(parts) > 1 else err_msg
-                    obs_text = OBS_INVALID_ARGS.format(step_id=step_id, tool=tc.name, schema_path=schema_path, problem=prob)
+                    obs_text = OBS_INVALID_ARGS.format(
+                        step_id=step_id, tool=tc.name, schema_path=schema_path, problem=prob
+                    )
                     obs_by_sid[step_id] = Message(role="tool", content=obs_text, tool_call_id=tc.id or tc.name)
                     continue
 
@@ -850,12 +945,14 @@ class AgentLoop:
 
             # Early finish for terminal tools (P2-Bc)
             text_with_calls = (done.result.text or "").strip()
-            if (self._engine_settings().finish_on_terminal
-                    and outcomes
-                    and not text_with_calls                       # the model said nothing else this turn
-                    and all(o.ok and o.terminal for o in outcomes.values())
-                    and len(outcomes) == len(done.result.tool_calls)       # every call was valid and terminal
-                    and (intent.value != "ACTION" or action_verified)):
+            if (
+                self._engine_settings().finish_on_terminal
+                and outcomes
+                and not text_with_calls  # the model said nothing else this turn
+                and all(o.ok and o.terminal for o in outcomes.values())
+                and len(outcomes) == len(done.result.tool_calls)  # every call was valid and terminal
+                and (intent.value != "ACTION" or action_verified)
+            ):
                 candidate_answer = " ".join(o.summary for o in outcomes.values())
                 # Leave the loop through the same exit used when the model returns an answer with no tool calls
                 break
@@ -876,12 +973,14 @@ class AgentLoop:
                 args = dict(call.arguments or {}) if isinstance(call.arguments, Mapping) else {}
                 raw_limit = args.get("limit", 12)
                 limit = raw_limit if isinstance(raw_limit, int) and not isinstance(raw_limit, bool) else 12
-                self._discovered_tools.update(discover(
-                    {name: tool.spec for name, tool in visible_tools.items()},
-                    str(args.get("query", "")),
-                    namespace=str(args.get("namespace", "")) or None,
-                    limit=limit,
-                ))
+                self._discovered_tools.update(
+                    discover(
+                        {name: tool.spec for name, tool in visible_tools.items()},
+                        str(args.get("query", "")),
+                        namespace=str(args.get("namespace", "")) or None,
+                        limit=limit,
+                    )
+                )
 
             # Check whether any step on this turn failed or had schema error
 

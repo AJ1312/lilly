@@ -3,6 +3,7 @@
 Store modules are plain functions of a connection, so they run unchanged on the writer
 thread, on the read-only connection and in tests.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -46,7 +47,9 @@ def open_db(path: str | Path) -> sqlite3.Connection:
     current = schema_version(con)
     if 0 < current < latest_version():
         # an existing database is copied before it is upgraded; the newest three copies are kept
-        backup_db(con, p.parent / "backups", time.time(), keep=UPGRADE_BACKUPS, prefix="preupgrade", tag=f"-v{current:04d}")
+        backup_db(
+            con, p.parent / "backups", time.time(), keep=UPGRADE_BACKUPS, prefix="preupgrade", tag=f"-v{current:04d}"
+        )
     migrate(con)
     _tighten(p)
     return con

@@ -1,4 +1,5 @@
 """The single-writer thread: backpressure, atomicity, closing and restart behaviour."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -162,7 +163,8 @@ def test_uncommitted_work_is_invisible_to_readers_until_the_job_ends(writer: Wri
 
 
 def test_queue_full_raises_writer_busy_and_accepted_jobs_still_finish(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(writer_mod, "QUEUE_CAPACITY", 3)
     w = Writer(tmp_path / "bp.db")
     try:

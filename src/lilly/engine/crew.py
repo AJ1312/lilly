@@ -4,6 +4,7 @@ Implements Part 5:
 - resolve_ref for auto, pins, and tag:<tag> (with SHEET-010 fallback hint)
 - choose_pet routing: @handle -> rules (lexical scoring) -> Laya PICK -> default pet
 """
+
 from __future__ import annotations
 
 import logging

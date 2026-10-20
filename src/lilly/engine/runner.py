@@ -84,6 +84,7 @@ class RunSpec:
     profile: TaskProfile | None = None
     intent: Intent | None = None
     target: ExecutionTarget = ExecutionTarget.HOST
+    approval_mode: ApprovalMode | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,8 +117,9 @@ class TaskRunner:
         self.stop_reason = "stopped"      # what a cancelled task shows as its reason
         self._brief = Brief(spec.goal, spec.agent_instructions)
         self._route: Outcome | None = None     # the route question of this task, until it is labelled
+        appr_mode = spec.approval_mode or deps.approval_mode()
         self._rec = TaskRecord(deps.db, deps.bus, deps.clock, task.id,
-                                TaskCtx(task.label, task.tainted, Mode(task.mode), deps.approval_mode()),
+                                TaskCtx(task.label, task.tainted, Mode(task.mode), appr_mode),
                                 TaskState(task.state))
         self._steps = StepExecutor(self._rec, deps.approvals, deps.grants, deps.scope, deps.limits, spec.pin_model,
                                    deps.decisions, self._brief, engine_settings=deps.engine_settings,
@@ -452,6 +454,26 @@ class TaskRunner:
         if res_outcome is None:
             res_outcome = TaskOutcome.UNVERIFIED
 
-        await self._finish(TaskState.DONE, answer=text, outcome=res_outcome, outcome_reason=res_reason)
-        if self._replies is not None and self._rec.state_now is TaskState.DONE:   # saved and finished: now it may be judged
+        final_state = TaskState.DONE
+        final_error: str | None = None
+        is_action_task = self._spec.intent in (Intent.ACTION, Intent.NAVIGATE) or any(
+            kw in self._spec.goal.lower()
+            for kw in ("open", "launch", "play", "click", "type", "run", "press", "spotify")
+        )
+
+        if res_outcome is TaskOutcome.BLOCKED:
+            if is_action_task:
+                final_state = TaskState.FAILED
+                final_error = res_reason or "action was blocked by platform, permissions, or lack of access"
+        elif res_outcome is TaskOutcome.PARTIAL:
+            if is_action_task:
+                final_state = TaskState.FAILED
+                final_error = res_reason or "requested action was not executed"
+
+        await self._finish(
+            final_state, answer=text, error=final_error, outcome=res_outcome, outcome_reason=res_reason
+        )
+
+        if self._replies is not None and self._rec.state_now is TaskState.DONE:  # saved and finished: now it may be judged
             self._replies.start(self._task.id, self._brief, text, self._rec.event)
+

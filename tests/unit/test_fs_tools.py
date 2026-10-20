@@ -1,4 +1,5 @@
 """File tools stay inside shared folders and never overwrite or follow links silently."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,5 +55,6 @@ async def test_a_symlink_pointing_out_of_the_shared_folder_is_refused(shared: Pa
     (shared / "n.txt").symlink_to(victim)
     with pytest.raises(PolicyDenied):
         await FsWriteTool(PathScope([str(shared)])).run(
-            {"path": str(shared / "n.txt"), "content": "x", "overwrite": True}, CTX)
+            {"path": str(shared / "n.txt"), "content": "x", "overwrite": True}, CTX
+        )
     assert victim.read_text() == "keep"

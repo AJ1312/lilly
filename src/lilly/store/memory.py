@@ -1,4 +1,5 @@
 """Long-term memory: short facts the user (or an approved agent step) asked Lilly to keep."""
+
 from __future__ import annotations
 
 import json
@@ -63,24 +64,36 @@ def _clean(text: str) -> str:
     return text
 
 
-def add_memory(con: sqlite3.Connection, text: str, now: float, *, label: Label = Label.PERSONAL,
-               source: str = "user", tags: object = ()) -> MemoryRow:
+def add_memory(
+    con: sqlite3.Connection,
+    text: str,
+    now: float,
+    *,
+    label: Label = Label.PERSONAL,
+    source: str = "user",
+    tags: object = (),
+) -> MemoryRow:
     clean = clean_tags(tags)
-    cur = con.execute("INSERT INTO memory(text, label, source, created_at, tags) VALUES(?,?,?,?,?)",
-                      (_clean(text), int(label), source, now, json.dumps(clean, separators=(",", ":"))))
+    cur = con.execute(
+        "INSERT INTO memory(text, label, source, created_at, tags) VALUES(?,?,?,?,?)",
+        (_clean(text), int(label), source, now, json.dumps(clean, separators=(",", ":"))),
+    )
     row = get_memory(con, int(cur.lastrowid or 0))
     assert row is not None
     return row
 
 
-def add_memory_if_new(con: sqlite3.Connection, text: str, now: float, *, source: str = "agent",
-                      tags: object = ()) -> MemoryRow | None:
+def add_memory_if_new(
+    con: sqlite3.Connection, text: str, now: float, *, source: str = "agent", tags: object = ()
+) -> MemoryRow | None:
     """Add a memory unless the same text is already kept. The check and the insert run in one statement on
     the single writer, so two identical requests at once store it once. Returns None when it already existed."""
     clean = clean_tags(tags)
-    cur = con.execute("INSERT INTO memory(text, label, source, created_at, tags) SELECT ?,?,?,?,? "
-                      "WHERE NOT EXISTS (SELECT 1 FROM memory WHERE text=?)",
-                      (_clean(text), int(Label.PERSONAL), source, now, json.dumps(clean, separators=(",", ":")), _clean(text)))
+    cur = con.execute(
+        "INSERT INTO memory(text, label, source, created_at, tags) SELECT ?,?,?,?,? "
+        "WHERE NOT EXISTS (SELECT 1 FROM memory WHERE text=?)",
+        (_clean(text), int(Label.PERSONAL), source, now, json.dumps(clean, separators=(",", ":")), _clean(text)),
+    )
     return get_memory(con, int(cur.lastrowid or 0)) if cur.rowcount else None
 
 
@@ -93,8 +106,14 @@ def list_memory(con: sqlite3.Connection, limit: int = 200) -> list[MemoryRow]:
     return [_row(r) for r in con.execute(f"SELECT {_COLS} FROM memory ORDER BY id DESC LIMIT ?", (limit,))]
 
 
-def update_memory(con: sqlite3.Connection, memory_id: int, *, text: str | None = None,
-                  label: Label | None = None, tags: object | None = None) -> MemoryRow:
+def update_memory(
+    con: sqlite3.Connection,
+    memory_id: int,
+    *,
+    text: str | None = None,
+    label: Label | None = None,
+    tags: object | None = None,
+) -> MemoryRow:
     if get_memory(con, memory_id) is None:
         raise NotFound(str(memory_id))
     if text is not None:
@@ -114,8 +133,9 @@ def delete_memory(con: sqlite3.Connection, memory_id: int) -> None:
         raise NotFound(str(memory_id))
 
 
-def search_memory(con: sqlite3.Connection, query: str, *, max_label: Label = Label.PERSONAL,
-                  limit: int = 10, tag: str | None = None) -> list[MemoryRow]:
+def search_memory(
+    con: sqlite3.Connection, query: str, *, max_label: Label = Label.PERSONAL, limit: int = 10, tag: str | None = None
+) -> list[MemoryRow]:
     """Best matches first. Anything above `max_label` is never returned (SECRET never is)."""
     q = fts_query(query)
     if q is None:
@@ -123,6 +143,7 @@ def search_memory(con: sqlite3.Connection, query: str, *, max_label: Label = Lab
     rows = con.execute(
         "SELECT m.id, m.text, m.label, m.source, m.created_at, m.tags FROM memory_fts f JOIN memory m ON m.id=f.rowid "
         "WHERE memory_fts MATCH ? AND m.label<=? ORDER BY bm25(memory_fts) LIMIT ?",
-        (q, int(max_label), limit)).fetchall()
+        (q, int(max_label), limit),
+    ).fetchall()
     wanted = clean_tags([tag])[0] if tag else None
     return [row for row in (_row(r) for r in rows) if wanted is None or wanted in row.tags][:limit]

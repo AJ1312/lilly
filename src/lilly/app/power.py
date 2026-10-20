@@ -1,4 +1,5 @@
 """Keep the Mac awake while Lilly is working, by holding `caffeinate` only as long as needed."""
+
 from __future__ import annotations
 
 import contextlib
@@ -20,8 +21,11 @@ class Caffeinate:
             binary = shutil.which("caffeinate")
             if binary:
                 with contextlib.suppress(OSError):
-                    self._proc = subprocess.Popen([binary, "-i", "-s"], stdout=subprocess.DEVNULL,  # nosec B603
-                                                  stderr=subprocess.DEVNULL)
+                    self._proc = subprocess.Popen(
+                        [binary, "-i", "-s"],
+                        stdout=subprocess.DEVNULL,  # nosec B603
+                        stderr=subprocess.DEVNULL,
+                    )
         elif not hold:
             self.release()
 

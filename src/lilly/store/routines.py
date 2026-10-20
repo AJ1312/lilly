@@ -1,4 +1,5 @@
 """Routines: saved requests with a schedule, and a record of how the last run went."""
+
 from __future__ import annotations
 
 import json
@@ -13,8 +14,10 @@ from lilly.domain.tasks import ExecutionTarget
 
 MAX_ROUTINES = 20
 MAX_FAILURES = 5
-_COLS = ("id, name, goal, agent_id, schedule_json, enabled, next_run, last_run, last_task_id, last_state, "
-         "last_error, failures, pause_reason, created_at, playbook_id, playbook_version, target")
+_COLS = (
+    "id, name, goal, agent_id, schedule_json, enabled, next_run, last_run, last_task_id, last_state, "
+    "last_error, failures, pause_reason, created_at, playbook_id, playbook_version, target"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,9 +50,25 @@ def _row(r: tuple[Any, ...]) -> RoutineRow:
     except ValueError:
         target = ExecutionTarget.HOST
 
-    return RoutineRow(str(r[0]), str(r[1]), str(r[2]), r[3], parse_schedule(json.loads(r[4])), bool(r[5]), r[6],
-                      r[7], r[8], r[9], r[10], int(r[11]), r[12], float(r[13]),
-                      playbook_id=playbook_id, playbook_version=playbook_version, target=target)
+    return RoutineRow(
+        str(r[0]),
+        str(r[1]),
+        str(r[2]),
+        r[3],
+        parse_schedule(json.loads(r[4])),
+        bool(r[5]),
+        r[6],
+        r[7],
+        r[8],
+        r[9],
+        r[10],
+        int(r[11]),
+        r[12],
+        float(r[13]),
+        playbook_id=playbook_id,
+        playbook_version=playbook_version,
+        target=target,
+    )
 
 
 def _check(name: str, goal: str) -> tuple[str, str]:
@@ -59,16 +78,37 @@ def _check(name: str, goal: str) -> tuple[str, str]:
     return name, goal
 
 
-def create_routine(con: sqlite3.Connection, id: str, name: str, goal: str, agent_id: str | None,
-                   schedule: Schedule, now: float, tz: tzinfo | None = None,
-                   playbook_id: str | None = None, playbook_version: int | None = None,
-                   target: ExecutionTarget = ExecutionTarget.HOST) -> RoutineRow:
+def create_routine(
+    con: sqlite3.Connection,
+    id: str,
+    name: str,
+    goal: str,
+    agent_id: str | None,
+    schedule: Schedule,
+    now: float,
+    tz: tzinfo | None = None,
+    playbook_id: str | None = None,
+    playbook_version: int | None = None,
+    target: ExecutionTarget = ExecutionTarget.HOST,
+) -> RoutineRow:
     name, goal = _check(name, goal)
     if con.execute("SELECT COUNT(*) FROM routines").fetchone()[0] >= MAX_ROUTINES:
         raise ValidationFailed(f"you can have up to {MAX_ROUTINES} routines; delete one first")
-    con.execute(f"INSERT INTO routines({_COLS}) VALUES(?,?,?,?,?,1,?,NULL,NULL,NULL,NULL,0,NULL,?,?,?,?)",
-                (id, name, goal, agent_id, json.dumps(schedule_to_dict(schedule)), next_run(schedule, now, tz), now,
-                 playbook_id, playbook_version, target.value))
+    con.execute(
+        f"INSERT INTO routines({_COLS}) VALUES(?,?,?,?,?,1,?,NULL,NULL,NULL,NULL,0,NULL,?,?,?,?)",
+        (
+            id,
+            name,
+            goal,
+            agent_id,
+            json.dumps(schedule_to_dict(schedule)),
+            next_run(schedule, now, tz),
+            now,
+            playbook_id,
+            playbook_version,
+            target.value,
+        ),
+    )
     row = get_routine(con, id)
     assert row is not None
     return row
@@ -84,9 +124,13 @@ def list_routines(con: sqlite3.Connection) -> list[RoutineRow]:
 
 
 def due_routines(con: sqlite3.Connection, now: float) -> list[RoutineRow]:
-    return [_row(r) for r in con.execute(
-        f"SELECT {_COLS} FROM routines WHERE enabled=1 AND next_run IS NOT NULL AND next_run<=? ORDER BY next_run",
-        (now,))]
+    return [
+        _row(r)
+        for r in con.execute(
+            f"SELECT {_COLS} FROM routines WHERE enabled=1 AND next_run IS NOT NULL AND next_run<=? ORDER BY next_run",
+            (now,),
+        )
+    ]
 
 
 def next_due(con: sqlite3.Connection) -> float | None:
@@ -100,11 +144,21 @@ def unsettled_routines(con: sqlite3.Connection) -> list[RoutineRow]:
     return [_row(r) for r in con.execute(f"SELECT {_COLS} FROM routines WHERE last_state='running'")]
 
 
-def update_routine(con: sqlite3.Connection, routine_id: str, now: float, *, name: str | None = None,
-                   goal: str | None = None, agent_id: str | None = None, clear_agent: bool = False,
-                   schedule: Schedule | None = None, tz: tzinfo | None = None,
-                   playbook_id: str | None = None, playbook_version: int | None = None,
-                   target: ExecutionTarget | None = None) -> RoutineRow:
+def update_routine(
+    con: sqlite3.Connection,
+    routine_id: str,
+    now: float,
+    *,
+    name: str | None = None,
+    goal: str | None = None,
+    agent_id: str | None = None,
+    clear_agent: bool = False,
+    schedule: Schedule | None = None,
+    tz: tzinfo | None = None,
+    playbook_id: str | None = None,
+    playbook_version: int | None = None,
+    target: ExecutionTarget | None = None,
+) -> RoutineRow:
     cur = get_routine(con, routine_id)
     if cur is None:
         raise NotFound(routine_id)
@@ -115,33 +169,51 @@ def update_routine(con: sqlite3.Connection, routine_id: str, now: float, *, name
     new_playbook_id = playbook_id if playbook_id is not None else cur.playbook_id
     new_playbook_version = playbook_version if playbook_version is not None else cur.playbook_version
     new_target = target if target is not None else cur.target
-    con.execute("UPDATE routines SET name=?, goal=?, agent_id=?, schedule_json=?, next_run=?, "
-                "playbook_id=?, playbook_version=?, target=? WHERE id=?",
-                (new_name, new_goal, new_agent, json.dumps(schedule_to_dict(sched)), nxt,
-                 new_playbook_id, new_playbook_version, new_target.value, routine_id))
+    con.execute(
+        "UPDATE routines SET name=?, goal=?, agent_id=?, schedule_json=?, next_run=?, "
+        "playbook_id=?, playbook_version=?, target=? WHERE id=?",
+        (
+            new_name,
+            new_goal,
+            new_agent,
+            json.dumps(schedule_to_dict(sched)),
+            nxt,
+            new_playbook_id,
+            new_playbook_version,
+            new_target.value,
+            routine_id,
+        ),
+    )
     row = get_routine(con, routine_id)
     assert row is not None
     return row
 
 
-def set_enabled(con: sqlite3.Connection, routine_id: str, enabled: bool, now: float, tz: tzinfo | None = None) -> RoutineRow:
+def set_enabled(
+    con: sqlite3.Connection, routine_id: str, enabled: bool, now: float, tz: tzinfo | None = None
+) -> RoutineRow:
     cur = get_routine(con, routine_id)
     if cur is None:
         raise NotFound(routine_id)
     if enabled:  # resuming clears the pause and counts from now, so a long pause never causes a burst
-        con.execute("UPDATE routines SET enabled=1, failures=0, pause_reason=NULL, next_run=? WHERE id=?",
-                    (next_run(cur.schedule, now, tz), routine_id))
+        con.execute(
+            "UPDATE routines SET enabled=1, failures=0, pause_reason=NULL, next_run=? WHERE id=?",
+            (next_run(cur.schedule, now, tz), routine_id),
+        )
     else:
-        con.execute("UPDATE routines SET enabled=0, next_run=NULL, pause_reason=? WHERE id=?",
-                    ("paused by you", routine_id))
+        con.execute(
+            "UPDATE routines SET enabled=0, next_run=NULL, pause_reason=? WHERE id=?", ("paused by you", routine_id)
+        )
     row = get_routine(con, routine_id)
     assert row is not None
     return row
 
 
 def record_start(con: sqlite3.Connection, routine_id: str, task_id: str, now: float, nxt: float | None) -> None:
-    con.execute("UPDATE routines SET last_run=?, last_task_id=?, last_state='running', last_error=NULL, next_run=? "
-                "WHERE id=?", (now, task_id, nxt, routine_id))
+    con.execute(
+        "UPDATE routines SET last_run=?, last_task_id=?, last_state='running', last_error=NULL, next_run=? WHERE id=?",
+        (now, task_id, nxt, routine_id),
+    )
 
 
 def record_skip(con: sqlite3.Connection, routine_id: str, nxt: float | None) -> None:
@@ -155,17 +227,27 @@ def record_finish(con: sqlite3.Connection, routine_id: str, state: str, error: s
         return
     failures = cur.failures + 1 if state == "failed" else (0 if state == "done" else cur.failures)
     pause = failures >= MAX_FAILURES
-    con.execute("UPDATE routines SET last_state=?, last_error=?, failures=?, enabled=?, next_run=?, pause_reason=? "
-                "WHERE id=?", (state, error, failures, 0 if pause else int(cur.enabled),
-                               None if pause else cur.next_run,
-                               f"paused after {MAX_FAILURES} failures in a row" if pause else cur.pause_reason,
-                               routine_id))
+    con.execute(
+        "UPDATE routines SET last_state=?, last_error=?, failures=?, enabled=?, next_run=?, pause_reason=? WHERE id=?",
+        (
+            state,
+            error,
+            failures,
+            0 if pause else int(cur.enabled),
+            None if pause else cur.next_run,
+            f"paused after {MAX_FAILURES} failures in a row" if pause else cur.pause_reason,
+            routine_id,
+        ),
+    )
 
 
 def record_refused(con: sqlite3.Connection, routine_id: str, now: float, reason: str) -> None:
     """The run could not even start (the agent or skill is gone). That will not fix itself, so pause."""
-    con.execute("UPDATE routines SET last_run=?, last_state='failed', last_error=?, enabled=0, next_run=NULL, "
-                "pause_reason=? WHERE id=?", (now, reason, f"paused: {reason}", routine_id))
+    con.execute(
+        "UPDATE routines SET last_run=?, last_state='failed', last_error=?, enabled=0, next_run=NULL, "
+        "pause_reason=? WHERE id=?",
+        (now, reason, f"paused: {reason}", routine_id),
+    )
 
 
 def delete_routine(con: sqlite3.Connection, routine_id: str) -> None:
@@ -175,5 +257,6 @@ def delete_routine(con: sqlite3.Connection, routine_id: str) -> None:
 
 def pause_all(con: sqlite3.Connection, reason: str) -> int:
     """Used by the kill switch: nothing starts on its own until the user turns routines back on."""
-    return con.execute("UPDATE routines SET enabled=0, next_run=NULL, pause_reason=? WHERE enabled=1",
-                       (reason,)).rowcount
+    return con.execute(
+        "UPDATE routines SET enabled=0, next_run=NULL, pause_reason=? WHERE enabled=1", (reason,)
+    ).rowcount

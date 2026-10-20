@@ -35,6 +35,7 @@ export const Sidebar: React.FC = () => {
     },
     { id: 'agents', label: 'Agents', icon: 'agents' },
     { id: 'memory', label: 'Memory', icon: 'memory' },
+    { id: 'notes', label: 'Notes', icon: 'file-text' },
     { id: 'skills', label: 'Skills', icon: 'skills' },
     { id: 'routines', label: 'Routines', icon: 'routines' },
     {
@@ -63,7 +64,13 @@ export const Sidebar: React.FC = () => {
     <aside className={`rail ${collapsed ? 'collapsed' : ''}`} aria-label="Main Navigation">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         <div className="sidebar-header">
-          <div className="brand-wrapper" onClick={() => setSection('talk')} title="Lilly AI Workspace">
+          <button
+            type="button"
+            className="brand-wrapper"
+            onClick={() => setSection('talk')}
+            title="Lilly AI Workspace"
+            style={{ background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <LillyLogo size={collapsed ? 26 : 28} />
             </div>
@@ -75,7 +82,7 @@ export const Sidebar: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
+          </button>
         </div>
 
         {/* Navigation list */}

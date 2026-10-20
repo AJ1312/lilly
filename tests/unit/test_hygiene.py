@@ -1,4 +1,5 @@
 """Repository hygiene and distribution invariant tests."""
+
 from __future__ import annotations
 
 import subprocess
@@ -43,10 +44,17 @@ def test_no_forbidden_runtime_artifacts_tracked() -> None:
     tracked_files = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
     forbidden_suffixes = (
-        ".db", ".db-wal", ".db-shm",
-        ".sqlite", ".sqlite3",
-        "-wal", "-shm", "-journal",
-        ".pem", ".key", ".p12",
+        ".db",
+        ".db-wal",
+        ".db-shm",
+        ".sqlite",
+        ".sqlite3",
+        "-wal",
+        "-shm",
+        "-journal",
+        ".pem",
+        ".key",
+        ".p12",
         ".token",
     )
 

@@ -1,4 +1,5 @@
 """Small helpers shared by the API handlers: typed access to the runtime, request parsing, serialising rows."""
+
 from __future__ import annotations
 
 import json
@@ -107,23 +108,86 @@ def _loads(raw: str | None) -> Any:
 
 
 def task_json(t: tasks.TaskRow) -> dict[str, Any]:
-    return {"id": t.id, "conversation_id": t.conversation_id, "agent_id": t.agent_id, "state": t.state.value,
-            "goal": t.goal, "mode": t.mode, "label": t.label.name, "tainted": t.tainted, "skill": t.skill,
-            "plan": _loads(t.plan_json), "pinned_model": t.pinned_model, "answer": t.answer, "error": t.error,
-            "created_at": t.created_at, "updated_at": t.updated_at, "finished_at": t.finished_at,
-            "outcome": t.outcome.value, "outcome_reason": t.outcome_reason, "target": t.target.value}
+    duration_s = (
+        round(t.finished_at - t.created_at, 2)
+        if (t.created_at and t.finished_at and t.finished_at >= t.created_at)
+        else None
+    )
+    return {
+        "id": t.id,
+        "conversation_id": t.conversation_id,
+        "agent_id": t.agent_id,
+        "state": t.state.value,
+        "goal": t.goal,
+        "mode": t.mode,
+        "label": t.label.name,
+        "tainted": t.tainted,
+        "skill": t.skill,
+        "plan": _loads(t.plan_json),
+        "pinned_model": t.pinned_model,
+        "answer": t.answer,
+        "error": t.error,
+        "created_at": t.created_at,
+        "updated_at": t.updated_at,
+        "finished_at": t.finished_at,
+        "duration_s": duration_s,
+        "outcome": t.outcome.value,
+        "outcome_reason": t.outcome_reason,
+        "target": t.target.value,
+    }
 
 
 def step_json(s: tasks.StepRow) -> dict[str, Any]:
-    return {"id": s.step_id, "position": s.position, "tool": s.tool, "status": s.status,
-            "args": _loads(s.args_json), "output": s.output, "label": s.label.name, "untrusted": s.untrusted,
-            "error": s.error, "started_at": s.started_at, "finished_at": s.finished_at}
+    duration_s = (
+        round(s.finished_at - s.started_at, 2)
+        if (s.started_at and s.finished_at and s.finished_at >= s.started_at)
+        else None
+    )
+    return {
+        "id": s.step_id,
+        "position": s.position,
+        "tool": s.tool,
+        "status": s.status,
+        "args": _loads(s.args_json),
+        "output": s.output,
+        "result": s.output,
+        "label": s.label.name,
+        "untrusted": s.untrusted,
+        "error": s.error,
+        "started_at": s.started_at,
+        "finished_at": s.finished_at,
+        "duration_s": duration_s,
+    }
 
 
 def approval_json(a: approval_store.ApprovalRow) -> dict[str, Any]:
-    return {"id": a.id, "task_id": a.task_id, "step_id": a.step_id, "kind": a.kind, "summary": a.summary,
-            "payload": _loads(a.payload_json), "payload_hash": a.payload_hash, "status": a.status,
-            "created_at": a.created_at, "expires_at": a.expires_at, "decided_at": a.decided_at}
+    payload = _loads(a.payload_json) or {}
+    tool = payload.get("tool") or a.kind
+    target = payload.get("target") or payload.get("path") or payload.get("url") or payload.get("command") or ""
+    risk = payload.get("risk") or (
+        "high"
+        if tool in ("shell.exec", "desktop.click", "desktop.type", "fs.delete")
+        or a.kind in ("shell", "desktop", "delete")
+        else "medium"
+    )
+    why = payload.get("why") or payload.get("reason") or a.summary
+    return {
+        "id": a.id,
+        "task_id": a.task_id,
+        "step_id": a.step_id,
+        "kind": a.kind,
+        "summary": a.summary,
+        "tool": tool,
+        "why": why,
+        "target": target,
+        "risk": risk,
+        "payload": payload,
+        "payload_hash": a.payload_hash,
+        "status": a.status,
+        "created_at": a.created_at,
+        "expires_at": a.expires_at,
+        "decided_at": a.decided_at,
+    }
 
 
 def event_json(e: EventRow) -> dict[str, Any]:
@@ -131,18 +195,44 @@ def event_json(e: EventRow) -> dict[str, Any]:
 
 
 def conversation_json(c: conversations.ConversationRow) -> dict[str, Any]:
-    return {"id": c.id, "space_id": c.space_id, "title": c.title, "archived": c.archived,
-            "created_at": c.created_at, "updated_at": c.updated_at}
+    return {
+        "id": c.id,
+        "space_id": c.space_id,
+        "title": c.title,
+        "archived": c.archived,
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+    }
 
 
 def message_json(m: conversations.MessageRow) -> dict[str, Any]:
-    return {"id": m.id, "task_id": m.task_id, "role": m.role, "content": m.content, "label": m.label.name,
-            "untrusted": m.untrusted, "at": m.created_at}
+    return {
+        "id": m.id,
+        "conversation_id": m.conversation_id,
+        "task_id": m.task_id,
+        "role": m.role,
+        "content": m.content,
+        "label": m.label.name,
+        "untrusted": m.untrusted,
+        "at": m.created_at,
+        "created_at": m.created_at,
+    }
 
 
 def memory_json(m: memory.MemoryRow) -> dict[str, Any]:
-    return {"id": m.id, "text": m.text, "label": m.label.name, "source": m.source, "at": m.created_at,
-            "tags": list(m.tags)}
+    tags_list = list(m.tags)
+    cat = tags_list[0] if tags_list else "general"
+    return {
+        "id": m.id,
+        "text": m.text,
+        "fact": m.text,
+        "label": m.label.name,
+        "category": cat,
+        "source": m.source,
+        "at": m.created_at,
+        "created_at": m.created_at,
+        "tags": tags_list,
+    }
 
 
 def space_json(s: spaces.SpaceRow) -> dict[str, Any]:
@@ -150,20 +240,39 @@ def space_json(s: spaces.SpaceRow) -> dict[str, Any]:
 
 
 def page_json(p: spaces.PageRow, *, with_content: bool = True) -> dict[str, Any]:
-    out = {"id": p.id, "space_id": p.space_id, "title": p.title, "revision": p.revision,
-           "created_at": p.created_at, "updated_at": p.updated_at}
+    out = {
+        "id": p.id,
+        "space_id": p.space_id,
+        "title": p.title,
+        "revision": p.revision,
+        "created_at": p.created_at,
+        "updated_at": p.updated_at,
+    }
     if with_content:
         out["content"] = p.content
     return out
 
 
 def routine_json(r: routines.RoutineRow) -> dict[str, Any]:
-    return {"id": r.id, "name": r.name, "goal": r.goal, "agent_id": r.agent_id,
-            "schedule": schedule_to_dict(r.schedule), "when": describe(r.schedule), "enabled": r.enabled,
-            "next_run": r.next_run, "last_run": r.last_run, "last_task_id": r.last_task_id,
-            "last_state": r.last_state, "last_error": r.last_error, "pause_reason": r.pause_reason,
-            "created_at": r.created_at, "playbook_id": r.playbook_id, "playbook_version": r.playbook_version,
-            "target": r.target.value}
+    return {
+        "id": r.id,
+        "name": r.name,
+        "goal": r.goal,
+        "agent_id": r.agent_id,
+        "schedule": schedule_to_dict(r.schedule),
+        "when": describe(r.schedule),
+        "enabled": r.enabled,
+        "next_run": r.next_run,
+        "last_run": r.last_run,
+        "last_task_id": r.last_task_id,
+        "last_state": r.last_state,
+        "last_error": r.last_error,
+        "pause_reason": r.pause_reason,
+        "created_at": r.created_at,
+        "playbook_id": r.playbook_id,
+        "playbook_version": r.playbook_version,
+        "target": r.target.value,
+    }
 
 
 def playbook_json(p: playbooks.PlaybookRow) -> dict[str, Any]:
@@ -183,5 +292,3 @@ def playbook_json(p: playbooks.PlaybookRow) -> dict[str, Any]:
         "created_at": p.created_at,
         "updated_at": p.updated_at,
     }
-
-

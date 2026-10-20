@@ -1,4 +1,5 @@
 """The JSON-RPC client against a real stdio server (tests/fake_mcp_server.py)."""
+
 from __future__ import annotations
 
 import asyncio

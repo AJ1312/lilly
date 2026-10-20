@@ -1,4 +1,5 @@
 """data.profile: a bounded, streaming profile of a CSV or XLSX file."""
+
 from __future__ import annotations
 
 import asyncio
@@ -117,5 +118,3 @@ class DataProfileTool(Tool):
         except Exception as exc:  # a malformed file can fail inside csv or openpyxl in many ways
             raise ToolError(f"could not read the file: {exc}") from exc
         return ToolResult(json.dumps({"file": path.name, **report}, indent=1), Label.PERSONAL, False)
-
-

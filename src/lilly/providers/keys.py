@@ -1,4 +1,5 @@
 """Key stores. The system keychain is the home for API keys; a 0600 file is the labelled fallback."""
+
 from __future__ import annotations
 
 import contextlib

@@ -5,6 +5,7 @@ schema validation, policy denials, declines, approval expiry, loop guards,
 escalation, budget warnings/exhaustion, fallbacks, state machine transitions,
 cancellation, role mapping, allowlists, and the LOOP-03 browser errand gate.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,6 +52,7 @@ from lilly.tools.base import Tool
 from tests.helpers import Clock, ScriptedCompleter
 
 # ---- Helpers & Test Tool Harness ---------------------------------------------
+
 
 def reply_text(text: str, in_tok: int = 10, out_tok: int = 10) -> Completed:
     return Completed(CompletionResult(text, in_tok, out_tok, finish_reason="stop"), model="scripted")
@@ -212,6 +214,7 @@ def env(tmp_path: Path) -> LoopEnv:
 
 # ---- LOOP-01: Direct answer --------------------------------------------------
 
+
 async def test_loop_01_direct_answer(env: LoopEnv) -> None:
     """Direct answer from model without tool calls goes PLANNING -> DONE directly."""
     env.add_tool("probe.test", ToolSpec(Risk.R0, schema={"type": "object"}))
@@ -229,6 +232,7 @@ async def test_loop_01_direct_answer(env: LoopEnv) -> None:
 
 
 # ---- LOOP-02: Tool -> Answer -------------------------------------------------
+
 
 async def test_loop_02_tool_then_answer(env: LoopEnv) -> None:
     """Model calls one tool, receives observation, and finishes with text answer."""
@@ -268,15 +272,16 @@ async def test_loop_02_tool_then_answer(env: LoopEnv) -> None:
 
 # ---- LOOP-03: Gate - Browser errand ------------------------------------------
 
+
 async def test_loop_03_browser_errand_gate(env: LoopEnv) -> None:
     """Gate test: Scripted model opens page, reads target line, and clicks it."""
     # browser.open returns rendered page elements with numbered targets
     open_snapshot = (
         "Page loaded: Example Store\n"
         "Interactive targets:\n"
-        "[1] <a href=\"/categories\">Categories</a>\n"
-        "[2] <button id=\"checkout\">Proceed to Checkout</button>\n"
-        "[3] <a href=\"/help\">Help</a>"
+        '[1] <a href="/categories">Categories</a>\n'
+        '[2] <button id="checkout">Proceed to Checkout</button>\n'
+        '[3] <a href="/help">Help</a>'
     )
     env.add_tool(
         "browser.open",
@@ -300,7 +305,7 @@ async def test_loop_03_browser_errand_gate(env: LoopEnv) -> None:
                 "required": ["target"],
             },
         ),
-        result_text="Clicked target [2] <button id=\"checkout\">Proceed to Checkout</button>. Order summary page loaded.",
+        result_text='Clicked target [2] <button id="checkout">Proceed to Checkout</button>. Order summary page loaded.',
     )
 
     clicked_target_arg: dict[str, Any] = {}
@@ -312,8 +317,8 @@ async def test_loop_03_browser_errand_gate(env: LoopEnv) -> None:
         elif turn_idx == 1:
             # Model inspects observation from browser.open, finds line with [2] button, and clicks it
             last_msg = req.messages[-1]
-            assert "[2] <button id=\"checkout\">Proceed to Checkout</button>" in last_msg.content
-            target_str = "[2] <button id=\"checkout\">Proceed to Checkout</button>"
+            assert '[2] <button id="checkout">Proceed to Checkout</button>' in last_msg.content
+            target_str = '[2] <button id="checkout">Proceed to Checkout</button>'
             clicked_target_arg["target"] = target_str
             return reply_tools(make_call("browser.click", {"target": target_str}))
         else:
@@ -324,7 +329,7 @@ async def test_loop_03_browser_errand_gate(env: LoopEnv) -> None:
     # We use a custom completer handler or pre-fill replies
     env.completer.replies = [
         reply_tools(make_call("browser.open", {"url": "https://store.example.com"})),
-        reply_tools(make_call("browser.click", {"target": "[2] <button id=\"checkout\">Proceed to Checkout</button>"})),
+        reply_tools(make_call("browser.click", {"target": '[2] <button id="checkout">Proceed to Checkout</button>'})),
         reply_text("I navigated to the store and clicked the Proceed to Checkout button."),
     ]
 
@@ -344,7 +349,7 @@ async def test_loop_03_browser_errand_gate(env: LoopEnv) -> None:
     assert len(steps) == 2
     assert steps[0].tool == "browser.open"
     assert steps[1].tool == "browser.click"
-    assert json.loads(steps[1].args_json)["target"] == "[2] <button id=\"checkout\">Proceed to Checkout</button>"
+    assert json.loads(steps[1].args_json)["target"] == '[2] <button id="checkout">Proceed to Checkout</button>'
 
 
 async def test_action_request_requires_fresh_verification_before_completion(env: LoopEnv) -> None:
@@ -385,6 +390,7 @@ async def test_action_request_requires_fresh_verification_before_completion(env:
 
 # ---- LOOP-04: Parallel read-only calls ---------------------------------------
 
+
 async def test_loop_04_parallel_read_only_calls(env: LoopEnv) -> None:
     """Read-only calls in the same turn run concurrently through LaneScheduler."""
     env.add_tool("probe.a", ToolSpec(Risk.R0, schema={"type": "object"}), delay=0.1)
@@ -413,6 +419,7 @@ async def test_loop_04_parallel_read_only_calls(env: LoopEnv) -> None:
 
 # ---- LOOP-05: Serial execution for mutating tools -----------------------------
 
+
 async def test_loop_05_serial_for_mutating_or_confirm_calls(env: LoopEnv) -> None:
     """Mutating calls (R1) run serially, not in parallel."""
     env.add_tool("probe.w1", ToolSpec(Risk.R1, schema={"type": "object"}), delay=0.05)
@@ -434,6 +441,7 @@ async def test_loop_05_serial_for_mutating_or_confirm_calls(env: LoopEnv) -> Non
 
 
 # ---- LOOP-06: Unknown tool observation ---------------------------------------
+
 
 async def test_loop_06_unknown_tool_observation(env: LoopEnv) -> None:
     """Model calling nonexistent tool receives OBS_UNAVAILABLE without task failing."""
@@ -458,6 +466,7 @@ async def test_loop_06_unknown_tool_observation(env: LoopEnv) -> None:
 
 
 # ---- LOOP-07: Schema failure observation -------------------------------------
+
 
 async def test_loop_07_schema_failure_observation(env: LoopEnv) -> None:
     """Invalid arguments produce OBS_INVALID_ARGS observation, loop continues."""
@@ -495,6 +504,7 @@ async def test_loop_07_schema_failure_observation(env: LoopEnv) -> None:
 
 # ---- LOOP-08: Policy block observation ---------------------------------------
 
+
 async def test_loop_08_policy_block_observation(env: LoopEnv) -> None:
     """Tool call blocked by policy yields OBS_BLOCKED without task failing."""
     forbidden = env.tmp_path / "secret.txt"
@@ -525,6 +535,7 @@ async def test_loop_08_policy_block_observation(env: LoopEnv) -> None:
 
 # ---- LOOP-09: Tool error observation -----------------------------------------
 
+
 async def test_loop_09_tool_error_observation(env: LoopEnv) -> None:
     """Tool raising ToolError yields OBS_ERROR observation, task continues."""
     env.add_tool(
@@ -550,6 +561,7 @@ async def test_loop_09_tool_error_observation(env: LoopEnv) -> None:
 
 
 # ---- LOOP-10: User decline continues -----------------------------------------
+
 
 async def test_loop_10_decline_continues(env: LoopEnv) -> None:
     """User declining an approval generates OBS_DECLINED; loop does not abort."""
@@ -594,6 +606,7 @@ async def test_loop_10_decline_continues(env: LoopEnv) -> None:
 
 # ---- LOOP-11: Approval expiry ends EXPIRED -----------------------------------
 
+
 async def test_loop_11_approval_expiry_ends_expired(env: LoopEnv) -> None:
     """An approval that expires ends the task in EXPIRED state."""
     target = env.root / "expire.txt"
@@ -634,6 +647,7 @@ async def test_loop_11_approval_expiry_ends_expired(env: LoopEnv) -> None:
 
 
 # ---- LOOP-12: Loop guard (notice then stop) ----------------------------------
+
 
 async def test_loop_12_loop_notice_then_stop(env: LoopEnv) -> None:
     """First LOOPING advisory injects NOTICE_LOOPING; second LOOPING aborts task."""
@@ -676,6 +690,7 @@ async def test_loop_12_loop_notice_then_stop(env: LoopEnv) -> None:
 
 # ---- LOOP-13: Escalation to plan model once ----------------------------------
 
+
 async def test_loop_13_escalation_once(env: LoopEnv) -> None:
     """Two consecutive turns of all-invalid calls escalate next turn to plan model once."""
     env.add_tool("clock.now", ToolSpec(Risk.R0, schema={"type": "object"}))
@@ -706,6 +721,7 @@ async def test_loop_13_escalation_once(env: LoopEnv) -> None:
 
 # ---- LOOP-14: Budgets and FINAL notice ---------------------------------------
 
+
 async def test_loop_14_budgets_and_final_notice(env: LoopEnv) -> None:
     """When budget is exhausted, reserved final call has tool_choice='none' and NOTICE_BUDGET_EXHAUSTED."""
     env.add_tool("clock.now", ToolSpec(Risk.R0, schema={"type": "object"}))
@@ -735,6 +751,7 @@ async def test_loop_14_budgets_and_final_notice(env: LoopEnv) -> None:
 
 # ---- LOOP-15: Fallback final on empty text -----------------------------------
 
+
 async def test_loop_15_no_text_fallback(env: LoopEnv) -> None:
     """When model returns empty text on final call, code-written FALLBACK_FINAL is used."""
     env.add_tool("clock.now", ToolSpec(Risk.R0, schema={"type": "object"}))
@@ -756,6 +773,7 @@ async def test_loop_15_no_text_fallback(env: LoopEnv) -> None:
 
 
 # ---- LOOP-16: State transitions without RUNNING -> RUNNING -------------------
+
 
 async def test_loop_16_state_transitions_no_running_to_running(env: LoopEnv) -> None:
     """Task transitions PLANNING -> RUNNING on first tool call; never transitions RUNNING -> RUNNING."""
@@ -786,6 +804,7 @@ async def test_loop_16_state_transitions_no_running_to_running(env: LoopEnv) -> 
 
 # ---- LOOP-17: Cancellation mid-turn ------------------------------------------
 
+
 async def test_loop_17_cancel_mid_turn(env: LoopEnv) -> None:
     """Cancelling a task while a step runs halts loop promptly in CANCELLED state."""
     env.add_tool("probe.slow", ToolSpec(Risk.R0, schema={"type": "object"}), delay=5.0)
@@ -815,6 +834,7 @@ async def test_loop_17_cancel_mid_turn(env: LoopEnv) -> None:
 
 # ---- LOOP-18: Role per turn and model resolution -----------------------------
 
+
 async def test_loop_18_role_model_resolution(env: LoopEnv) -> None:
     """Turn 0 uses 'plan' role, tool turns use 'act' role, budget turn uses 'write' role."""
     env.add_tool("clock.now", ToolSpec(Risk.R0, schema={"type": "object"}))
@@ -843,6 +863,7 @@ async def test_loop_18_role_model_resolution(env: LoopEnv) -> None:
 
 # ---- LOOP-19: Allowlist enforced at execution --------------------------------
 
+
 async def test_loop_19_allowlist_enforced_at_execution(env: LoopEnv) -> None:
     """Tools outside allowlist are rejected with OBS_UNAVAILABLE even if present in catalog."""
     env.add_tool("clock.now", ToolSpec(Risk.R0, schema={"type": "object"}))
@@ -851,13 +872,21 @@ async def test_loop_19_allowlist_enforced_at_execution(env: LoopEnv) -> None:
     # Build AgentLoop directly with allowlist
     task_id = new_id()
     now = env.clock()
+
     def create_task_19(con: sqlite3.Connection) -> tasks.TaskRow:
         if not conversations.get_conversation(con, "conv_1"):
             conversations.create_conversation(con, "conv_1", "Test Conversation", now)
         return tasks.create_task(
-            con, id=task_id, goal="Allowlist test", mode=Mode.OPEN.value,
-            label=Label.PUBLIC, tainted=False, now=now, conversation_id="conv_1",
+            con,
+            id=task_id,
+            goal="Allowlist test",
+            mode=Mode.OPEN.value,
+            label=Label.PUBLIC,
+            tainted=False,
+            now=now,
+            conversation_id="conv_1",
         )
+
     await env.db.write(create_task_19)
     rec = TaskRecord(env.db, env.bus, env.clock, task_id, TaskCtx(Label.PUBLIC, False, Mode.OPEN), TaskState.PENDING)
     await rec.state(TaskState.PLANNING)
@@ -895,6 +924,7 @@ async def test_loop_19_allowlist_enforced_at_execution(env: LoopEnv) -> None:
 
 
 # ---- LOOP-20: Model permission approval preserved and resumed ----------------
+
 
 async def test_loop_20_model_permission_approval_resumed(env: LoopEnv) -> None:
     """Approval for model permission transitions to APPROVAL and resumes to RUNNING/PLANNING."""

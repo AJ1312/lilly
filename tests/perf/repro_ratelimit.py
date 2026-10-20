@@ -5,6 +5,7 @@ Scenario A: 24 concurrent calls against 3 models with rpm=5.
 Scenario B: 429 response with Retry-After: 2 s, retried and succeeded.
 Scenario C: 30 calls across 3 models in list order (load spread).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -75,7 +76,9 @@ async def run_scenario_a() -> dict[str, object]:
             if name == "wait":
                 wait_events.append(payload)
 
-        router = ModelRouter(settings, keys, client, db, GrantStore(), clock=clock, sleep_fn=fake_sleep, on_event=on_event)
+        router = ModelRouter(
+            settings, keys, client, db, GrantStore(), clock=clock, sleep_fn=fake_sleep, on_event=on_event
+        )
         await router.start()
 
         completed = 0
@@ -199,16 +202,20 @@ async def main() -> None:
     print("=== Lilly Rate Limit & Capacity Phase 1 Reproduction ===")
     print("\nRunning Scenario A (24 calls across 3 providers with rpm=5 with fake clock)...")
     res_a = await run_scenario_a()
-    print(f"Scenario A result: completed={res_a['completed']}, failed={res_a['failed']}, "
-          f"elapsed_fake={res_a['elapsed_fake_s']}s, elapsed_wall={res_a['elapsed_wall_s']}s, "
-          f"wait_events={res_a['wait_events_count']}")
+    print(
+        f"Scenario A result: completed={res_a['completed']}, failed={res_a['failed']}, "
+        f"elapsed_fake={res_a['elapsed_fake_s']}s, elapsed_wall={res_a['elapsed_wall_s']}s, "
+        f"wait_events={res_a['wait_events_count']}"
+    )
     print(f"Distribution: {res_a['distribution']}")
     print(f"Exceptions: {dict(res_a['exceptions'])}")
 
     print("\nRunning Scenario B (Provider answers 429 Retry-After: 2 s)...")
     res_b = await run_scenario_b()
-    print(f"Scenario B result: outcome={res_b['outcome']}, elapsed_fake={res_b['elapsed_fake_s']}s, attempts={res_b['attempts']}")
-    if res_b['error']:
+    print(
+        f"Scenario B result: outcome={res_b['outcome']}, elapsed_fake={res_b['elapsed_fake_s']}s, attempts={res_b['attempts']}"
+    )
+    if res_b["error"]:
         print(f"Error: {res_b['error']}")
 
     print("\nRunning Scenario C (30 calls with 3 models in balanced spread)...")

@@ -1,4 +1,5 @@
 """The SSRF guard: nothing but ordinary public addresses may be fetched."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -9,10 +10,25 @@ from lilly.domain.errors import ToolError
 from lilly.tools.web import guarded_target, ip_is_blocked
 
 
-@pytest.mark.parametrize("addr", [
-    "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1",
-    "::1", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::1",
-])
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "127.0.0.1",
+        "10.1.2.3",
+        "172.16.0.1",
+        "192.168.1.1",
+        "169.254.169.254",
+        "100.64.0.1",
+        "0.0.0.0",
+        "224.0.0.1",
+        "::1",
+        "fe80::1",
+        "fc00::1",
+        "::ffff:127.0.0.1",
+        "64:ff9b::7f00:1",
+        "2002:7f00:1::1",
+    ],
+)
 def test_internal_addresses_are_blocked(addr: str) -> None:
     assert ip_is_blocked(ipaddress.ip_address(addr))
 

@@ -57,10 +57,10 @@ export const SkillsView: React.FC = () => {
   return (
     <div className="view-container" style={{ padding: '24px' }}>
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>Skills Catalog</h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+        <h1 className="greeting-text">Skills Catalog</h1>
+        <div className="greeting-sub">
           High-level capability primitives for terminal execution, file inspection, web retrieval, and desktop actions.
-        </p>
+        </div>
       </div>
 
       {loading && skills.length === 0 ? (

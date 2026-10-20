@@ -1,4 +1,5 @@
 """Watching the agent's browser from the interface: signed-in only, read-only, nothing when there is no tab."""
+
 from __future__ import annotations
 
 import pytest

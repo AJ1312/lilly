@@ -1,4 +1,5 @@
 """Rate limits, quotas, circuit breaker, and how the pool routes around them."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -53,7 +54,9 @@ def pool(*specs: ModelSpec) -> ProviderPool:
 
 
 def test_pool_uses_list_order_and_skips_disabled() -> None:
-    p = pool(ModelSpec("a", "mistral", "m", enabled=False), ModelSpec("b", "mistral", "m"), ModelSpec("c", "mistral", "m"))
+    p = pool(
+        ModelSpec("a", "mistral", "m", enabled=False), ModelSpec("b", "mistral", "m"), ModelSpec("c", "mistral", "m")
+    )
     assert p.route().entry.name == "b"  # type: ignore[union-attr]
 
 
@@ -108,7 +111,9 @@ def test_rebuilding_the_pool_keeps_counters_unless_their_own_limit_changed() -> 
     for _ in range(3):
         assert first.route().entry is entry
     entry.breaker.failure()
-    unrelated = build_pool(Settings(models=(ModelSpec("a", "mistral", "m", rpm=5, rpd=10, enabled=False, trains=False),)), first)
+    unrelated = build_pool(
+        Settings(models=(ModelSpec("a", "mistral", "m", rpm=5, rpd=10, enabled=False, trains=False),)), first
+    )
     kept = unrelated.entries[0]
     assert kept.spec.enabled is False
     assert kept.daily is not None and kept.daily.used == 3
@@ -122,15 +127,22 @@ def test_rebuilding_the_pool_keeps_counters_unless_their_own_limit_changed() -> 
 
 
 def test_quick_models_are_tried_first_for_small_jobs_and_the_rest_keep_their_order() -> None:
-    p = pool(ModelSpec("big", "mistral", "m"), ModelSpec("small", "mistral", "m", quick=True), ModelSpec("mid", "mistral", "m"))
-    assert p.route().entry.name == "big"                       # planning and everything else: the normal order
+    p = pool(
+        ModelSpec("big", "mistral", "m"),
+        ModelSpec("small", "mistral", "m", quick=True),
+        ModelSpec("mid", "mistral", "m"),
+    )
+    assert p.route().entry.name == "big"  # planning and everything else: the normal order
     assert p.route(quick=True).entry.name == "small"
-    assert p.route(quick=True, skip=frozenset({"small"})).entry.name == "big"       # a quick model that is down costs nothing
-    assert p.route(quick=True, pin="mid").entry.name == "mid"                       # a pinned model is never replaced
+    assert (
+        p.route(quick=True, skip=frozenset({"small"})).entry.name == "big"
+    )  # a quick model that is down costs nothing
+    assert p.route(quick=True, pin="mid").entry.name == "mid"  # a pinned model is never replaced
 
 
 def test_the_quick_setting_round_trips_and_a_bad_value_is_refused() -> None:
     from lilly.domain.settings import default_settings, parse_settings, settings_to_dict
+
     raw = settings_to_dict(default_settings())
     raw["models"] = [{"name": "a", "provider": "mistral", "model_id": "m", "quick": True}]
     parsed, errs = parse_settings(raw)
@@ -149,5 +161,6 @@ def test_tokens_used_are_counted_per_model_and_survive_a_settings_change() -> No
 
     from lilly.core.pool import build_pool
     from lilly.domain.settings import default_settings
+
     changed = build_pool(replace(default_settings(), models=(ModelSpec("a", "mistral", "m", trains=False),)), p)
     assert changed.entries[0].tokens == [2, 150, 25]

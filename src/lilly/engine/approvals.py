@@ -3,6 +3,7 @@
 An approval is bound to the hash of exactly what will happen, can be decided once, and expires.
 The waiting task holds the only copy of what it will run, so approving cannot change it.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,7 @@ DEFAULT_TTL_S = 900.0
 @dataclass(frozen=True, slots=True)
 class Decision:
     approved: bool
-    choice: str | None = None   # for model approvals: which of the offered models the user picked
+    choice: str | None = None  # for model approvals: which of the offered models the user picked
 
 
 class ApprovalService:
@@ -36,8 +37,15 @@ class ApprovalService:
     def pending(self) -> list[store.ApprovalRow]:
         return [r for r in store.list_approvals(self._db.reader, status="pending") if r.id in self._waiting]
 
-    async def request(self, task_id: str, step_id: str, kind: str, summary: str, payload: dict[str, Any],
-                      display: dict[str, Any] | None = None) -> tuple[Decision, str]:
+    async def request(
+        self,
+        task_id: str,
+        step_id: str,
+        kind: str,
+        summary: str,
+        payload: dict[str, Any],
+        display: dict[str, Any] | None = None,
+    ) -> tuple[Decision, str]:
         """Create a pending approval and wait for the user. Returns the decision and the payload hash.
 
         `payload` is hashed in full; `display` (what the card shows) may be shortened.
@@ -48,10 +56,20 @@ class ApprovalService:
         future: asyncio.Future[Decision] = asyncio.get_running_loop().create_future()
         self._waiting[approval_id] = future
         try:
-            row = await self._db.write(lambda con: store.create_approval(
-                con, id=approval_id, task_id=task_id, step_id=step_id, kind=kind, summary=summary,
-                payload_json=canonical(display if display is not None else payload), payload_hash=digest,
-                now=now, ttl_s=self._ttl))
+            row = await self._db.write(
+                lambda con: store.create_approval(
+                    con,
+                    id=approval_id,
+                    task_id=task_id,
+                    step_id=step_id,
+                    kind=kind,
+                    summary=summary,
+                    payload_json=canonical(display if display is not None else payload),
+                    payload_hash=digest,
+                    now=now,
+                    ttl_s=self._ttl,
+                )
+            )
         except BaseException:
             self._waiting.pop(approval_id, None)
             raise
@@ -69,18 +87,20 @@ class ApprovalService:
         finally:
             self._waiting.pop(approval_id, None)
 
-    async def decide(self, approval_id: str, *, approve: bool, payload_hash: str,
-                     choice: str | None = None) -> store.ApprovalRow:
+    async def decide(
+        self, approval_id: str, *, approve: bool, payload_hash: str, choice: str | None = None
+    ) -> store.ApprovalRow:
         """Record the user's answer and wake the waiting task. Single use; the hash must match what was shown.
         Raises ApprovalExpired when the answer comes after the request ran out."""
         future = self._waiting.get(approval_id)
         if future is None:
             raise NotFound(approval_id)  # not waiting: already decided, expired, or from before a restart
         now = self._clock()
-        row = await self._db.write(lambda con: store.decide(
-            con, approval_id, approve=approve, payload_hash=payload_hash, now=now))
+        row = await self._db.write(
+            lambda con: store.decide(con, approval_id, approve=approve, payload_hash=payload_hash, now=now)
+        )
         self._waiting.pop(approval_id, None)  # single use from here on
-        if row.status == "expired":           # too late: the expiry is committed, and the waiting task learns of it
+        if row.status == "expired":  # too late: the expiry is committed, and the waiting task learns of it
             if not future.done():
                 future.set_exception(ApprovalExpired(approval_id))
             self._bus.publish({"type": "approval", "action": "expired", "id": approval_id, "task_id": row.task_id})

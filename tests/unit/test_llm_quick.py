@@ -1,4 +1,5 @@
 """llm.work asks for the "quick" models only for small jobs; planning never does."""
+
 from __future__ import annotations
 
 import pytest
@@ -12,7 +13,9 @@ pytestmark = pytest.mark.asyncio
 
 async def run(material: str) -> bool:
     completer = ScriptedCompleter(replies=["ok"])
-    await LlmWorkTool(completer).run({"task": "summarise", "input": material}, ToolContext("t", "s", 30.0, lambda: False))
+    await LlmWorkTool(completer).run(
+        {"task": "summarise", "input": material}, ToolContext("t", "s", 30.0, lambda: False)
+    )
     return completer.calls[0].quick
 
 
@@ -25,6 +28,7 @@ async def test_the_planner_never_asks_for_a_quick_model() -> None:
     from lilly.domain.ports import Completed, CompletionResult
     from lilly.domain.tools_registry import DEFAULT_TOOLS
     from lilly.engine.planner import PlanInputs, generate_plan
+
     seen = []
 
     async def complete(req):  # type: ignore[no-untyped-def]

@@ -2,6 +2,7 @@
 
 The runner and the step executor both hold the same record. It owns the task's label and taint, so a step
 that finishes updates the one shared context, and every write goes through here in a single place."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -28,48 +29,77 @@ class TaskRecord:
     task_id: str
     ctx: TaskCtx
     state_now: TaskState
-    models: list[str] = field(default_factory=list)   # every model that took part, in order
-    cancelled: bool = False                           # worker threads poll this; asyncio cannot interrupt them
+    models: list[str] = field(default_factory=list)  # every model that took part, in order
+    cancelled: bool = False  # worker threads poll this; asyncio cannot interrupt them
     started: float = field(default_factory=time.monotonic)
 
     async def event(self, kind: str, payload: dict[str, Any], prov: str = "system") -> None:
         task_id, now = self.task_id, self.clock()
         row = await self.db.write(lambda con: append_event(con, task_id, kind, payload, prov, now))
-        self.bus.publish({"type": "event", "task_id": task_id, "seq": row.seq, "kind": kind,
-                          "payload": payload, "prov": prov, "ts": now})
+        self.bus.publish(
+            {
+                "type": "event",
+                "task_id": task_id,
+                "seq": row.seq,
+                "kind": kind,
+                "payload": payload,
+                "prov": prov,
+                "ts": now,
+            }
+        )
 
     async def thought(self, layer: Layer, text: str, source: str = "system", step: str | None = None) -> None:
-        await self.event("thought", {"layer": layer.name, "text": redact(text)[:1500], "step": step},
-                         "model" if source == "model" else "system")
+        await self.event(
+            "thought",
+            {"layer": layer.name, "text": redact(text)[:1500], "step": step},
+            "model" if source == "model" else "system",
+        )
 
-    async def state(self, state: TaskState, *, answer: str | None = None, error: str | None = None,
-                    outcome: TaskOutcome | None = None, outcome_reason: str | None = None,
-                    also: Callable[[sqlite3.Connection], None] | None = None) -> None:
+    async def state(
+        self,
+        state: TaskState,
+        *,
+        answer: str | None = None,
+        error: str | None = None,
+        outcome: TaskOutcome | None = None,
+        outcome_reason: str | None = None,
+        also: Callable[[sqlite3.Connection], None] | None = None,
+    ) -> None:
         """Move the task to `state`. `also` writes in the same transaction: both happen or neither does."""
         if state is self.state_now:
             return
         task_id, now = self.task_id, self.clock()
 
         def job(con: sqlite3.Connection) -> None:
-            tasks.set_state(con, task_id, state, now, answer=answer, error=error,
-                            outcome=outcome, outcome_reason=outcome_reason)
-            append_event(con, task_id, "state", {
-                "state": state.value,
-                **({"error": error} if error else {}),
-                **({"outcome": outcome.value} if outcome else {}),
-                **({"outcome_reason": outcome_reason} if outcome_reason else {}),
-            }, "system", now)
+            tasks.set_state(
+                con, task_id, state, now, answer=answer, error=error, outcome=outcome, outcome_reason=outcome_reason
+            )
+            append_event(
+                con,
+                task_id,
+                "state",
+                {
+                    "state": state.value,
+                    **({"error": error} if error else {}),
+                    **({"outcome": outcome.value} if outcome else {}),
+                    **({"outcome_reason": outcome_reason} if outcome_reason else {}),
+                },
+                "system",
+                now,
+            )
             if also is not None:
                 also(con)
 
         await self.db.write(job)
         self.state_now = state
-        self.bus.publish({
-            "type": "task",
-            "task_id": task_id,
-            "state": state.value,
-            **({"outcome": outcome.value} if outcome else {}),
-        })
+        self.bus.publish(
+            {
+                "type": "task",
+                "task_id": task_id,
+                "state": state.value,
+                **({"outcome": outcome.value} if outcome else {}),
+            }
+        )
 
     def absorb(self, label: Label, untrusted: bool) -> None:
         """Join new data into the task's context. No await: with steps side by side, no update is ever lost."""

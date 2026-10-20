@@ -10,6 +10,7 @@ waits for it. That keeps approvals one at a time and each approval tied to the e
 This relies on one fact about tools: a result never carries more label or taint than its ToolSpec declares
 (llm.work is the exception, which is why it is never run early). The decision layer may add taint to a result
 that reads like instructions, so while it is on every unfinished step is assumed to taint (`may_taint`)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -42,7 +43,7 @@ def parallel_eligible(step: Step, spec: ToolSpec | None, worst: TaskCtx, scope: 
         return False
     args = step.get("args", {})
     if any(references(args.get(a)) for a in spec.path_args):
-        return False   # which path it reads is not known until an earlier step finishes
+        return False  # which path it reads is not known until an earlier step finishes
     return decide(tool_call(step["tool"], spec, args), worst, scope)[0] is Verdict.ALLOW
 
 
@@ -53,16 +54,27 @@ class _Progress:
     pending: list[int]
     running: dict[asyncio.Task[str], int] = field(default_factory=dict)
     done: set[str] = field(default_factory=set)
-    solo: bool = False   # a barrier step is running, so nothing else may start
+    solo: bool = False  # a barrier step is running, so nothing else may start
 
 
 class LaneScheduler:
-    def __init__(self, specs: Mapping[str, ToolSpec], scope: PathScope, width: int,
-                 ctx: Callable[[], TaskCtx], may_taint: Callable[[], bool] = lambda: False) -> None:
+    def __init__(
+        self,
+        specs: Mapping[str, ToolSpec],
+        scope: PathScope,
+        width: int,
+        ctx: Callable[[], TaskCtx],
+        may_taint: Callable[[], bool] = lambda: False,
+    ) -> None:
         self._specs, self._scope, self._width, self._ctx, self._may_taint = specs, scope, width, ctx, may_taint
 
-    async def run(self, steps: Sequence[Step], run_step: Callable[[Step], Coroutine[Any, Any, str]],
-                  abandon: Callable[[Step], Awaitable[None]], outputs: dict[str, str]) -> None:
+    async def run(
+        self,
+        steps: Sequence[Step],
+        run_step: Callable[[Step], Coroutine[Any, Any, str]],
+        abandon: Callable[[Step], Awaitable[None]],
+        outputs: dict[str, str],
+    ) -> None:
         """Run every step. Outputs land in `outputs` as steps finish. On the first failure the steps still running
         are cancelled (each is handed to `abandon`), finished outputs are kept, and that failure is raised."""
         p = _Progress(steps, dependencies(steps), list(range(len(steps))))

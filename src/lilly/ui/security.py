@@ -8,6 +8,7 @@
 * The authorisation decision is made inside each endpoint's wrapper (`guarded`), not by middleware that a
   new route could forget to be covered by.
 """
+
 from __future__ import annotations
 
 import functools
@@ -39,8 +40,10 @@ COOKIE_SECURE = "__Host-lilly_session"
 LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
-       "connect-src 'self' ws: wss:; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
+    "connect-src 'self' ws: wss:; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
 
 Handler = Callable[[Request], Awaitable[Response]]
 
@@ -155,8 +158,15 @@ def session_cookie(request: Request) -> str | None:
 def set_session(response: Response, request: Request, value: str) -> None:
     """Attach the session cookie `value` (from `Auth.issue_session`) to a response."""
     secure = is_https(request)
-    response.set_cookie(COOKIE_SECURE if secure else COOKIE_PLAIN, value, max_age=SESSION_TTL_S, path="/",
-                        httponly=True, secure=secure, samesite="strict")
+    response.set_cookie(
+        COOKIE_SECURE if secure else COOKIE_PLAIN,
+        value,
+        max_age=SESSION_TTL_S,
+        path="/",
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+    )
 
 
 def clear_session(response: Response) -> None:
@@ -187,7 +197,9 @@ def guarded(fn: Handler, *, public: bool = False) -> Handler:
             cookie = session_cookie(request)
             if cookie is None or not auth.valid_session(cookie):
                 return JSONResponse({"error": "not signed in"}, 401)
-            if mutating and not hmac.compare_digest(request.headers.get(CSRF_HEADER, "").encode(), auth.csrf_token(cookie).encode()):
+            if mutating and not hmac.compare_digest(
+                request.headers.get(CSRF_HEADER, "").encode(), auth.csrf_token(cookie).encode()
+            ):
                 return JSONResponse({"error": "missing or wrong CSRF token"}, 403)
         return await fn(request)
 
@@ -236,7 +248,8 @@ class Shield:
             return
         headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
         secure = scope.get("scheme") == "https" or (
-            (scope.get("client") or ("", 0))[0] in LOOPBACK and headers.get("x-forwarded-proto") == "https")
+            (scope.get("client") or ("", 0))[0] in LOOPBACK and headers.get("x-forwarded-proto") == "https"
+        )
         path = scope["path"]
 
         def decorate(message: Message) -> Message:

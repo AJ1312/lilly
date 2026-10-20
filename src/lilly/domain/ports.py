@@ -1,4 +1,5 @@
 """Contracts shared across layers: model providers, the key store and what a tool receives and returns."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -43,13 +44,13 @@ class CompletionRequest:
     json_mode: bool = False
     temperature: float = 0.2
     deadline_s: float = 60.0
-    quick: bool = False             # a small, simple job: models the owner marked "quick" are tried first
+    quick: bool = False  # a small, simple job: models the owner marked "quick" are tried first
     on_text: Callable[[str], None] | None = field(default=None, compare=False)  # told the whole text so far
     tools: tuple[ToolSchema, ...] = ()
-    tool_choice: str = "auto"       # "auto" | "none"
+    tool_choice: str = "auto"  # "auto" | "none"
     role: str = "act"
     tag: str | None = None
-    priority: int = 0               # 0 interactive, 1 background
+    priority: int = 0  # 0 interactive, 1 background
     image_paths: tuple[str, ...] = ()  # local images for providers with multimodal support
 
 
@@ -75,19 +76,33 @@ class Provider(ABC):
 @dataclass(frozen=True, slots=True)
 class Completed:
     result: CompletionResult
-    model: str   # the model that actually answered
+    model: str  # the model that actually answered
 
 
 class Completer(Protocol):
     """Anything that can run a completion through Lilly's unified model broker."""
 
-    async def complete(self, req: CompletionRequest, *, need: Cap = Cap.NONE, label: Label = Label.PUBLIC,
-                       task_id: str | None = None, payload_hash: str | None = None, mode: Mode = Mode.ASK,
-                       pin: str | None = None, role: str = "act", tag: str | None = None,
-                       priority: int = 0, task_complexity: float = 0.5, requires_tools: bool = False,
-                       requires_vision: bool = False, cost_sensitivity: float = 0.5,
-                       model_tier: str | None = None, tool_family: str | None = None,
-                       verification: str | None = None) -> Completed: ...
+    async def complete(
+        self,
+        req: CompletionRequest,
+        *,
+        need: Cap = Cap.NONE,
+        label: Label = Label.PUBLIC,
+        task_id: str | None = None,
+        payload_hash: str | None = None,
+        mode: Mode = Mode.ASK,
+        pin: str | None = None,
+        role: str = "act",
+        tag: str | None = None,
+        priority: int = 0,
+        task_complexity: float = 0.5,
+        requires_tools: bool = False,
+        requires_vision: bool = False,
+        cost_sensitivity: float = 0.5,
+        model_tier: str | None = None,
+        tool_family: str | None = None,
+        verification: str | None = None,
+    ) -> Completed: ...
 
 
 class Secret:
@@ -120,18 +135,18 @@ class ToolContext:
     step_id: str
     deadline_s: float
     cancelled: Callable[[], bool]
-    label: Label = Label.PUBLIC       # highest label of anything the task has seen so far
-    tainted: bool = False             # the task has read untrusted content
+    label: Label = Label.PUBLIC  # highest label of anything the task has seen so far
+    tainted: bool = False  # the task has read untrusted content
     mode: Mode = Mode.ASK
     pin_model: str | None = None
-    payload_hash: str | None = None   # hash of this exact step; a model permission is bound to it
-    on_text: Callable[[str], None] | None = None   # a step that writes text may report it as it goes
+    payload_hash: str | None = None  # hash of this exact step; a model permission is bound to it
+    on_text: Callable[[str], None] | None = None  # a step that writes text may report it as it goes
     ask: Callable[[str, list[str] | None], Awaitable[str]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
     output: str
-    label: Label        # sensitivity of the result
-    untrusted: bool     # the content came from outside (web page, email, file written by someone else)
+    label: Label  # sensitivity of the result
+    untrusted: bool  # the content came from outside (web page, email, file written by someone else)
     model: str | None = None  # the model that produced it, when one did

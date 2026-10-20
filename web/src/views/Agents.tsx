@@ -439,11 +439,21 @@ export const AgentsView: React.FC = () => {
                 onChange={(e) => setPinnedModel(e.target.value)}
               >
                 <option value="">Auto-Route (Best model automatically)</option>
-                {availableModels.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name} ({m.provider})
-                  </option>
-                ))}
+                {availableModels.map((m) => {
+                  const isUnusable = !m.enabled || (Boolean(m.key_ref) && !m.has_key && !m.local)
+                  const statusLabel = !m.enabled
+                    ? 'Disabled'
+                    : m.key_ref && !m.has_key && !m.local
+                    ? 'Missing Key'
+                    : m.local
+                    ? 'Local'
+                    : 'Ready'
+                  return (
+                    <option key={m.name} value={m.name} disabled={isUnusable}>
+                      {m.name} ({m.provider}) — {statusLabel}
+                    </option>
+                  )
+                })}
               </select>
             </div>
           </div>

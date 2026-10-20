@@ -1,4 +1,5 @@
 """Shared plumbing for provider adapters: error mapping and a deadline- and size-capped JSON POST."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,9 +35,9 @@ def _parse_reset_header(raw: str, clock_wall: Callable[[], float]) -> float | No
         val = float(raw)
         if val > 1_000_000_000_000:  # epoch ms
             return max(0.0, (val / 1000.0) - clock_wall())
-        if val > 1_000_000_000:      # epoch seconds
+        if val > 1_000_000_000:  # epoch seconds
             return max(0.0, val - clock_wall())
-        return max(0.0, val)          # relative seconds
+        return max(0.0, val)  # relative seconds
     return None
 
 
@@ -130,15 +131,18 @@ def map_http_error(
         return RateLimited(scope=scope, retry_after=retry_after, status=status, message=err_msg)
     if status >= 500:
         return ProviderError(retryable=True, retry_after=retry_after, status=status, message=err_msg)
-    return ProviderError(retryable=False, status=status, message=err_msg)  # 401/403 bad key, 404 bad model, other client errors
+    return ProviderError(
+        retryable=False, status=status, message=err_msg
+    )  # 401/403 bad key, 404 bad model, other client errors
 
 
 TRANSIENT = frozenset({502, 503, 504})
 RETRY_DELAYS_S = (1.0, 2.0)  # free tiers often answer 503 for a moment; two short retries ride it out
 
 
-async def _post_once(client: httpx.AsyncClient, url: str, headers: Mapping[str, str], body: Mapping[str, Any],
-                     max_bytes: int) -> bytes:
+async def _post_once(
+    client: httpx.AsyncClient, url: str, headers: Mapping[str, str], body: Mapping[str, Any], max_bytes: int
+) -> bytes:
     chunks: list[bytes] = []
     total = 0
     async with client.stream("POST", url, headers=dict(headers), json=body) as resp:
@@ -153,9 +157,16 @@ async def _post_once(client: httpx.AsyncClient, url: str, headers: Mapping[str, 
     return b"".join(chunks)
 
 
-async def post_json(client: httpx.AsyncClient, url: str, *, headers: Mapping[str, str], body: Mapping[str, Any],
-                    deadline_s: float, max_bytes: int = MAX_RESPONSE_BYTES,
-                    retry_delays: tuple[float, ...] = RETRY_DELAYS_S) -> dict[str, Any]:
+async def post_json(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    body: Mapping[str, Any],
+    deadline_s: float,
+    max_bytes: int = MAX_RESPONSE_BYTES,
+    retry_delays: tuple[float, ...] = RETRY_DELAYS_S,
+) -> dict[str, Any]:
     """POST JSON and return the decoded object. The whole call, retries included, is bounded by `deadline_s`
     and the response body by `max_bytes`, enforced while streaming. A 502/503/504 is retried briefly."""
     raw = b""
@@ -180,9 +191,16 @@ async def post_json(client: httpx.AsyncClient, url: str, *, headers: Mapping[str
     return data
 
 
-async def post_sse(client: httpx.AsyncClient, url: str, *, headers: Mapping[str, str], body: Mapping[str, Any],
-                   deadline_s: float, on_event: Callable[[dict[str, Any]], None],
-                   max_bytes: int = MAX_RESPONSE_BYTES) -> None:
+async def post_sse(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    body: Mapping[str, Any],
+    deadline_s: float,
+    on_event: Callable[[dict[str, Any]], None],
+    max_bytes: int = MAX_RESPONSE_BYTES,
+) -> None:
     """POST JSON and hand each server-sent `data:` object to `on_event` as it arrives. Returns at `[DONE]`; a stream
     that ends without it was cut off and is a retryable failure. Never retried here: the caller has already shown
     the text, so the router's fallback to another model is the only safe retry."""
@@ -213,7 +231,7 @@ async def post_sse(client: httpx.AsyncClient, url: str, *, headers: Mapping[str,
                         on_event(event)
     except (TimeoutError, httpx.HTTPError) as exc:
         raise ProviderError(retryable=True) from exc
-    raise ProviderError(retryable=True)      # the stream ended before [DONE]
+    raise ProviderError(retryable=True)  # the stream ended before [DONE]
 
 
 async def get_json(client: httpx.AsyncClient, url: str, *, max_bytes: int = 1_000_000) -> dict[str, Any]:

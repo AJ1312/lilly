@@ -1,4 +1,5 @@
 """Schema upgrades: ordering, refusal of bad input, rollback on failure and the pre-upgrade backup."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -35,11 +36,14 @@ def test_applies_files_in_order_and_records_the_version(tmp_path: Path, mem: sql
     assert migrate(mem, d) == 2  # running again changes nothing
 
 
-@pytest.mark.parametrize("files", [
-    {"0002_b.sql": "SELECT 1;"},                                   # gap
-    {"0001_a.sql": "SELECT 1;", "0001_b.sql": "SELECT 1;"},         # repeat
-    {"0001_a.sql": "SELECT 1;", "notes.txt": "x"},                  # misnamed
-])
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"0002_b.sql": "SELECT 1;"},  # gap
+        {"0001_a.sql": "SELECT 1;", "0001_b.sql": "SELECT 1;"},  # repeat
+        {"0001_a.sql": "SELECT 1;", "notes.txt": "x"},  # misnamed
+    ],
+)
 def test_refuses_bad_migration_sets(tmp_path: Path, mem: sqlite3.Connection, files: dict[str, str]) -> None:
     with pytest.raises(ValidationFailed):
         migrate(mem, _dir(tmp_path, files))
@@ -51,9 +55,16 @@ def test_refuses_a_database_newer_than_the_code(tmp_path: Path, mem: sqlite3.Con
         migrate(mem, _dir(tmp_path, {"0001_a.sql": "SELECT 1;"}))
 
 
-def test_a_failing_migration_rolls_back_and_keeps_the_last_good_version(tmp_path: Path, mem: sqlite3.Connection) -> None:
-    d = _dir(tmp_path, {"0001_a.sql": "CREATE TABLE a(x); INSERT INTO a VALUES (1);",
-                        "0002_bad.sql": "CREATE TABLE b(x); INSERT INTO a VALUES (2); SELECT * FROM missing_table;"})
+def test_a_failing_migration_rolls_back_and_keeps_the_last_good_version(
+    tmp_path: Path, mem: sqlite3.Connection
+) -> None:
+    d = _dir(
+        tmp_path,
+        {
+            "0001_a.sql": "CREATE TABLE a(x); INSERT INTO a VALUES (1);",
+            "0002_bad.sql": "CREATE TABLE b(x); INSERT INTO a VALUES (2); SELECT * FROM missing_table;",
+        },
+    )
     with pytest.raises(sqlite3.Error):
         migrate(mem, d)
     assert schema_version(mem) == 1
@@ -78,7 +89,8 @@ def test_backup_is_a_consistent_private_copy_and_each_kind_prunes_only_itself(tm
 
 
 def test_open_db_backs_up_an_existing_older_database_but_not_a_fresh_one(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     db = tmp_path / "data" / "lilly.db"
     open_db(db).close()
     assert not (tmp_path / "data" / "backups").exists()  # a new database has nothing worth copying

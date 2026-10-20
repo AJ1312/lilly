@@ -1,4 +1,5 @@
 """Tool registry. A tool's risk, egress and label come from here, never from a plan, a skill or the tool itself."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -11,6 +12,7 @@ from lilly.domain.labels import Label, Risk
 # - OpenAI / Mistral: ^[a-zA-Z0-9_-]{1,64}$ (docs.openai.com, docs.mistral.ai: alphanumeric, underscore, hyphen; no dots)
 # - Gemini: ^[a-zA-Z_][a-zA-Z0-9_]*$ (ai.google.dev: alphanumeric and underscore; no dots, no hyphens)
 # - Ollama: standard function identifier (ollama.com: alphanumeric and underscore; no dots)
+
 
 def wire_name(name: str) -> str:
     """Translate dotted Lilly tool name to provider-safe function identifier with double underscore."""
@@ -44,18 +46,18 @@ def render_args_from_schema(schema: Mapping[str, Any]) -> str:
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
     risk: Risk
-    egress: bool = False                   # sends data off the device (a request can carry private data out)
-    reads_label: Label = Label.PUBLIC      # sensitivity of what the tool reads
-    untrusted: bool = False                # returns content that came from outside
-    path_args: tuple[str, ...] = ("path",) # arguments that are file paths, checked against the granted roots
-    confirm: bool = False                  # needs the user's approval in every mode, even Open
-    module: str | None = None              # optional module that provides it; None means always available
-    serial: bool = False                   # keeps state between calls: never runs beside another step
-    doc: str = ""                          # one line for the planner
-    args: str = ""                         # argument summary for the planner
+    egress: bool = False  # sends data off the device (a request can carry private data out)
+    reads_label: Label = Label.PUBLIC  # sensitivity of what the tool reads
+    untrusted: bool = False  # returns content that came from outside
+    path_args: tuple[str, ...] = ("path",)  # arguments that are file paths, checked against the granted roots
+    confirm: bool = False  # needs the user's approval in every mode, even Open
+    module: str | None = None  # optional module that provides it; None means always available
+    serial: bool = False  # keeps state between calls: never runs beside another step
+    doc: str = ""  # one line for the planner
+    args: str = ""  # argument summary for the planner
     schema: Mapping[str, Any] = field(default_factory=dict)  # JSON Schema for native tool calling
-    terminal: bool = False                  # a successful call can be the whole task; the answer is written by code
-    standing_ok: bool = False              # the owner may allow this tool for one named target without asking each time
+    terminal: bool = False  # a successful call can be the whole task; the answer is written by code
+    standing_ok: bool = False  # the owner may allow this tool for one named target without asking each time
 
     def __post_init__(self) -> None:
         if not self.args and self.schema:
@@ -66,7 +68,9 @@ _P = Label.PERSONAL
 
 DEFAULT_TOOLS: dict[str, ToolSpec] = {
     "fs.list": ToolSpec(
-        Risk.R0, reads_label=_P, module="files",
+        Risk.R0,
+        reads_label=_P,
+        module="files",
         doc="List the entries of a folder.",
         args='{"path": "folder", "max_entries": "optional number"}',
         schema={
@@ -80,7 +84,9 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "fs.read": ToolSpec(
-        Risk.R0, reads_label=_P, module="files",
+        Risk.R0,
+        reads_label=_P,
+        module="files",
         doc="Read a text file. Use offset and limit (lines) to read part of a large file. Lines are numbered.",
         args='{"path": "file", "offset": "optional line number", "limit": "optional line count", "max_bytes": "optional number"}',
         schema={
@@ -96,23 +102,32 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "fs.edit": ToolSpec(
-        Risk.R1, module="files",
+        Risk.R1,
+        module="files",
         doc="Replace exact text in an existing file. old must match the file exactly and appear once, unless replace_all is true. Read the file first.",
         args='{"path": "file", "old": "exact text to replace", "new": "substitute text", "replace_all": "optional boolean"}',
         schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the file to edit"},
-                "old": {"type": "string", "description": "Exact text to replace (must match uniquely unless replace_all is true)"},
+                "old": {
+                    "type": "string",
+                    "description": "Exact text to replace (must match uniquely unless replace_all is true)",
+                },
                 "new": {"type": "string", "description": "New text to substitute in place of old"},
-                "replace_all": {"type": "boolean", "description": "Whether to replace all occurrences instead of requiring a unique match"},
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Whether to replace all occurrences instead of requiring a unique match",
+                },
             },
             "required": ["path", "old", "new"],
             "additionalProperties": False,
         },
     ),
     "fs.search": ToolSpec(
-        Risk.R0, reads_label=_P, module="files",
+        Risk.R0,
+        reads_label=_P,
+        module="files",
         doc="Find files by name or text inside a folder.",
         args='{"path": "folder", "query": "text", "max_results": "optional number"}',
         schema={
@@ -127,7 +142,8 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "fs.write": ToolSpec(
-        Risk.R1, module="files",
+        Risk.R1,
+        module="files",
         doc="Create a text file. Refuses to replace an existing file unless overwrite is true.",
         args='{"path": "file", "content": "text", "overwrite": "optional true/false"}',
         schema={
@@ -142,7 +158,9 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "fs.apply_moves": ToolSpec(
-        Risk.R1, path_args=("root",), module="files",
+        Risk.R1,
+        path_args=("root",),
+        module="files",
         doc="Move or rename files inside one folder. Never deletes or overwrites.",
         args='{"root": "folder", "moves": [{"from": "relative path", "to": "relative path"}]}',
         schema={
@@ -168,7 +186,8 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "fs.trash": ToolSpec(
-        Risk.R1, module="files",
+        Risk.R1,
+        module="files",
         doc="Move a file or folder to the Trash.",
         args='{"path": "file or folder"}',
         schema={
@@ -181,7 +200,9 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "data.profile": ToolSpec(
-        Risk.R0, reads_label=_P, module="files",
+        Risk.R0,
+        reads_label=_P,
+        module="files",
         doc="Profile a CSV or XLSX file: rows, types, blanks, duplicates, odd values.",
         args='{"path": "file"}',
         schema={
@@ -194,7 +215,10 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "web.search": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, module="web",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        module="web",
         doc="Search the web. Returns titles, links and snippets.",
         args='{"query": "search terms", "max_results": "optional number"}',
         schema={
@@ -208,7 +232,10 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "web.fetch": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, module="web",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        module="web",
         doc="Fetch web pages as readable text. Accepts one or several http(s) URLs.",
         args='{"urls": "one URL or a list of URLs"}',
         schema={
@@ -225,21 +252,31 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "web.research": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, module="web",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        module="web",
         doc="Search the web and read the top results in one step. Returns title, URL and an excerpt for each. Use this instead of web.search followed by web.fetch.",
         args='{"query": "search query", "max_sources": "optional number 1..5"}',
         schema={
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Web search query"},
-                "max_sources": {"type": "integer", "description": "Number of top sources to read (1 to 5)", "minimum": 1, "maximum": 5},
+                "max_sources": {
+                    "type": "integer",
+                    "description": "Number of top sources to read (1 to 5)",
+                    "minimum": 1,
+                    "maximum": 5,
+                },
             },
             "required": ["query"],
             "additionalProperties": False,
         },
     ),
     "memory.search": ToolSpec(
-        Risk.R0, reads_label=_P, module="memory",
+        Risk.R0,
+        reads_label=_P,
+        module="memory",
         doc="Search what Lilly remembers about the user.",
         args='{"query": "text"}',
         schema={
@@ -252,7 +289,8 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "memory.write": ToolSpec(
-        Risk.R1, module="memory",
+        Risk.R1,
+        module="memory",
         doc="Remember a short fact about the user.",
         args='{"text": "the fact", "tags": ["preference"]}',
         schema={
@@ -266,7 +304,9 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "notes.search": ToolSpec(
-        Risk.R0, reads_label=_P, module="notes",
+        Risk.R0,
+        reads_label=_P,
+        module="notes",
         doc="Search the user's notes.",
         args='{"query": "text"}',
         schema={
@@ -279,7 +319,9 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "notes.read": ToolSpec(
-        Risk.R0, reads_label=_P, module="notes",
+        Risk.R0,
+        reads_label=_P,
+        module="notes",
         doc="Read one note by id.",
         args='{"id": "note id from notes.search"}',
         schema={
@@ -292,12 +334,15 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "notes.write": ToolSpec(
-        Risk.R2, confirm=True, path_args=(), module="notes",
+        Risk.R2,
+        confirm=True,
+        path_args=(),
+        module="notes",
         doc="Propose a note: create one in a space, or replace an existing note. The user reads the "
-            "text and must approve it before anything is saved.",
+        "text and must approve it before anything is saved.",
         args='{"space": "space name or id as notes.search shows (new note)", "title": "note title", '
-             '"content": "plain text, at most 8000 characters", "id": "note id (to edit instead)", '
-             '"base_revision": "revision that notes.read showed (required with id)"}',
+        '"content": "plain text, at most 8000 characters", "id": "note id (to edit instead)", '
+        '"base_revision": "revision that notes.read showed (required with id)"}',
         schema={
             "type": "object",
             "properties": {
@@ -305,15 +350,22 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
                 "title": {"type": "string", "description": "Note title"},
                 "content": {"type": "string", "description": "Plain text content (max 8000 chars)", "maxLength": 8000},
                 "id": {"type": "string", "description": "Note id to edit instead"},
-                "base_revision": {"type": "integer", "description": "Revision that notes.read showed (required with id)"},
+                "base_revision": {
+                    "type": "integer",
+                    "description": "Revision that notes.read showed (required with id)",
+                },
             },
             "required": ["title", "content"],
             "additionalProperties": False,
         },
     ),
     "computer.open_url": ToolSpec(
-        Risk.R2, egress=True, path_args=(), module="computer",
-        terminal=False, standing_ok=True,
+        Risk.R2,
+        egress=True,
+        path_args=(),
+        module="computer",
+        terminal=False,
+        standing_ok=True,
         doc="Open a web link in the user's own browser (they see it; Lilly cannot read it).",
         args='{"url": "http(s) link"}',
         schema={
@@ -326,8 +378,11 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.open_app": ToolSpec(
-        Risk.R2, path_args=(), module="computer",
-        terminal=False, standing_ok=True,
+        Risk.R2,
+        path_args=(),
+        module="computer",
+        terminal=False,
+        standing_ok=True,
         doc="Start an application on the user's computer.",
         args='{"name": "application name"}',
         schema={
@@ -340,81 +395,138 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.observe": ToolSpec(
-        Risk.R0, reads_label=_P, untrusted=True, path_args=(), module="computer", serial=True,
+        Risk.R0,
+        reads_label=_P,
+        untrusted=True,
+        path_args=(),
+        module="computer",
+        serial=True,
         doc="Capture a fresh desktop observation with frame id, frontmost app/window and available accessibility elements.",
         args="{}",
         schema={"type": "object", "properties": {}, "additionalProperties": False},
     ),
     "computer.click": ToolSpec(
-        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
-        doc="Click one target from a fresh computer.observe frame, then capture and return a new frame.",
-        args='{"frame_id": "fresh observation id", "target": "accessible label or @x=10,y=20", "expected": "optional text to verify"}',
+        Risk.R2,
+        egress=True,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
+        serial=True,
+        doc="Click one target (semantic label or @x=10,y=20), then capture and return a fresh frame.",
+        args='{"target": "accessible label or @x=10,y=20", "frame_id": "optional observation id", "expected": "optional text to verify"}',
         schema={
             "type": "object",
             "properties": {
-                "frame_id": {"type": "string"},
                 "target": {"type": "string"},
+                "frame_id": {"type": "string"},
                 "expected": {"type": "string"},
             },
-            "required": ["frame_id", "target"],
+            "required": ["target"],
             "additionalProperties": False,
         },
     ),
     "computer.type": ToolSpec(
-        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
-        doc="Click an accessibility target and type text, then capture and return a new frame. Never type secrets.",
-        args='{"frame_id": "fresh observation id", "target": "accessible label or coordinates", "text": "text", "expected": "optional text to verify"}',
+        Risk.R2,
+        egress=True,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
+        serial=True,
+        doc="Type text into the focused application or target element, then capture and return a fresh frame.",
+        args='{"text": "text to type", "target": "optional label or coordinates", "frame_id": "optional observation id", "expected": "optional text to verify"}',
         schema={
             "type": "object",
             "properties": {
-                "frame_id": {"type": "string"},
-                "target": {"type": "string"},
                 "text": {"type": "string", "maxLength": 2000},
+                "target": {"type": "string"},
+                "frame_id": {"type": "string"},
                 "expected": {"type": "string"},
             },
-            "required": ["frame_id", "target", "text"],
+            "required": ["text"],
             "additionalProperties": False,
         },
     ),
     "computer.press": ToolSpec(
-        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
-        doc="Press a non-destructive key using a fresh observation frame, then capture and return a new frame.",
-        args='{"frame_id": "fresh observation id", "key": "Enter, Tab, Escape or arrow key", "expected": "optional text to verify"}',
+        Risk.R2,
+        egress=True,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
+        serial=True,
+        doc="Press a key or key combination (Enter, Tab, Escape, cmd+space, etc.), then capture and return a fresh frame.",
+        args='{"key": "Enter, Tab, Escape, cmd+space or arrow key", "frame_id": "optional observation id", "expected": "optional text to verify"}',
         schema={
             "type": "object",
             "properties": {
-                "frame_id": {"type": "string"},
                 "key": {"type": "string"},
+                "frame_id": {"type": "string"},
                 "expected": {"type": "string"},
             },
-            "required": ["frame_id", "key"],
+            "required": ["key"],
             "additionalProperties": False,
         },
     ),
     "computer.move": ToolSpec(
-        Risk.R1, confirm=False, reads_label=_P, path_args=(), module="computer", serial=True,
-        doc="Move the pointer to a fresh semantic, visual, or coordinate target and return a fresh frame.",
-        args='{"frame_id": "fresh observation id", "target": "target label or @x=10,y=20"}',
-        schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "target": {"type": "string"}},
-                "required": ["frame_id", "target"], "additionalProperties": False},
+        Risk.R1,
+        confirm=False,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
+        serial=True,
+        doc="Move the pointer to a semantic, visual, or coordinate target and return a fresh frame.",
+        args='{"target": "target label or @x=10,y=20", "frame_id": "optional observation id"}',
+        schema={
+            "type": "object",
+            "properties": {"target": {"type": "string"}, "frame_id": {"type": "string"}},
+            "required": ["target"],
+            "additionalProperties": False,
+        },
     ),
     "computer.scroll": ToolSpec(
-        Risk.R1, confirm=False, reads_label=_P, path_args=(), module="computer", serial=True,
-        doc="Scroll the desktop view from a fresh frame and return fresh state.",
-        args='{"frame_id": "fresh observation id", "amount": "signed pages"}',
-        schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "amount": {"type": "integer", "minimum": -20, "maximum": 20}},
-                "required": ["frame_id"], "additionalProperties": False},
+        Risk.R1,
+        confirm=False,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
+        serial=True,
+        doc="Scroll the desktop view and return fresh state.",
+        args='{"amount": "signed pages", "frame_id": "optional observation id"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "amount": {"type": "integer", "minimum": -20, "maximum": 20},
+                "frame_id": {"type": "string"},
+            },
+            "required": ["amount"],
+            "additionalProperties": False,
+        },
     ),
     "computer.drag": ToolSpec(
-        Risk.R2, egress=True, reads_label=_P, path_args=(), module="computer", serial=True,
-        doc="Drag between two targets from a fresh frame, then verify a fresh observation.",
-        args='{"frame_id": "fresh observation id", "start": "source target", "end": "destination target", "expected": "optional text"}',
-        schema={"type": "object", "properties": {"frame_id": {"type": "string"}, "start": {"type": "string"},
-                "end": {"type": "string"}, "expected": {"type": "string"}},
-                "required": ["frame_id", "start", "end"], "additionalProperties": False},
+        Risk.R2,
+        egress=True,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
+        serial=True,
+        doc="Drag between two targets, then verify a fresh observation.",
+        args='{"start": "source target", "end": "destination target", "frame_id": "optional observation id", "expected": "optional text"}',
+        schema={
+            "type": "object",
+            "properties": {
+                "start": {"type": "string"},
+                "end": {"type": "string"},
+                "frame_id": {"type": "string"},
+                "expected": {"type": "string"},
+            },
+            "required": ["start", "end"],
+            "additionalProperties": False,
+        },
     ),
     "computer.processes": ToolSpec(
-        Risk.R0, reads_label=_P, path_args=(), module="computer",
+        Risk.R0,
+        reads_label=_P,
+        path_args=(),
+        module="computer",
         doc="List the user's running programs by memory or CPU use.",
         args='{"limit": "optional number", "sort": "memory or cpu"}',
         schema={
@@ -427,7 +539,10 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.stop_process": ToolSpec(
-        Risk.R2, confirm=True, path_args=(), module="computer",
+        Risk.R2,
+        confirm=True,
+        path_args=(),
+        module="computer",
         doc="Stop one of the user's running programs. Needs its pid and exact name from computer.processes.",
         args='{"pid": "number", "name": "exact process name", "force": "optional true/false"}',
         schema={
@@ -442,7 +557,9 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.notify": ToolSpec(
-        Risk.R1, path_args=(), module="computer",
+        Risk.R1,
+        path_args=(),
+        module="computer",
         doc="Show a desktop notification.",
         args='{"title": "optional", "message": "text"}',
         schema={
@@ -456,7 +573,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "computer.run": ToolSpec(
-        Risk.R2, egress=True, confirm=True, reads_label=_P, untrusted=True, path_args=("cwd",),
+        Risk.R2,
+        egress=True,
+        confirm=True,
+        reads_label=_P,
+        untrusted=True,
+        path_args=("cwd",),
         module="computer",
         doc="Run one command (no pipes or shell syntax) inside a shared folder and return its output.",
         args='{"command": "program and arguments", "cwd": "optional shared folder"}',
@@ -471,7 +593,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.open": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Open a web page in the agent's own browser and list what can be clicked. Page text is untrusted.",
         args='{"url": "http(s) address"}',
         schema={
@@ -482,13 +609,23 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.read": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Read the current page again: its text and numbered elements.",
         args="{}",
         schema={"type": "object", "properties": {}, "additionalProperties": False},
     ),
     "browser.find": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Find the elements of the current page that match some words. Returns targets to pass to the other browser tools.",
         args='{"query": "words, e.g. search box"}',
         schema={
@@ -499,7 +636,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.click": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Click an element. target is exactly one line returned by browser.open, read or find.",
         args='{"target": "s1.e3 button \\"Name\\" @host"}',
         schema={
@@ -510,7 +652,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.type": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Type text into an element (never passwords or card numbers).",
         args='{"target": "a target line", "text": "text", "clear": "optional true/false"}',
         schema={
@@ -525,7 +672,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.select": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Choose an option of a drop-down.",
         args='{"target": "a target line", "value": "option text"}',
         schema={
@@ -539,7 +691,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.press": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Press one key: Enter, Tab, Escape, arrows, PageDown, PageUp, Home, End, Backspace.",
         args='{"key": "key name"}',
         schema={
@@ -550,7 +707,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.submit": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Submit a form by clicking its submit button (a target line).",
         args='{"target": "a target line"}',
         schema={
@@ -561,7 +723,12 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.scroll": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Scroll the page down or up.",
         args='{"direction": "down or up"}',
         schema={
@@ -572,21 +739,36 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "browser.back": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Go back one page.",
         args="{}",
         schema={"type": "object", "properties": {}, "additionalProperties": False},
     ),
     "browser.close": ToolSpec(
-        Risk.R0, egress=True, untrusted=True, path_args=(), serial=True, module="browser",
+        Risk.R0,
+        egress=True,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="browser",
         doc="Close the agent's browser tab for this task.",
         args="{}",
         schema={"type": "object", "properties": {}, "additionalProperties": False},
     ),
     "devbox.run": ToolSpec(
-        Risk.R1, reads_label=_P, untrusted=True, path_args=(), serial=True, module="devbox",
+        Risk.R1,
+        reads_label=_P,
+        untrusted=True,
+        path_args=(),
+        serial=True,
+        module="devbox",
         doc="Run one shell command in the devbox: a sealed container with no network, where only the "
-            "shared folder can be seen and changed. Use it to run code, scripts and tests.",
+        "shared folder can be seen and changed. Use it to run code, scripts and tests.",
         args='{"command": "shell command", "dir": "optional folder inside the shared folder"}',
         schema={
             "type": "object",
@@ -607,7 +789,7 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
     "llm.work": ToolSpec(
         Risk.R0,
         doc="Have a language model write, summarise, classify or decide, using earlier results. "
-            "Always use it to compose the final answer.",
+        "Always use it to compose the final answer.",
         args='{"task": "what to produce", "input": "text or $step.output references"}',
         schema={
             "type": "object",
@@ -685,7 +867,8 @@ DEFAULT_TOOLS: dict[str, ToolSpec] = {
         },
     ),
     "agent.discover": ToolSpec(
-        Risk.R0, path_args=(),
+        Risk.R0,
+        path_args=(),
         doc="Discover available capabilities by words such as music, browser, files, or notes. Discovered tools are exposed on the next turn.",
         args='{"query": "capability words", "namespace": "optional namespace", "limit": "optional number"}',
         schema={

@@ -1,4 +1,5 @@
 """The policy kernel: path scope and decide(). Pure, deterministic, no model, no network."""
+
 from __future__ import annotations
 
 import os
@@ -16,7 +17,7 @@ def _names(p: Path) -> tuple[str, ...]:
 
 
 def _inside(inner: tuple[str, ...], outer: tuple[str, ...]) -> bool:
-    return inner[:len(outer)] == outer
+    return inner[: len(outer)] == outer
 
 
 class PathScope:
@@ -94,8 +95,12 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
         out.append((Verdict.DENY, "this agent may not send private data"))
     if call.egress and ctx.tainted and ctx.label >= Label.PERSONAL:
         out.append((Verdict.NEEDS_APPROVAL, "private data could leave after reading untrusted content"))
-    if call.egress and ctx.label is Label.PERSONAL and not openm \
-            and not (visual_interaction and mode_consent and not ctx.tainted):
+    if (
+        call.egress
+        and ctx.label is Label.PERSONAL
+        and not openm
+        and not (visual_interaction and mode_consent and not ctx.tainted)
+    ):
         out.append((Verdict.NEEDS_APPROVAL, "personal data leaving the device"))
     if any(not scope.allows(p) for p in call.paths):
         out.append((Verdict.DENY, "path outside granted roots"))
@@ -104,8 +109,12 @@ def decide(call: ToolCall, ctx: TaskCtx, scope: PathScope) -> tuple[Verdict, str
         # OFF is a no-prompt mode for ordinary R1/R2 work. It cannot bypass
         # taint, private-data permissions, egress restrictions, or a tool's
         # explicit confirmation contract.
-        protected = call.confirm or ctx.tainted or call.reads_label is Label.PERSONAL \
+        protected = (
+            call.confirm
+            or ctx.tainted
+            or call.reads_label is Label.PERSONAL
             or (call.egress and ctx.label >= Label.PERSONAL)
+        )
         if protected:
             return Verdict.DENY, "approval mode is OFF and this action needs a hard security gate"
         return Verdict.ALLOW, "approval mode is OFF"

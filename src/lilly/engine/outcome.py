@@ -1,6 +1,7 @@
 """How a step or a task ends: the two ways to stop early, plain-English error text, and argument helpers.
 
 Shared by the runner, the step executor and the lane scheduler so none of them imports another's internals."""
+
 from __future__ import annotations
 
 import re
@@ -32,10 +33,10 @@ class StepOutcome:
     step_id: str
     tool: str
     kind: OutcomeKind
-    output: str = ""          # the tool's output when kind == "ok"
-    reason: str = ""          # why, when it is not ok
-    terminal: bool = False    # the tool's spec says a successful call can end the task
-    summary: str = ""         # code-written one-liner for the answer (from Tool.summary)
+    output: str = ""  # the tool's output when kind == "ok"
+    reason: str = ""  # why, when it is not ok
+    terminal: bool = False  # the tool's spec says a successful call can end the task
+    summary: str = ""  # code-written one-liner for the answer (from Tool.summary)
 
     @property
     def ok(self) -> bool:
@@ -84,8 +85,10 @@ def describe_provider_error(exc: ProviderError) -> str:
     if isinstance(exc, QuotaExhausted):
         return f"The model is rate limited right now{status}. Try again shortly, or add another model to fall back to."
     if exc.retryable:
-        return (f"The model service is temporarily overloaded or unreachable{status}. Lilly retried and tried the other "
-                "models that have keys. Try again in a minute, or add another model key in Settings → Models & keys.")
+        return (
+            f"The model service is temporarily overloaded or unreachable{status}. Lilly retried and tried the other "
+            "models that have keys. Try again in a minute, or add another model key in Settings → Models & keys."
+        )
     return f"{exc.public}{status}."
 
 
@@ -105,10 +108,12 @@ def describe_error(exc: BaseException) -> str:
 def resolve_refs(value: Any, outputs: Mapping[str, str]) -> Any:
     """Replace `$id.output` with that step's output, everywhere inside an argument value."""
     if isinstance(value, str):
+
         def one(m: Any) -> str:
             if m.group(1) not in outputs:
                 raise StepFailed(f"it needs the result of step {m.group(1)}, which did not produce one")
             return outputs[m.group(1)]
+
         return REF.sub(one, value)
     if isinstance(value, list):
         return [resolve_refs(v, outputs) for v in value]

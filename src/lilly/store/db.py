@@ -1,4 +1,5 @@
 """The Database facade: one writer thread for writes, a read-only connection for reads."""
+
 from __future__ import annotations
 
 import asyncio

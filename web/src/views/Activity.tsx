@@ -31,10 +31,10 @@ export const ActivityView: React.FC = () => {
     <div className="view-container" style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>Activity & Decision Log</h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+          <h1 className="greeting-text">Activity & Decision Log</h1>
+          <div className="greeting-sub">
             Audit trail of classifier choices, routing judgements, and grounding decisions.
-          </p>
+          </div>
         </div>
 
         <div className="filter-tabs">

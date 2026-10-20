@@ -1,4 +1,5 @@
 """system.stats: CPU, memory, disk and the heaviest processes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -22,8 +23,13 @@ def collect_stats(top: int = 8) -> dict[str, Any]:
     procs: list[dict[str, Any]] = []
     for p in psutil.process_iter(["pid", "name", "memory_percent"]):
         with contextlib.suppress(psutil.Error):
-            procs.append({"pid": p.info["pid"], "name": p.info["name"] or "unknown",
-                          "memory_percent": round(p.info["memory_percent"] or 0.0, 1)})
+            procs.append(
+                {
+                    "pid": p.info["pid"],
+                    "name": p.info["name"] or "unknown",
+                    "memory_percent": round(p.info["memory_percent"] or 0.0, 1),
+                }
+            )
     procs.sort(key=lambda x: x["memory_percent"], reverse=True)
     return {
         "cpu_percent": psutil.cpu_percent(interval=0.2),

@@ -1,4 +1,5 @@
 """Optional in-memory read cache for idempotent R0 tools."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -8,16 +9,18 @@ from typing import Any
 from lilly.domain.labels import Label
 from lilly.domain.payload import canonical
 
-IDEMPOTENT_TOOLS = frozenset({
-    "web.fetch",
-    "fs.read",
-    "fs.list",
-    "fs.search",
-    "notes.read",
-    "notes.search",
-    "memory.search",
-    "result.read",
-})
+IDEMPOTENT_TOOLS = frozenset(
+    {
+        "web.fetch",
+        "fs.read",
+        "fs.list",
+        "fs.search",
+        "notes.read",
+        "notes.search",
+        "memory.search",
+        "result.read",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,8 +56,9 @@ class ReadCache:
             return None
         return entry
 
-    def put(self, tool: str, args: Mapping[str, Any], output: str, label: Label, untrusted: bool,
-            now: float, ttl_s: int) -> None:
+    def put(
+        self, tool: str, args: Mapping[str, Any], output: str, label: Label, untrusted: bool, now: float, ttl_s: int
+    ) -> None:
         if ttl_s <= 0 or tool not in IDEMPOTENT_TOOLS:
             return
         k = self.key(tool, args)

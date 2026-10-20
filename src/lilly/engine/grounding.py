@@ -1,4 +1,5 @@
 """Grounding verifier: ensures URLs and file paths in answers come from tool results or the user."""
+
 from __future__ import annotations
 
 import contextlib

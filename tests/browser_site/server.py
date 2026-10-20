@@ -1,5 +1,6 @@
 """A small local website for the browser tests: a form, a page that tries to inject instructions, a page that
 changes under the reader, pop-ups, dialogs and downloads. It records what it was sent."""
+
 from __future__ import annotations
 
 import threading

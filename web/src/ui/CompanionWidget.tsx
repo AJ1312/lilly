@@ -52,14 +52,14 @@ export const CompanionWidget: React.FC = () => {
   let petState: PetState = 'idle'
   let currentThought =
     approvalMode === 'OFF'
-      ? 'Off mode: all agentic tasks stopped, ready for conversational chat.'
+      ? 'Off mode: tool actions disabled; conversational chat only.'
       : approvalMode === 'AUTO'
-      ? 'Auto mode: ready to move without asking permission.'
-      : 'Ask mode: ready to assist; I will ask for permission before acting.'
+      ? 'Auto mode: autonomous execution. Safe actions run automatically; host commands and untrusted inputs pause for approval.'
+      : 'Ask mode: interactive protection. Every file change, command, or desktop action prompts for your confirmation.'
 
   if (pendingApprovalsCount > 0) {
     petState = 'approval'
-    currentThought = `${pendingApprovalsCount} security approval request requires your review!`
+    currentThought = `${pendingApprovalsCount} ${pendingApprovalsCount === 1 ? 'action requires' : 'actions require'} your review (${approvalMode === 'AUTO' ? 'host command / policy gate' : 'interactive ask mode'}).`
   } else if (activeTask) {
     if (activeTask.state === 'PLANNING') {
       petState = 'thinking'
@@ -69,6 +69,7 @@ export const CompanionWidget: React.FC = () => {
       currentThought = `Executing: "${activeTask.goal.slice(0, 52)}..."`
     }
   }
+
 
   const species = activeAgent?.pet || 'lily'
   const look = activeAgent?.look || { accessory: 'none', eyes: 'round', blush: true }

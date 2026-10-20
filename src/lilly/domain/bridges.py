@@ -2,6 +2,7 @@
 
 Everything that arrives from a chat app is untrusted text from outside. These are the pure rules; the network side
 lives in `lilly.bridges`."""
+
 from __future__ import annotations
 
 import hmac
@@ -14,17 +15,17 @@ from lilly.domain.clock import Clock
 
 BRIDGE_BOUNDS = {"per_minute": (1, 30), "max_chars": (100, 4000)}
 _KEYS = frozenset({"enabled", "agent_id", "private_replies", "per_minute", "max_chars"})
-CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"      # no 0/O or 1/I: easy to read off a screen and type on a phone
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I: easy to read off a screen and type on a phone
 CODE_LENGTH = 8
 
 
 @dataclass(frozen=True, slots=True)
 class BridgeSettings:
-    enabled: bool = False                 # nothing listens until the owner switches it on
-    agent_id: str | None = None           # the one agent chat messages go to (it must be marked reachable from chat)
-    private_replies: bool = False         # may answers that used private data be sent through the chat app?
-    per_minute: int = 6                   # messages one person may send a minute
-    max_chars: int = 2000                 # longest message accepted
+    enabled: bool = False  # nothing listens until the owner switches it on
+    agent_id: str | None = None  # the one agent chat messages go to (it must be marked reachable from chat)
+    private_replies: bool = False  # may answers that used private data be sent through the chat app?
+    per_minute: int = 6  # messages one person may send a minute
+    max_chars: int = 2000  # longest message accepted
 
 
 def parse_bridge(raw: object) -> tuple[BridgeSettings | None, list[str]]:
@@ -47,13 +48,19 @@ def parse_bridge(raw: object) -> tuple[BridgeSettings | None, list[str]]:
             numbers[key] = v
     if errs:
         return None, errs
-    return BridgeSettings(bool(raw.get("enabled", d.enabled)), agent, bool(raw.get("private_replies", d.private_replies)),
-                          **numbers), []
+    return BridgeSettings(
+        bool(raw.get("enabled", d.enabled)), agent, bool(raw.get("private_replies", d.private_replies)), **numbers
+    ), []
 
 
 def bridge_to_dict(b: BridgeSettings) -> dict[str, object]:
-    return {"enabled": b.enabled, "agent_id": b.agent_id, "private_replies": b.private_replies,
-            "per_minute": b.per_minute, "max_chars": b.max_chars}
+    return {
+        "enabled": b.enabled,
+        "agent_id": b.agent_id,
+        "private_replies": b.private_replies,
+        "per_minute": b.per_minute,
+        "max_chars": b.max_chars,
+    }
 
 
 class Pairing:
@@ -61,13 +68,14 @@ class Pairing:
     once. Wrong guesses are counted per sender, so a stranger locks only themselves out; a far larger total across
     everyone burns the code as a backstop."""
 
-    def __init__(self, clock: Clock, ttl_s: float = 600.0, max_wrong: int = 5, max_wrong_total: int = 200,
-                 max_senders: int = 256) -> None:
+    def __init__(
+        self, clock: Clock, ttl_s: float = 600.0, max_wrong: int = 5, max_wrong_total: int = 200, max_senders: int = 256
+    ) -> None:
         self._clock, self._ttl, self._max_wrong = clock, ttl_s, max_wrong
         self._max_total, self._max_senders = max_wrong_total, max_senders
         self._code: str | None = None
         self._until = 0.0
-        self._wrong: OrderedDict[int, int] = OrderedDict()     # sender -> wrong guesses against this code
+        self._wrong: OrderedDict[int, int] = OrderedDict()  # sender -> wrong guesses against this code
         self._total = 0
 
     def new(self) -> str:
@@ -132,5 +140,3 @@ class BridgeControl(Protocol):
     async def set_token(self, token: str) -> str: ...
     async def clear_token(self) -> None: ...
     async def unpair(self, user_id: int) -> bool: ...
-
-

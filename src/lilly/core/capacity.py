@@ -3,6 +3,7 @@
 Core layer (Rank 1): owns the wait queue, capacity selection, head-of-queue fairness,
 in-flight reservations, and token estimation adjustments.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -196,9 +197,13 @@ class CapacityManager:
         skip: frozenset[str] = frozenset(),
         max_wait_s: float | None = None,
         steps_finished: int = 0,
+        preferred_candidates: tuple[str, ...] | None = None,
+        preferred_model: str | None = None,
     ) -> Lease:
         """Acquire a model slot according to the 7-step capacity algorithm."""
         cap_set = self.settings
+        if preferred_candidates is None and preferred_model is not None:
+            preferred_candidates = (preferred_model,)
         limit_wait = (
             max_wait_s
             if max_wait_s is not None
@@ -240,8 +245,7 @@ class CapacityManager:
 
                 # 1. Eligible = enabled, has a key (or local), capability fits, label_access allows, matches pin/tag, not in skip.
                 candidates = [
-                    e for e in self.pool.entries
-                    if e.spec.enabled and self._has_key(e) and e.name not in skip
+                    e for e in self.pool.entries if e.spec.enabled and self._has_key(e) and e.name not in skip
                 ]
                 if pin:
                     candidates = [e for e in candidates if e.name == pin]
@@ -275,7 +279,9 @@ class CapacityManager:
                     if pin:
                         raise NoModelAvailable(f"pinned model {pin!r} is unavailable")
                     if label >= Label.PERSONAL:
-                        raise NoModelAvailable("no model may see this data: enable a local model or allow a model to ask")
+                        raise NoModelAvailable(
+                            "no model may see this data: enable a local model or allow a model to ask"
+                        )
                     raise NoModelAvailable("no model is available")
 
                 # 3. For each eligible model compute ready_at
@@ -319,12 +325,24 @@ class CapacityManager:
 
                     ready_list.append((e, t, grant, est_in, est_out))
 
-                # 4. Take lowest lane with ready_at <= now
+                # 4. Take preferred model or lowest lane with ready_at <= now
                 ready_now = [item for item in ready_list if item[1] <= now]
                 if ready_now:
                     lowest_lane = min(item[0].spec.lane for item in ready_now)
                     in_lane = [item for item in ready_now if item[0].spec.lane == lowest_lane]
-                    if cap_set.spread == "balanced":
+                    if preferred_candidates:
+                        pref_map = {name: idx for idx, name in enumerate(preferred_candidates)}
+                        ready_preferred = [item for item in ready_now if item[0].name in pref_map]
+                        if ready_preferred:
+                            ready_preferred.sort(key=lambda item: pref_map[item[0].name])
+                            winner, _, grant, est_in, est_out = ready_preferred[0]
+                        else:
+                            if cap_set.spread == "balanced":
+                                in_lane.sort(key=lambda item: (_calc_utilisation(item[0]), item[0].tokens[0]))
+                                winner, _, grant, est_in, est_out = in_lane[0]
+                            else:
+                                winner, _, grant, est_in, est_out = in_lane[0]
+                    elif cap_set.spread == "balanced":
                         # Lowest utilisation, tie-breaker total calls, then list order
                         in_lane.sort(key=lambda item: (_calc_utilisation(item[0]), item[0].tokens[0]))
                         winner, _, grant, est_in, est_out = in_lane[0]
@@ -340,15 +358,20 @@ class CapacityManager:
                     waited_s = now - began
                     if waited_s > 0:
                         if self._on_event:
-                            self._on_event("resume", {
-                                "waited_ms": int(waited_s * 1000),
-                                "model": winner.name,
-                            })
+                            self._on_event(
+                                "resume",
+                                {
+                                    "waited_ms": int(waited_s * 1000),
+                                    "model": winner.name,
+                                },
+                            )
                         if self._on_thought:
-                            self._on_thought(self.messages.resume_thought.format(
-                                model=winner.name,
-                                seconds=int(round(waited_s)),
-                            ))
+                            self._on_thought(
+                                self.messages.resume_thought.format(
+                                    model=winner.name,
+                                    seconds=int(round(waited_s)),
+                                )
+                            )
 
                     return Lease(entry=winner, reserved_in=est_in, reserved_out=est_out, waited_s=waited_s)
 
@@ -385,25 +408,32 @@ class CapacityManager:
                 if curr_key != last_reason_key:
                     last_reason_key = curr_key
                     if self._on_event:
-                        self._on_event("wait", {
-                            "model": soonest_entry.name,
-                            "reason": reason_code,
-                            "scope": reason_code,
-                            "seconds": round(wait_needed, 1),
-                            "until": round(min_ready_at, 2),
-                        })
+                        self._on_event(
+                            "wait",
+                            {
+                                "model": soonest_entry.name,
+                                "reason": reason_code,
+                                "scope": reason_code,
+                                "seconds": round(wait_needed, 1),
+                                "until": round(min_ready_at, 2),
+                            },
+                        )
                     if self._on_thought:
-                        self._on_thought(self.messages.wait_thought.format(
-                            seconds=int(round(wait_needed)),
-                            model=soonest_entry.name,
-                            reason=reason_text,
-                        ))
+                        self._on_thought(
+                            self.messages.wait_thought.format(
+                                seconds=int(round(wait_needed)),
+                                model=soonest_entry.name,
+                                reason=reason_text,
+                            )
+                        )
 
                 # Sleep until min_ready_at or woken
                 is_inflight_only = all(e.inflight >= cap_set.max_inflight_per_model for e, _ in eligible)
                 sleep_dur = min(wait_needed, remaining_wait)
                 try:
-                    await asyncio.wait_for(waiter.event.wait(), timeout=max(0.001, sleep_dur) if not self._sleep_fn else 0.05)
+                    await asyncio.wait_for(
+                        waiter.event.wait(), timeout=max(0.001, sleep_dur) if not self._sleep_fn else 0.05
+                    )
                     waiter.event.clear()
                 except (TimeoutError, asyncio.TimeoutError):
                     if self._sleep_fn and not is_inflight_only:
@@ -512,22 +542,24 @@ class CapacityManager:
                 calls_left = max(0, e.spec.rpd - (rpd_used or 0))
                 est_tasks = calls_left // 5
 
-            rows.append(CapacityRow(
-                name=e.name,
-                lane=e.spec.lane,
-                tags=e.spec.tags,
-                rpm=e.spec.rpm,
-                rpm_used=rpm_used,
-                rpd=e.spec.rpd,
-                rpd_used=rpd_used,
-                tpm=e.spec.tpm,
-                tpm_used=tpm_used,
-                tpd=e.spec.tpd,
-                tpd_used=tpd_used,
-                breaker=e.breaker.state,
-                ready_in_s=round(ready_in_s, 2),
-                resets_in_s=round(resets_in_s, 1) if resets_in_s else None,
-                queue_length=q_len,
-                estimated_tasks_left=est_tasks,
-            ))
+            rows.append(
+                CapacityRow(
+                    name=e.name,
+                    lane=e.spec.lane,
+                    tags=e.spec.tags,
+                    rpm=e.spec.rpm,
+                    rpm_used=rpm_used,
+                    rpd=e.spec.rpd,
+                    rpd_used=rpd_used,
+                    tpm=e.spec.tpm,
+                    tpm_used=tpm_used,
+                    tpd=e.spec.tpd,
+                    tpd_used=tpd_used,
+                    breaker=e.breaker.state,
+                    ready_in_s=round(ready_in_s, 2),
+                    resets_in_s=round(resets_in_s, 1) if resets_in_s else None,
+                    queue_length=q_len,
+                    estimated_tasks_left=est_tasks,
+                )
+            )
         return rows

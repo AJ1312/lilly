@@ -1,4 +1,5 @@
 """Single-threaded SQLite writer with bounded queue and backpressure."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -62,7 +63,7 @@ class Writer:
                 try:
                     fn, fut = self._queue.get(timeout=0.1)
                 except queue.Empty:
-                    if self._closed:    # closing: everything queued before it has been run
+                    if self._closed:  # closing: everything queued before it has been run
                         break
                     continue
 

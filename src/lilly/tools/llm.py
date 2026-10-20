@@ -1,4 +1,5 @@
 """llm.work: ask a language model to write, summarise, classify or decide, using earlier results."""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,7 @@ from lilly.tools.base import Tool, str_arg
 MAX_INPUT_CHARS = 120_000
 LONG_CONTEXT_CHARS = 60_000
 MAX_OUTPUT_TOKENS = 2048
-QUICK_PROMPT_CHARS = 3000      # a job this small goes to the models marked "quick" first
+QUICK_PROMPT_CHARS = 3000  # a job this small goes to the models marked "quick" first
 
 SYSTEM = (
     "You are the writing and analysis step of a personal assistant called Lilly. Do the task using only the "
@@ -37,10 +38,20 @@ class LlmWorkTool(Tool):
         prompt = f"TASK:\n{task}\n\nINPUT (begin)\n{material}\nINPUT (end)"
         need = Cap.LONG_CONTEXT if len(prompt) > LONG_CONTEXT_CHARS else Cap.NONE
         routed = await self._router.complete(
-            CompletionRequest((Message("system", SYSTEM), Message("user", prompt)), MAX_OUTPUT_TOKENS,
-                              temperature=0.3, deadline_s=min(ctx.deadline_s, 90.0), on_text=ctx.on_text,
-                              quick=len(prompt) <= QUICK_PROMPT_CHARS),
-            need=need, label=ctx.label, task_id=ctx.task_id, payload_hash=ctx.payload_hash, mode=ctx.mode,
-            pin=ctx.pin_model)
+            CompletionRequest(
+                (Message("system", SYSTEM), Message("user", prompt)),
+                MAX_OUTPUT_TOKENS,
+                temperature=0.3,
+                deadline_s=min(ctx.deadline_s, 90.0),
+                on_text=ctx.on_text,
+                quick=len(prompt) <= QUICK_PROMPT_CHARS,
+            ),
+            need=need,
+            label=ctx.label,
+            task_id=ctx.task_id,
+            payload_hash=ctx.payload_hash,
+            mode=ctx.mode,
+            pin=ctx.pin_model,
+        )
         # What the model wrote is derived from what it read, so it carries the same label and taint.
         return ToolResult(routed.result.text.strip(), ctx.label, ctx.tainted, routed.model)

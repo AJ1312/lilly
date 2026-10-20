@@ -1,4 +1,5 @@
 """The chat-app endpoints: signed-in only, and they drive the bridge without ever returning the bot token."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -33,9 +34,13 @@ async def wired(api: Api, tmp_path: Path) -> AsyncIterator[tuple[Api, FakeTelegr
 
 async def test_every_chat_endpoint_needs_a_session(wired: tuple[Api, FakeTelegram]) -> None:
     api, _ = wired
-    for method, path in (("GET", "/api/bridges"), ("PUT", "/api/bridges/telegram/token"),
-                         ("DELETE", "/api/bridges/telegram/token"), ("POST", "/api/bridges/telegram/pairing"),
-                         ("DELETE", "/api/bridges/telegram/identities/1")):
+    for method, path in (
+        ("GET", "/api/bridges"),
+        ("PUT", "/api/bridges/telegram/token"),
+        ("DELETE", "/api/bridges/telegram/token"),
+        ("POST", "/api/bridges/telegram/pairing"),
+        ("DELETE", "/api/bridges/telegram/identities/1"),
+    ):
         assert (await api.http.request(method, path)).status_code == 401, path
 
 

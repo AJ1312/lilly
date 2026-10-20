@@ -1,4 +1,5 @@
 """The browser rules as pure functions: targets, sites, modes, settings, and the network guard."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,8 +21,19 @@ from lilly.tools.browser import guard as guard_module
 from lilly.tools.browser.chrome import find_browser
 from lilly.tools.browser.guard import NetworkGuard
 
-RISKY = ["Buy now", "Delete account", "Sign in", "Log in", "Place order", "Send", "Confirm payment", "Unsubscribe",
-         "Accept all", "Download", "Publish post"]
+RISKY = [
+    "Buy now",
+    "Delete account",
+    "Sign in",
+    "Log in",
+    "Place order",
+    "Send",
+    "Confirm payment",
+    "Unsubscribe",
+    "Accept all",
+    "Download",
+    "Publish post",
+]
 SAFE = ["More info", "Next page", "Show details", "Close", "Home", "Search box", "Read more"]
 
 
@@ -29,14 +41,31 @@ def test_a_target_is_parsed_only_when_it_is_exactly_the_agreed_line() -> None:
     t = parse_target('s12.e7 button "Sign in" @example.com')
     assert t is not None and (t.snapshot, t.ref, t.role, t.name, t.host) == (12, 7, "button", "Sign in", "example.com")
     assert parse_target('s1.e0 link "" @localhost:8080') is not None
-    for bad in ('s1.e0 button "x" @', 's1.e0 BUTTON "x" @a.com', 's1.e0 button "x" @a.com extra', "click it", None, 3,
-                's1.e0 button "a\nb" @a.com', 's1.e0 button "x" @A.com', 's1.e0 button "x" @a.com/path'):
+    for bad in (
+        's1.e0 button "x" @',
+        's1.e0 BUTTON "x" @a.com',
+        's1.e0 button "x" @a.com extra',
+        "click it",
+        None,
+        3,
+        's1.e0 button "a\nb" @a.com',
+        's1.e0 button "x" @A.com',
+        's1.e0 button "x" @a.com/path',
+    ):
         assert parse_target(bad) is None
 
 
-@pytest.mark.parametrize("host,allow,ok", [("example.com", ["example.com"], True), ("www.example.com", ["example.com"], True),
-                                           ("example.com:8080", ["example.com"], True), ("badexample.com", ["example.com"], False),
-                                           ("example.com.evil.io", ["example.com"], False), ("example.com", [], False)])
+@pytest.mark.parametrize(
+    "host,allow,ok",
+    [
+        ("example.com", ["example.com"], True),
+        ("www.example.com", ["example.com"], True),
+        ("example.com:8080", ["example.com"], True),
+        ("badexample.com", ["example.com"], False),
+        ("example.com.evil.io", ["example.com"], False),
+        ("example.com", [], False),
+    ],
+)
 def test_a_site_matches_itself_and_its_subdomains_only(host: str, allow: list[str], ok: bool) -> None:
     assert host_allowed(host, allow) is ok
 
@@ -70,25 +99,51 @@ def test_passwords_and_cards_are_refused_in_every_mode(mode: BrowserMode) -> Non
         assert judge(Action.TYPE, role, "x", "a.com", cfg)[0] is Verdict.DENY
 
 
-@pytest.mark.parametrize("url,ok", [("https://example.com/a?b=1", True), ("http://localhost:8080/", True),
-                                    ("file:///etc/passwd", False), ("javascript:alert(1)", False),
-                                    ("https://user:pw@example.com/", False), ("https://exa mple.com", False),
-                                    ("ftp://example.com", False), ("https://example.com/\n", False), ("x" * 3000, False)])
+@pytest.mark.parametrize(
+    "url,ok",
+    [
+        ("https://example.com/a?b=1", True),
+        ("http://localhost:8080/", True),
+        ("file:///etc/passwd", False),
+        ("javascript:alert(1)", False),
+        ("https://user:pw@example.com/", False),
+        ("https://exa mple.com", False),
+        ("ftp://example.com", False),
+        ("https://example.com/\n", False),
+        ("x" * 3000, False),
+    ],
+)
 def test_only_plain_web_addresses_may_be_opened(url: str, ok: bool) -> None:
     assert (check_url(url) is None) is ok
 
 
 def test_browser_settings_round_trip_and_reject_nonsense() -> None:
-    cfg = BrowserSettings(mode=BrowserMode.ALLOWLIST, allow_hosts=("a.com", "b.org"), max_actions=10, idle_quit_s=60,
-                          headless=False, chrome_path="/x/chrome")
+    cfg = BrowserSettings(
+        mode=BrowserMode.ALLOWLIST,
+        allow_hosts=("a.com", "b.org"),
+        max_actions=10,
+        idle_quit_s=60,
+        headless=False,
+        chrome_path="/x/chrome",
+    )
     parsed, errs = parse_browser(browser_to_dict(cfg))
     assert errs == [] and parsed == cfg
     assert parse_browser({})[0] == BrowserSettings()
-    for bad in ({"mode": "yolo"}, {"allow_hosts": ["A.com"]}, {"allow_hosts": ["a.com/path"]}, {"max_actions": 0},
-                {"max_actions": True}, {"idle_quit_s": 5}, {"headless": "yes"}, {"chrome_path": 5}, {"extra": 1}, "x"):
+    for bad in (
+        {"mode": "yolo"},
+        {"allow_hosts": ["A.com"]},
+        {"allow_hosts": ["a.com/path"]},
+        {"max_actions": 0},
+        {"max_actions": True},
+        {"idle_quit_s": 5},
+        {"headless": "yes"},
+        {"chrome_path": 5},
+        {"extra": 1},
+        "x",
+    ):
         value, errs = parse_browser(bad)
         assert value is None and errs
-    assert "browser" in MODULES and "browser" not in default_settings().modules     # off until switched on
+    assert "browser" in MODULES and "browser" not in default_settings().modules  # off until switched on
 
 
 def test_the_browser_section_is_part_of_the_saved_settings() -> None:
@@ -104,13 +159,26 @@ def test_the_browser_section_is_part_of_the_saved_settings() -> None:
 
 # ---- the network guard ---------------------------------------------------------------------------
 async def test_the_guard_allows_public_addresses_and_refuses_the_rest() -> None:
-    table = {"public.example": ["93.184.216.34"], "inside.example": ["10.0.0.5"], "mixed.example": ["93.184.216.34", "127.0.0.1"],
-             "v6.example": ["2606:2800:220:1::1"], "none.example": []}
+    table = {
+        "public.example": ["93.184.216.34"],
+        "inside.example": ["10.0.0.5"],
+        "mixed.example": ["93.184.216.34", "127.0.0.1"],
+        "v6.example": ["2606:2800:220:1::1"],
+        "none.example": [],
+    }
     g = NetworkGuard(lambda host: table.get(host, []))
     assert await g.refusal("https://public.example/", "Document") is None
     assert await g.refusal("https://v6.example/", "Document") is None
-    for blocked in ("https://inside.example/", "https://mixed.example/", "http://127.0.0.1/", "http://[::1]/",
-                    "http://169.254.169.254/latest", "https://none.example/", "http://0.0.0.0/", "http://192.168.1.1/"):
+    for blocked in (
+        "https://inside.example/",
+        "https://mixed.example/",
+        "http://127.0.0.1/",
+        "http://[::1]/",
+        "http://169.254.169.254/latest",
+        "https://none.example/",
+        "http://0.0.0.0/",
+        "http://192.168.1.1/",
+    ):
         assert await g.refusal(blocked, "Document") == "that address is not on the public internet"
 
 
@@ -145,7 +213,9 @@ def test_the_system_resolver_returns_addresses_or_nothing() -> None:
     assert guard_module.system_resolver("no-such-host.invalid") == []
 
 
-def test_finding_the_browser_prefers_what_you_configured(tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finding_the_browser_prefers_what_you_configured(
+    tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from lilly.domain.errors import ToolError
 
     exe = tmp_path / "mychrome"  # type: ignore[operator]
@@ -159,5 +229,7 @@ def test_finding_the_browser_prefers_what_you_configured(tmp_path: pytest.TempPa
     monkeypatch.setattr("lilly.tools.browser.chrome._PLACES", ())
     with pytest.raises(ToolError, match="no Chrome"):
         find_browser("", {})
-    monkeypatch.setattr("lilly.tools.browser.chrome.shutil.which", lambda n: "/usr/bin/chromium" if n == "chromium" else None)
+    monkeypatch.setattr(
+        "lilly.tools.browser.chrome.shutil.which", lambda n: "/usr/bin/chromium" if n == "chromium" else None
+    )
     assert find_browser("", {}) == "/usr/bin/chromium"

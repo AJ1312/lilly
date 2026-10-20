@@ -1,4 +1,5 @@
 """The small-model decider: it may only choose an id it was shown, and every other reply counts as no answer."""
+
 from __future__ import annotations
 
 import json
@@ -14,8 +15,9 @@ from tests.helpers import ScriptedCompleter
 OPTIONS = (Option("fs.read", "Read a text file."), Option("web.search", "Search the web."))
 
 
-def request(text: str = "find news", options: tuple[Option, ...] = OPTIONS, tokens_left: int = 2000,
-            kind: Kind = Kind.TOOLS) -> Request:
+def request(
+    text: str = "find news", options: tuple[Option, ...] = OPTIONS, tokens_left: int = 2000, kind: Kind = Kind.TOOLS
+) -> Request:
     return Request(kind, "task-1", options, Context(text), tokens_left, 4.0)
 
 
@@ -28,7 +30,12 @@ async def test_a_valid_reply_becomes_an_answer_and_reports_the_tokens_it_cost() 
     answer = await SmallModelDecider(model, "ollama-local").decide(request())
     assert answer is not None
     assert (answer.decider, answer.choice, answer.confidence, answer.ranking, answer.tokens_used) == (
-        "small_model", "web.search", 0.8, ("web.search",), 20)
+        "small_model",
+        "web.search",
+        0.8,
+        ("web.search",),
+        20,
+    )
 
 
 async def test_the_question_goes_to_the_pinned_local_model_as_private_data_with_a_small_budget() -> None:
@@ -48,12 +55,29 @@ async def test_the_text_is_fenced_as_data_and_cut_short() -> None:
     assert "<untrusted_data>" in prompt and prompt.count("z") == 1500
 
 
-@pytest.mark.parametrize("text", [
-    "not json at all", "", "[]", '"web.search"', "{}",
-    reply("nope"), reply(""), reply(None), reply(7), reply("WEB.SEARCH"), reply(["web.search"]),
-    reply("web.search", 1.5), reply("web.search", -1), reply("web.search", "high"), reply("web.search", True),
-    reply("web.search", None), '{"choice": "web.search"}', '{"choice": "web.search", "confidence": NaN}',
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not json at all",
+        "",
+        "[]",
+        '"web.search"',
+        "{}",
+        reply("nope"),
+        reply(""),
+        reply(None),
+        reply(7),
+        reply("WEB.SEARCH"),
+        reply(["web.search"]),
+        reply("web.search", 1.5),
+        reply("web.search", -1),
+        reply("web.search", "high"),
+        reply("web.search", True),
+        reply("web.search", None),
+        '{"choice": "web.search"}',
+        '{"choice": "web.search", "confidence": NaN}',
+    ],
+)
 async def test_a_malformed_or_out_of_list_reply_is_no_answer_but_its_tokens_still_count(text: str) -> None:
     answer = await SmallModelDecider(ScriptedCompleter([text]), "m").decide(request())
     assert answer is not None and answer.choice is None and answer.ranking == () and answer.tokens_used == 20

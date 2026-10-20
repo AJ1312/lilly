@@ -1,4 +1,5 @@
 """Ollama (streaming, diagnosis, local-only rules) and the OpenAI adapter's parameters."""
+
 from __future__ import annotations
 
 import json
@@ -33,9 +34,20 @@ async def test_the_answer_is_assembled_from_a_stream_and_asks_for_one() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(json.loads(request.content))
-        return httpx.Response(200, content=ndjson(
-            {"message": {"content": "Hel"}, "done": False}, {"message": {"content": "lo"}, "done": False},
-            {"message": {"content": ""}, "done": True, "done_reason": "stop", "prompt_eval_count": 7, "eval_count": 2}))
+        return httpx.Response(
+            200,
+            content=ndjson(
+                {"message": {"content": "Hel"}, "done": False},
+                {"message": {"content": "lo"}, "done": False},
+                {
+                    "message": {"content": ""},
+                    "done": True,
+                    "done_reason": "stop",
+                    "prompt_eval_count": 7,
+                    "eval_count": 2,
+                },
+            ),
+        )
 
     done = await OllamaProvider(client(handler), "llama3.2").complete(REQ)
     assert (done.text, done.input_tokens, done.output_tokens, done.finish_reason) == ("Hello", 7, 2, "stop")
@@ -53,13 +65,16 @@ async def test_json_mode_is_passed_on() -> None:
     assert seen[0]["format"] == "json"
 
 
-@pytest.mark.parametrize("body", [
-    b"",                                                                    # closed before anything
-    ndjson({"message": {"content": "partial"}, "done": False}),            # closed before `done`
-    b"this is not json\n",
-    ndjson({"error": "model failed to load"}),
-    ndjson(["a list"]),
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"",  # closed before anything
+        ndjson({"message": {"content": "partial"}, "done": False}),  # closed before `done`
+        b"this is not json\n",
+        ndjson({"error": "model failed to load"}),
+        ndjson(["a list"]),
+    ],
+)
 async def test_a_stream_that_ends_early_or_is_malformed_is_a_retryable_failure(body: bytes) -> None:
     c = client(lambda r: httpx.Response(200, content=body))
     with pytest.raises(ProviderError) as info:
@@ -125,14 +140,23 @@ async def test_probe_says_to_start_ollama_when_nothing_listens() -> None:
 
 
 async def test_probe_says_when_something_else_answers() -> None:
-    for resp in (httpx.Response(200, text="<html>router login</html>"), httpx.Response(502), httpx.Response(200, json=[1])):
+    for resp in (
+        httpx.Response(200, text="<html>router login</html>"),
+        httpx.Response(502),
+        httpx.Response(200, json=[1]),
+    ):
         st = await probe(client(lambda r, resp=resp: resp), None, "m")
         assert not st.reachable and "does not look like Ollama" in st.message
 
 
 async def test_probe_tolerates_odd_model_lists() -> None:
-    c = client(lambda r: httpx.Response(200, json={"version": "1", "models": [1, {"name": 5}, {"name": "ok"}]})
-               if r.url.path == "/api/tags" else httpx.Response(200, json={"version": "1"}))
+    c = client(
+        lambda r: (
+            httpx.Response(200, json={"version": "1", "models": [1, {"name": 5}, {"name": "ok"}]})
+            if r.url.path == "/api/tags"
+            else httpx.Response(200, json={"version": "1"})
+        )
+    )
     assert (await probe(c, None, "ok")).models == ("ok",)
 
 
@@ -147,17 +171,37 @@ async def test_the_local_client_ignores_proxy_settings(monkeypatch: pytest.Monke
 
 
 # ---- local models stay local ---------------------------------------------------------------------
-@pytest.mark.parametrize("url, private", [
-    ("http://127.0.0.1:11434", True), ("http://localhost:11434", True), ("http://[::1]:11434", True),
-    ("http://192.168.1.20:11434", True), ("http://10.0.0.5", True), ("http://100.101.102.103:11434", True),
-    ("http://169.254.169.254", False), ("https://api.example.com", False), ("http://8.8.8.8", False),
-    ("http://0.0.0.0:11434", False), ("http://[::]:11434", False), ("http://[fd00::1]:11434", True),
-    ("http://[2002:808:808::1]/", False), ("http://[2001::1]/", False), ("http://[::ffff:8.8.8.8]/", False),
-    ("http://[::ffff:127.0.0.1]/", True), ("http://[64:ff9b::8.8.8.8]/", False),
-    ("http://127.0.0.1@evil.com/", False), ("http://localhost.evil.com/", False), ("http://127.0.0.1.nip.io/", False),
-    ("http://2130706433/", False), ("http://0x7f.0.0.1/", False), ("http://evil.com#@127.0.0.1", False),
-    ("http://my-box.example:11434", False), ("not a url", False), ("http://", False),
-])
+@pytest.mark.parametrize(
+    "url, private",
+    [
+        ("http://127.0.0.1:11434", True),
+        ("http://localhost:11434", True),
+        ("http://[::1]:11434", True),
+        ("http://192.168.1.20:11434", True),
+        ("http://10.0.0.5", True),
+        ("http://100.101.102.103:11434", True),
+        ("http://169.254.169.254", False),
+        ("https://api.example.com", False),
+        ("http://8.8.8.8", False),
+        ("http://0.0.0.0:11434", False),
+        ("http://[::]:11434", False),
+        ("http://[fd00::1]:11434", True),
+        ("http://[2002:808:808::1]/", False),
+        ("http://[2001::1]/", False),
+        ("http://[::ffff:8.8.8.8]/", False),
+        ("http://[::ffff:127.0.0.1]/", True),
+        ("http://[64:ff9b::8.8.8.8]/", False),
+        ("http://127.0.0.1@evil.com/", False),
+        ("http://localhost.evil.com/", False),
+        ("http://127.0.0.1.nip.io/", False),
+        ("http://2130706433/", False),
+        ("http://0x7f.0.0.1/", False),
+        ("http://evil.com#@127.0.0.1", False),
+        ("http://my-box.example:11434", False),
+        ("not a url", False),
+        ("http://", False),
+    ],
+)
 def test_only_this_computer_or_a_private_network_counts_as_local(url: str, private: bool) -> None:
     assert is_private_url(url) is private
 
@@ -169,11 +213,31 @@ def _with(model: dict[str, object]) -> dict[str, object]:
 
 
 def test_a_local_model_cannot_point_at_the_internet() -> None:
-    ok, problems = parse_settings(_with({"name": "box", "provider": "ollama", "model_id": "m", "local": True,
-                                         "max_label": "PERSONAL", "base_url": "http://192.168.1.9:11434"}))
+    ok, problems = parse_settings(
+        _with(
+            {
+                "name": "box",
+                "provider": "ollama",
+                "model_id": "m",
+                "local": True,
+                "max_label": "PERSONAL",
+                "base_url": "http://192.168.1.9:11434",
+            }
+        )
+    )
     assert ok is not None and not problems
-    bad, problems = parse_settings(_with({"name": "box", "provider": "ollama", "model_id": "m", "local": True,
-                                          "max_label": "PERSONAL", "base_url": "https://evil.example.com"}))
+    bad, problems = parse_settings(
+        _with(
+            {
+                "name": "box",
+                "provider": "ollama",
+                "model_id": "m",
+                "local": True,
+                "max_label": "PERSONAL",
+                "base_url": "https://evil.example.com",
+            }
+        )
+    )
     assert bad is None and "private network" in problems[0]
 
 
@@ -198,7 +262,9 @@ async def _body(model_id: str) -> tuple[dict[str, object], dict[str, str]]:
 
 async def test_openai_chat_models_get_the_new_token_parameter_and_a_temperature() -> None:
     body, headers = await _body("gpt-4o-mini")
-    assert headers["url"] == "https://api.openai.com/v1/chat/completions" and headers["authorization"] == "Bearer sk-test"
+    assert (
+        headers["url"] == "https://api.openai.com/v1/chat/completions" and headers["authorization"] == "Bearer sk-test"
+    )
     assert body["max_completion_tokens"] == 100 and "max_tokens" not in body and body["temperature"] == 0.2
     assert body["response_format"] == {"type": "json_object"}
 
@@ -243,16 +309,16 @@ async def test_a_stream_without_newlines_is_cut_off_at_the_size_limit_not_read_t
         nonlocal sent
         for _ in range(500):
             sent += 1
-            yield b"x" * 100_000          # one never-ending line: 50 MB if it were read in full
+            yield b"x" * 100_000  # one never-ending line: 50 MB if it were read in full
 
     c = client(lambda r: httpx.Response(200, content=endless()))
     with pytest.raises(ProviderError) as info:
         await OllamaProvider(c, "m").complete(REQ)
-    assert not info.value.retryable and sent < 50      # stopped near the 2 MB cap
+    assert not info.value.retryable and sent < 50  # stopped near the 2 MB cap
 
 
 async def test_a_final_line_without_a_trailing_newline_still_completes() -> None:
-    body = json.dumps({"message": {"content": "hi"}, "done": True, "done_reason": "stop"}).encode()   # no "\n"
+    body = json.dumps({"message": {"content": "hi"}, "done": True, "done_reason": "stop"}).encode()  # no "\n"
     c = client(lambda r: httpx.Response(200, content=body))
     assert (await OllamaProvider(c, "m").complete(REQ)).text == "hi"
 
@@ -264,7 +330,7 @@ async def test_lines_split_across_chunks_are_reassembled() -> None:
     async def chunks() -> AsyncIterator[bytes]:
         raw = first + b"\n" + last + b"\n"
         for i in range(0, len(raw), 7):
-            yield raw[i:i + 7]
+            yield raw[i : i + 7]
 
     c = client(lambda r: httpx.Response(200, content=chunks()))
     assert (await OllamaProvider(c, "m").complete(REQ)).text == "abc"

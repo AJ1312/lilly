@@ -1,5 +1,6 @@
 """Chat apps: the Telegram bot token, pairing a phone, and who is linked. Settings (on/off, which agent, limits)
 travel with the rest of the settings."""
+
 from __future__ import annotations
 
 from starlette.requests import Request

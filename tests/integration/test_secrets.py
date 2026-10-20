@@ -2,6 +2,7 @@
 path is spelled and whatever folder the owner shares. What else keeps them from a model is covered where it lives:
 the MCP child's environment (test_mcp_security), loopback addresses for the web and the browser (test_web_guard),
 the devbox's shared folder (test_devbox)."""
+
 from __future__ import annotations
 
 import json
@@ -38,12 +39,21 @@ async def _run(api: Api, tool: str, **args: Any) -> str:
     return (await api.runtime.tools[tool].run(args, CTX)).output
 
 
-@pytest.mark.parametrize("tool,key,extra", [
-    ("fs.read", "path", {}), ("fs.list", "path", {}), ("fs.search", "path", {"query": NEEDLE}),
-    ("fs.write", "path", {"content": "x", "overwrite": True}), ("fs.trash", "path", {}), ("data.profile", "path", {})])
+@pytest.mark.parametrize(
+    "tool,key,extra",
+    [
+        ("fs.read", "path", {}),
+        ("fs.list", "path", {}),
+        ("fs.search", "path", {"query": NEEDLE}),
+        ("fs.write", "path", {"content": "x", "overwrite": True}),
+        ("fs.trash", "path", {}),
+        ("data.profile", "path", {}),
+    ],
+)
 async def test_no_file_tool_reaches_lilly_home_even_when_its_parent_folder_is_shared(
-        api: Api, tool: str, key: str, extra: dict[str, Any]) -> None:
-    await _share(api, api.shared.parent)                    # the owner shared a folder that contains Lilly's home
+    api: Api, tool: str, key: str, extra: dict[str, Any]
+) -> None:
+    await _share(api, api.shared.parent)  # the owner shared a folder that contains Lilly's home
     for target in _secrets(api):
         with pytest.raises(PolicyDenied):
             await _run(api, tool, **{key: str(target)}, **extra)
@@ -74,8 +84,11 @@ async def test_another_spelling_of_the_path_does_not_get_in(api: Api) -> None:
     """On macOS `.LILLY` is the same folder as `.lilly`: the deny list must not depend on spelling."""
     await _share(api, api.shared.parent)
     p = api.runtime.paths
-    for spelled in (p.token, Path(str(p.token).replace("lilly-home", "LILLY-HOME")),
-                    Path(str(p.token).replace("config", "CONFIG"))):
+    for spelled in (
+        p.token,
+        Path(str(p.token).replace("lilly-home", "LILLY-HOME")),
+        Path(str(p.token).replace("config", "CONFIG")),
+    ):
         with pytest.raises(PolicyDenied):
             await _run(api, "fs.read", path=str(spelled))
 

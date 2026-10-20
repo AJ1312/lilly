@@ -4,6 +4,7 @@ This measures the local grounding/observation contract without controlling a rea
 desktop. External CUA frameworks can be compared by supplying the same target
 cases and reporting success, stale-state rejection, and verification latency.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,9 +19,7 @@ class BenchmarkBackend:
     async def observe(self, screenshot_path: Path | None) -> tuple[str, str, tuple[A11yElement, ...]]:
         if screenshot_path is not None:
             screenshot_path.write_bytes(b"benchmark-frame")
-        return "BenchmarkApp", "Benchmark window", (
-            A11yElement("AXButton", "Continue", "", 10, 20, 100, 40),
-        )
+        return "BenchmarkApp", "Benchmark window", (A11yElement("AXButton", "Continue", "", 10, 20, 100, 40),)
 
     async def click(self, x: int, y: int) -> None:
         assert (x, y) == (60, 40)

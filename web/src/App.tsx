@@ -9,6 +9,7 @@ import { TalkView } from './views/Talk'
 import { WorkspaceView } from './views/Workspace'
 import { AgentsView } from './views/Agents'
 import { MemoryView } from './views/Memory'
+import { NotesView } from './views/Notes'
 import { SkillsView } from './views/Skills'
 import { RoutinesView } from './views/Routines'
 import { ApprovalsView } from './views/Approvals'
@@ -40,6 +41,7 @@ export const App: React.FC = () => {
         'workspace',
         'agents',
         'memory',
+        'notes',
         'skills',
         'routines',
         'approvals',
@@ -80,6 +82,8 @@ export const App: React.FC = () => {
         return <AgentsView />
       case 'memory':
         return <MemoryView />
+      case 'notes':
+        return <NotesView />
       case 'skills':
         return <SkillsView />
       case 'routines':

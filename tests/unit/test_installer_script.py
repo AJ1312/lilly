@@ -1,4 +1,5 @@
 """install.sh: Laya is part of the install by default, can be skipped, and never makes the install fail."""
+
 from __future__ import annotations
 
 import subprocess
@@ -30,9 +31,11 @@ def test_an_unknown_option_is_refused() -> None:
 def test_laya_is_on_by_default_is_checked_first_and_cannot_fail_the_install() -> None:
     text = SCRIPT.read_text()
     assert "\nLAYA=1\n" in text and "--no-laya) LAYA=0" in text
-    block = text[text.index('if [ "$LAYA" = 1 ]'):text.index("# 4. macOS")]
-    assert block.index("laya check") < block.index("laya install") < block.index("laya test") < block.index("laya enable")
-    assert "else" in block and "exit" not in block and "die " not in block   # a failure only prints a note
+    block = text[text.index('if [ "$LAYA" = 1 ]') : text.index("# 4. macOS")]
+    assert (
+        block.index("laya check") < block.index("laya install") < block.index("laya test") < block.index("laya enable")
+    )
+    assert "else" in block and "exit" not in block and "die " not in block  # a failure only prints a note
 
 
 UNINSTALL_SCRIPT = Path(__file__).resolve().parents[2] / "uninstall.sh"
@@ -105,4 +108,3 @@ def test_uninstall_script_purges_data_with_flag(tmp_path: Path) -> None:
     assert not app_dir.exists()
     assert not home_dir.exists(), "User data should be purged with --purge-data"
     assert "Lilly and all of its data were removed" in res.stdout
-

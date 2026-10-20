@@ -6,6 +6,7 @@ export type NavSection =
   | 'workspace'
   | 'agents'
   | 'memory'
+  | 'notes'
   | 'skills'
   | 'routines'
   | 'approvals'

@@ -1,4 +1,5 @@
 """Testing and discovering an Ollama model through the API, with the Ollama server faked at the HTTP layer."""
+
 from __future__ import annotations
 
 import json
@@ -50,8 +51,10 @@ async def ollama_api(tmp_path: Path) -> AsyncIterator[tuple[Api, FakeOllama]]:
     auth = Auth(paths.token, paths.secret)
     shared = tmp_path / "shared"
     shared.mkdir()
-    http = httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(runtime, auth, web_dir=tmp_path / "no-web")),
-                             base_url="http://127.0.0.1:8787")
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(runtime, auth, web_dir=tmp_path / "no-web")),
+        base_url="http://127.0.0.1:8787",
+    )
     api = Api(http, runtime, auth, provider, shared)
     await api.sign_in()
     current = settings_to_dict(runtime.settings)
@@ -68,7 +71,7 @@ async def ollama_api(tmp_path: Path) -> AsyncIterator[tuple[Api, FakeOllama]]:
 async def test_ollama_traffic_uses_the_local_client_only(ollama_api: tuple[Api, FakeOllama]) -> None:
     api, ollama = ollama_api
     assert (await api.send("POST", "/api/models/ollama-local/test")).json()["ok"] is True
-    assert ollama.chats == 1 and not api.provider.requests          # nothing went through the internet client
+    assert ollama.chats == 1 and not api.provider.requests  # nothing went through the internet client
 
 
 async def test_discovery_lists_what_is_installed(ollama_api: tuple[Api, FakeOllama]) -> None:
@@ -76,7 +79,7 @@ async def test_discovery_lists_what_is_installed(ollama_api: tuple[Api, FakeOlla
     ollama.installed = ["llama3.2:latest", "qwen3:8b"]
     got = (await api.get("/api/models/ollama-local/ollama")).json()
     assert got["reachable"] and got["model_ready"] and got["models"] == ["llama3.2:latest", "qwen3:8b"]
-    assert (await api.get("/api/models/mistral-small/ollama")).status_code == 404       # not an Ollama model
+    assert (await api.get("/api/models/mistral-small/ollama")).status_code == 404  # not an Ollama model
     assert (await api.get("/api/models/nope/ollama")).status_code == 404
 
 

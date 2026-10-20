@@ -1,5 +1,6 @@
 """The interface and the server agree: every call the interface makes has a route, and the TypeScript types
 name exactly the fields the server sends. These fail the build when one side changes without the other."""
+
 from __future__ import annotations
 
 import re
@@ -56,7 +57,7 @@ def _fields(interface: str) -> set[str]:
             depth -= 1
             if depth == 0:
                 break
-        if depth == 1:                      # only what sits directly inside the body, not nested types
+        if depth == 1:  # only what sits directly inside the body, not nested types
             current += ch
     for part in re.split(r"[;\n]", current):
         top.extend(re.findall(r"(?:^|\s)(\w+)\??\s*:", part))
@@ -77,6 +78,7 @@ def test_settings_types_match_what_the_server_sends() -> None:
 async def test_laya_and_plan_types_match_the_server(tmp_path: Path) -> None:
     status = LayaService(tmp_path / "laya").status()
     from lilly.domain.decisions import laya_kinds
+
     sent = {**status, "enabled_for": list(laya_kinds(default_settings().decisions))}
     assert _fields("LayaStatus") == set(sent)
 

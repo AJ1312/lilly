@@ -1,4 +1,5 @@
 """Small text helpers shared by the planner and tools."""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,7 @@ _FENCE = re.compile(r"^\s*```[a-zA-Z0-9]*\s*|\s*```\s*$")
 _FENCE_TAG = re.compile(r"<\s*(/?)\s*untrusted_data\s*>", re.IGNORECASE)
 
 OPEN, CLOSE = "<untrusted_data>", "</untrusted_data>"
-	
+
 
 def neutralise(text: str) -> str:
     """Break any fence-like tag inside the text. It stays readable ('&lt;/untrusted_data>') but cannot close ours."""
@@ -54,8 +55,30 @@ def extract_json(text: str) -> object:
 
 class _TextExtractor(HTMLParser):
     _SKIP = frozenset({"script", "style", "noscript", "svg", "template", "head"})
-    _BLOCK = frozenset({"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article",
-                        "ul", "ol", "table", "blockquote", "pre", "header", "footer"})
+    _BLOCK = frozenset(
+        {
+            "p",
+            "div",
+            "br",
+            "li",
+            "tr",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "section",
+            "article",
+            "ul",
+            "ol",
+            "table",
+            "blockquote",
+            "pre",
+            "header",
+            "footer",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)

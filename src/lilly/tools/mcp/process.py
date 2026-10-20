@@ -1,4 +1,5 @@
 """Starting and stopping one MCP server process. Never a shell; the environment is built from scratch."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,12 +22,13 @@ from lilly.tools.mcp.protocol import McpStartRefused
 log = logging.getLogger("lilly.mcp")
 
 STDERR_KEEP = 4096
-GRACE_S = 0.3        # how long a server gets to exit after its stdin is closed
-TERM_WAIT_S = 2.0    # how long after SIGTERM before SIGKILL
+GRACE_S = 0.3  # how long a server gets to exit after its stdin is closed
+TERM_WAIT_S = 2.0  # how long after SIGTERM before SIGKILL
 
 
-def build_env(cfg: McpServerConfig, resolve_secret: Callable[[str], str | None],
-              parent: Mapping[str, str]) -> dict[str, str]:
+def build_env(
+    cfg: McpServerConfig, resolve_secret: Callable[[str], str | None], parent: Mapping[str, str]
+) -> dict[str, str]:
     """The child's whole environment: inherited basics, the configured values, then resolved secrets.
 
     Nothing else from the parent (LILLY_*, API keys, proxies) is passed on. A missing secret refuses the start;
@@ -44,8 +46,13 @@ def build_env(cfg: McpServerConfig, resolve_secret: Callable[[str], str | None],
 class McpProcess:
     """One server child process in its own process group, with stderr kept as a small ring buffer."""
 
-    def __init__(self, cfg: McpServerConfig, resolve_secret: Callable[[str], str | None], cwd: Path | None = None,
-                 parent_env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        cfg: McpServerConfig,
+        resolve_secret: Callable[[str], str | None],
+        cwd: Path | None = None,
+        parent_env: Mapping[str, str] | None = None,
+    ) -> None:
         self._cfg, self._resolve, self._cwd = cfg, resolve_secret, cwd
         self._parent = os.environ if parent_env is None else parent_env
         self._proc: asyncio.subprocess.Process | None = None
@@ -56,7 +63,7 @@ class McpProcess:
         self._stop_lock = asyncio.Lock()
 
     async def start(self) -> None:
-        env = await asyncio.to_thread(build_env, self._cfg, self._resolve, self._parent)   # a keychain may be slow
+        env = await asyncio.to_thread(build_env, self._cfg, self._resolve, self._parent)  # a keychain may be slow
         if self._cwd is None:
             self._tmp = tempfile.mkdtemp(prefix="lilly-mcp-")
             cwd = Path(self._tmp)
@@ -70,11 +77,21 @@ class McpProcess:
             kwargs["start_new_session"] = True
         try:
             self._proc = await asyncio.create_subprocess_exec(  # argv list, never a shell; scrubbed env
-                self._cfg.command, *self._cfg.args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE, cwd=cwd, env=env, limit=MAX_MESSAGE_BYTES + 2, **kwargs)
+                self._cfg.command,
+                *self._cfg.args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=env,
+                limit=MAX_MESSAGE_BYTES + 2,
+                **kwargs,
+            )
         except (OSError, ValueError) as exc:
             self._remove_tmp()
-            raise ToolError(f"could not start the server: {getattr(exc, 'strerror', None) or 'invalid command'}") from exc
+            raise ToolError(
+                f"could not start the server: {getattr(exc, 'strerror', None) or 'invalid command'}"
+            ) from exc
         self._pid = self._proc.pid
         self._stderr_task = asyncio.create_task(self._drain_stderr())
 

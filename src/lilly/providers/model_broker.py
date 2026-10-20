@@ -12,6 +12,7 @@ providers, models, and credentials. It provides intelligent routing based on:
 This component unifies the existing ProviderPool and ModelRouter functionality
 while adding enhanced decision-making capabilities.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,40 +55,42 @@ log = logging.getLogger("lilly.model_broker")
 
 class RoutingDecision(Enum):
     """The type of routing decision made by the broker."""
-    OPTIMAL = "optimal"           # Best model for the task
-    FALLBACK = "fallback"         # Primary unavailable, using fallback
-    FORCED = "forced"             # Pinned model or explicit override
+
+    OPTIMAL = "optimal"  # Best model for the task
+    FALLBACK = "fallback"  # Primary unavailable, using fallback
+    FORCED = "forced"  # Pinned model or explicit override
     QUOTA_EXHAUSTED = "quota_exhausted"  # All models exhausted quotas
-    NO_AVAILABLE = "no_available" # No models available for this task
+    NO_AVAILABLE = "no_available"  # No models available for this task
     NEEDS_PERMISSION = "needs_permission"  # Requires user permission for sensitive data
 
 
 @dataclass(frozen=True, slots=True)
 class ModelCapabilityProfile:
     """Capability profile for a model, supporting intelligent routing decisions.
-    
+
     These profiles can be user-configured and allow the broker to make
     informed decisions about which model is best suited for a given task.
     """
+
     # Core capabilities (0.0-1.0 scale)
     reasoning_strength: float = 0.7
     coding_strength: float = 0.5
     vision: float = 0.0
     tool_calling: float = 0.8
     structured_output: float = 0.6
-    
+
     # Performance characteristics
     context_window: int = 32768
     expected_latency: float = 1.0  # seconds per response
     cost_tier: str = "free"  # "free", "low", "medium", "high"
     local: bool = False
-    
+
     # Suitability flags
     suitable_for_complex_tasks: bool = True
     suitable_for_simple_tasks: bool = True
     suitable_for_tool_use: bool = True
     suitable_for_analysis: bool = True
-    
+
     def can_handle_capability(self, required_cap: Cap) -> bool:
         """Check if this model can handle the required capability."""
         return ModelBroker._can_handle_capability(self, required_cap)
@@ -96,6 +99,7 @@ class ModelCapabilityProfile:
 @dataclass(frozen=True, slots=True)
 class RoutingResult:
     """The result of a routing decision."""
+
     model_entry: ModelEntry | None
     decision: RoutingDecision
     reason: str
@@ -103,7 +107,9 @@ class RoutingResult:
     grantable_models: tuple[str, ...] = ()  # Models that could work with user permission
     latency_estimate: float | None = None
     cost_estimate: str | None = None
-    
+    preferred_model: str | None = None
+    actual_model: str | None = None
+
     @property
     def model_name(self) -> str | None:
         return self.model_entry.name if self.model_entry else None
@@ -112,6 +118,7 @@ class RoutingResult:
 @dataclass(frozen=True, slots=True)
 class ModelHealthStatus:
     """Current health status of a model."""
+
     available: bool
     last_error: str | None
     circuit_breaker_state: str
@@ -127,6 +134,7 @@ class ModelHealthStatus:
 @dataclass(frozen=True, slots=True)
 class BrokerState:
     """Current state snapshot of the broker for observability."""
+
     available_models: tuple[str, ...]
     enabled_models: tuple[str, ...]
     healthy_models: tuple[str, ...]
@@ -139,7 +147,7 @@ class BrokerState:
 
 class ModelBroker:
     """The unified model broker that handles all model selection and routing.
-    
+
     This class provides a clean interface for model completion while handling:
     - Model capability matching
     - Provider health and availability
@@ -152,7 +160,7 @@ class ModelBroker:
     """
 
     supports_system1_routing = True
-    
+
     def __init__(
         self,
         settings: Settings,
@@ -176,26 +184,26 @@ class ModelBroker:
         self._on_event = on_event
         self._on_thought = on_thought
         self.grants = grants
-        
+
         # Initialize the provider pool
         self.pool: ProviderPool = build_pool(settings, clock=clock)
         self._settings = settings
-        
+
         # Local model gate
         self._gate = LocalGate()
-        
+
         # Provider instances
         self._providers: dict[str, Provider] = {}
-        
+
         # Track which keys are present
         self._key_present: set[str] = set()
-        
+
         # Capability profiles (can be configured per model)
         self._capability_profiles: dict[str, ModelCapabilityProfile] = capability_profiles or {}
-        
+
         # Initialize providers
         self._build_providers(settings)
-        
+
         # Capacity manager for rate limiting and quotas
         self.capacity = CapacityManager(
             self.pool,
@@ -206,16 +214,16 @@ class ModelBroker:
             on_thought=self._on_thought,
             sleep_fn=self._sleep_fn,
         )
-        
+
         # Routing history for observability
         self._routing_history: dict[str, RoutingResult] = {}
-        
+
         # Telemetry
         self._total_calls = 0
         self._total_tokens_in = 0
         self._total_tokens_out = 0
         self._total_tokens_cached = 0
-        
+
         log.info(f"ModelBroker initialized with {len(self.pool.entries)} models")
 
     def _build_providers(self, settings: Settings) -> None:
@@ -243,7 +251,7 @@ class ModelBroker:
                     e.daily.restore(day, count)
                 if e.daily_tokens is not None:
                     e.daily_tokens.restore(day, tokens)
-        
+
         log.info("ModelBroker started")
 
     async def configure(self, settings: Settings) -> None:
@@ -268,6 +276,7 @@ class ModelBroker:
         """Load usage data from the database."""
         try:
             from lilly.store.ledger import load_usage
+
             return load_usage(self._db.reader)
         except Exception:
             return {}
@@ -291,7 +300,7 @@ class ModelBroker:
         """Get the capability profile for a model, with defaults for unknown models."""
         if model_name in self._capability_profiles:
             return self._capability_profiles[model_name]
-        
+
         # Try to find the model spec and infer capabilities
         entry = self.pool.get(model_name)
         if entry:
@@ -305,15 +314,15 @@ class ModelBroker:
                 local=spec.local,
                 cost_tier="free" if spec.provider in ("mistral", "gemini") else "low",
             )
-        
+
         # Default profile for unknown models
         return ModelCapabilityProfile()
 
     def _score_model_for_task(
-        self, 
-        entry: ModelEntry, 
-        need: Cap = Cap.NONE, 
-        task_complexity: float = 0.5, 
+        self,
+        entry: ModelEntry,
+        need: Cap = Cap.NONE,
+        task_complexity: float = 0.5,
         requires_tools: bool = False,
         requires_vision: bool = False,
         cost_sensitivity: float = 0.5,
@@ -324,21 +333,21 @@ class ModelBroker:
         """Score a model's suitability for a given task (higher is better)."""
         if not entry.spec.enabled or not self.has_key(entry):
             return -1.0  # Not available
-        
+
         if not entry.breaker.ready():
             return -0.5  # Circuit breaker tripped
-        
+
         # Check capability match
         profile = self._get_capability_profile(entry.name)
-        
+
         score = 0.0
-        
+
         # Capability matching (most important)
         if need != Cap.NONE:
             if not self._can_handle_capability(profile, need):
                 return -0.1  # Can't handle required capability
             score += 0.3  # Base score for capability match
-        
+
         # Tool calling support
         if requires_tools:
             if profile.tool_calling >= 0.7:
@@ -347,7 +356,7 @@ class ModelBroker:
                 score += 0.1
             else:
                 score -= 0.1
-        
+
         # Vision is an explicit capability, never a tool-calling proxy.
         if requires_vision:
             if profile.vision >= 0.7:
@@ -369,7 +378,7 @@ class ModelBroker:
             score += profile.reasoning_strength * 0.1
         if tool_family and tool_family != "NONE" and profile.tool_calling < 0.7:
             return -0.1
-        
+
         # Complexity matching
         if task_complexity >= 0.8:  # High complexity
             if profile.reasoning_strength >= 0.8:
@@ -379,7 +388,7 @@ class ModelBroker:
         elif task_complexity <= 0.3:  # Low complexity
             if profile.reasoning_strength <= 0.6:  # Faster, cheaper models
                 score += 0.15
-        
+
         # Cost sensitivity
         if cost_sensitivity >= 0.7:  # User is cost-sensitive
             if profile.cost_tier == "free":
@@ -388,23 +397,30 @@ class ModelBroker:
                 score += 0.05
             else:
                 score -= 0.1
-        
+
         # Local models get a boost for privacy
         if entry.spec.local:
             score += 0.1
-        
+
         # Availability and health
         if entry.inflight > 2:  # Busy
             score -= 0.05 * entry.inflight
-        
+
         # Daily quota status
         if entry.daily and not entry.daily.would_allow():
             score -= 0.5
-        
+
         # Rate limit status
         if entry.minute and not entry.minute.would_allow():
             score -= 0.3
-            
+
+        # Latency sensitivity (bounded rolling / expected latency)
+        if profile.expected_latency > 0:
+            if profile.expected_latency <= 1.5:
+                score += 0.05
+            elif profile.expected_latency >= 6.0:
+                score -= 0.08
+
         return score
 
     def get_available_models(self) -> list[str]:
@@ -420,6 +436,7 @@ class ModelBroker:
                 model_id=entry.spec.model_id,
                 local=entry.spec.local,
                 has_key=self.has_key(entry),
+                last_successful_call=entry.last_successful_call,
             )
         return rows
 
@@ -428,7 +445,7 @@ class ModelBroker:
         entry = self.pool.get(model_name)
         if entry is None:
             return None
-            
+
         return ModelHealthStatus(
             available=entry.spec.enabled and self.has_key(entry) and entry.breaker.ready(),
             last_error=entry.last_error,
@@ -446,15 +463,14 @@ class ModelBroker:
         """Get a snapshot of the current broker state for observability."""
         available = tuple(e.name for e in self.pool.entries if e.spec.enabled and self.has_key(e))
         enabled = tuple(e.name for e in self.pool.entries if e.spec.enabled)
-        healthy = tuple(e.name for e in self.pool.entries
-                      if e.spec.enabled and self.has_key(e) and e.breaker.ready())
-        
+        healthy = tuple(e.name for e in self.pool.entries if e.spec.enabled and self.has_key(e) and e.breaker.ready())
+
         health_status = {
             e.name: status
             for e in self.pool.entries
             if e.name and (status := self.get_model_health_status(e.name)) is not None
         }
-        
+
         return BrokerState(
             available_models=available,
             enabled_models=enabled,
@@ -488,15 +504,14 @@ class ModelBroker:
         tag: str | None = None,
     ) -> RoutingResult:
         """Select the best model for the given requirements.
-        
+
         This is the core routing logic that determines which model should handle
         a completion request based on capabilities, availability, and other factors.
         """
-        candidates = [e for e in self.pool.entries 
-                     if e.spec.enabled and e.name not in skip and self.has_key(e)]
+        candidates = [e for e in self.pool.entries if e.spec.enabled and e.name not in skip and self.has_key(e)]
         if getattr(self._settings.network, "local_only", False):
             candidates = [e for e in candidates if e.spec.local]
-        
+
         if pin:
             # If a specific model is pinned, try to use it
             pinned_entry = next((e for e in candidates if e.name == pin), None)
@@ -513,7 +528,7 @@ class ModelBroker:
                     reason=reason,
                     candidates_tried=(pin,),
                 )
-            
+
             # Check if pinned model meets requirements
             if (pinned_entry.caps & need) != need:
                 return RoutingResult(
@@ -522,14 +537,20 @@ class ModelBroker:
                     reason=f"Pinned model '{pin}' cannot handle capability {need}",
                     candidates_tried=(pin,),
                 )
-            
+
             # Check permissions
             ok, grant = label_access(pinned_entry, label, grants, task_id, payload_hash, mode)
             if not ok:
-                pinned_grantable = [pinned_entry.name] if (pinned_entry.max_label < label and
-                                                     pinned_entry.ask_private and 
-                                                     mode is not Mode.LOCKED and 
-                                                     (label is not Label.SECRET or pinned_entry.local)) else []
+                pinned_grantable = (
+                    [pinned_entry.name]
+                    if (
+                        pinned_entry.max_label < label
+                        and pinned_entry.ask_private
+                        and mode is not Mode.LOCKED
+                        and (label is not Label.SECRET or pinned_entry.local)
+                    )
+                    else []
+                )
                 if pinned_grantable:
                     return RoutingResult(
                         model_entry=None,
@@ -545,42 +566,56 @@ class ModelBroker:
                         reason=f"Model '{pin}' cannot access data with label {label}",
                         candidates_tried=(pin,),
                     )
-            
+
             # Check if model can be used (rate limits, quotas, circuit breaker)
             return RoutingResult(
                 model_entry=pinned_entry,
                 decision=RoutingDecision.FORCED,
                 reason=f"Using pinned model '{pin}'",
                 candidates_tried=(pin,),
+                preferred_model=pin,
+                actual_model=pin,
             )
-        
+
         # Sort candidates by suitability score
         candidates.sort(
             key=lambda e: self._score_model_for_task(
-                e, need, task_complexity, requires_tools, requires_vision, cost_sensitivity
-                , model_tier, tool_family, verification
+                e,
+                need,
+                task_complexity,
+                requires_tools,
+                requires_vision,
+                cost_sensitivity,
+                model_tier,
+                tool_family,
+                verification,
             ),
-            reverse=True
+            reverse=True,
         )
-        
+
         tried: list[str] = []
         grantable: list[str] = []
-        
+
         for entry in candidates:
             tried.append(entry.name)
-            
+
             # Check capability match
             if (entry.caps & need) != need:
                 continue
-            
+
             # Check permissions
             ok, grant = label_access(entry, label, grants, task_id, payload_hash, mode)
             if not ok:
-                if (entry.max_label < label and entry.ask_private and mode is not Mode.LOCKED 
-                        and (label is not Label.SECRET or entry.local) and (mode is Mode.ASK or entry.trains)):
+                if (
+                    entry.max_label < label
+                    and entry.ask_private
+                    and mode is not Mode.LOCKED
+                    and (label is not Label.SECRET or entry.local)
+                    and (mode is Mode.ASK or entry.trains)
+                ):
                     grantable.append(entry.name)
                 continue
-            
+
             # Found a suitable model
             return RoutingResult(
                 model_entry=entry,
@@ -588,8 +623,10 @@ class ModelBroker:
                 reason=f"Selected '{entry.name}' as best match for requirements",
                 candidates_tried=tuple(tried),
                 grantable_models=tuple(grantable),
+                preferred_model=entry.name,
+                actual_model=entry.name,
             )
-        
+
         # No model found
         if grantable:
             return RoutingResult(
@@ -599,7 +636,7 @@ class ModelBroker:
                 candidates_tried=tuple(tried),
                 grantable_models=tuple(grantable),
             )
-        
+
         if label >= Label.PERSONAL:
             return RoutingResult(
                 model_entry=None,
@@ -607,7 +644,7 @@ class ModelBroker:
                 reason="No model may see this data: enable a local model or allow a model to ask",
                 candidates_tried=tuple(tried),
             )
-        
+
         return RoutingResult(
             model_entry=None,
             decision=RoutingDecision.NO_AVAILABLE,
@@ -615,15 +652,18 @@ class ModelBroker:
             candidates_tried=tuple(tried),
         )
 
-    async def ground_computer_target(self, image_path: str, target: str, *, task_id: str | None = None,
-                                     mode: Mode = Mode.ASK, pin: str | None = None) -> tuple[int, int] | None:
+    async def ground_computer_target(
+        self, image_path: str, target: str, *, task_id: str | None = None, mode: Mode = Mode.ASK, pin: str | None = None
+    ) -> tuple[int, int] | None:
         """Use a routed vision-capable model to locate a desktop target in a screenshot."""
         request = CompletionRequest(
-            messages=(Message(
-                "user",
-                'Return JSON only: {"x": integer, "y": integer} for the center of the UI target '
-                f'{target!r}. If it is not visible, return {{"x": null, "y": null}}.',
-            ),),
+            messages=(
+                Message(
+                    "user",
+                    'Return JSON only: {"x": integer, "y": integer} for the center of the UI target '
+                    f'{target!r}. If it is not visible, return {{"x": null, "y": null}}.',
+                ),
+            ),
             max_tokens=120,
             json_mode=True,
             image_paths=(image_path,),
@@ -631,9 +671,19 @@ class ModelBroker:
             tag="cua",
         )
         result = await self.complete(
-            request, need=Cap.VISION, label=Label.PERSONAL, requires_vision=True, requires_tools=False,
-            task_id=task_id, mode=mode, pin=pin, role="computer_vision", tag="cua",
-            model_tier="VISION", cost_sensitivity=0.7, verification="THOROUGH",
+            request,
+            need=Cap.VISION,
+            label=Label.PERSONAL,
+            requires_vision=True,
+            requires_tools=False,
+            task_id=task_id,
+            mode=mode,
+            pin=pin,
+            role="computer_vision",
+            tag="cua",
+            model_tier="VISION",
+            cost_sensitivity=0.7,
+            verification="THOROUGH",
         )
         try:
             value = json.loads(result.result.text)
@@ -666,7 +716,7 @@ class ModelBroker:
         verification: str | None = None,
     ) -> Completed:
         """Execute a completion request using the best available model.
-        
+
         This is the main entry point for model execution. It handles:
         - Model selection based on requirements and current state
         - Automatic fallback on failure
@@ -674,16 +724,20 @@ class ModelBroker:
         - Error handling and retry logic
         - Observability and event reporting
         """
-        
+
         if getattr(self._settings.network, "local_only", False):
             if not any(e.spec.enabled and e.spec.local for e in self.pool.entries):
-                raise NoModelAvailable("Local-only mode is active, but no local model is enabled. "
-                                       "Turn on a local model (such as Ollama) or turn off local-only mode in Settings.")
+                raise NoModelAvailable(
+                    "Local-only mode is active, but no local model is enabled. "
+                    "Turn on a local model (such as Ollama) or turn off local-only mode in Settings."
+                )
 
         if not any(e.spec.enabled and self.has_key(e) for e in self.pool.entries):
-            raise NoModelAvailable("No model has an API key yet. Add one in Settings → Models & keys "
-                                   "(a free key works), or turn on a local model.")
-        
+            raise NoModelAvailable(
+                "No model has an API key yet. Add one in Settings → Models & keys "
+                "(a free key works), or turn on a local model."
+            )
+
         # Perform model selection
         routing = await self.select_model(
             need=need,
@@ -697,40 +751,70 @@ class ModelBroker:
             requires_tools=requires_tools,
             requires_vision=requires_vision,
             cost_sensitivity=cost_sensitivity,
-            model_tier=model_tier, tool_family=tool_family, verification=verification,
+            model_tier=model_tier,
+            tool_family=tool_family,
+            verification=verification,
             role=role,
             tag=tag,
         )
-        
+
         if routing.model_entry is None:
             if routing.decision == RoutingDecision.NEEDS_PERMISSION:
                 from lilly.domain.errors import NeedsGrant
+
                 raise NeedsGrant(list(routing.grantable_models), int(label))
             else:
                 raise NoModelAvailable(routing.reason)
-        
+
         # Record the routing decision
         if task_id:
             self._routing_history[task_id] = routing
-        
-        entry = routing.model_entry
-        entry.watch.began()
-        
+
+        # Canonical routing decision & preferred model selection
+        preferred_model_name = routing.model_entry.name
+        ranked_candidates = (preferred_model_name,) + tuple(
+            e.name for e in self.pool.entries if e.name != preferred_model_name and e.spec.enabled and self.has_key(e)
+        )
+
         # Estimate token usage
         chars = sum(len(m.content) for m in req.messages)
         cpt = getattr(self._settings.capacity, "chars_per_token", 4.0)
         est_in = math.ceil(chars / max(1.0, cpt))
         est_out = min(req.max_tokens, 1000)
         profile = CallProfile(est_in=est_in, est_out=est_out, role=role, need=need, priority=priority)
-        
+
         # Use capacity manager for rate limiting and quotas
         retry_count = 0
         inline_retry_max_s = self._settings.capacity.inline_retry_max_s
         skip: set[str] = set()
-        
+        deadline_budget = (
+            float(req.deadline_s)
+            if req.deadline_s
+            else float(
+                self._settings.capacity.max_wait_interactive_s
+                if priority == 0
+                else self._settings.capacity.max_wait_background_s
+            )
+        )
+        completion_deadline = self._clock() + deadline_budget
+        max_capacity_retries = max(3, len(self.pool.entries))
+
         while True:
-            max_w = inline_retry_max_s if retry_count > 0 and not pin else None
-            
+            if self._clock() >= completion_deadline or retry_count >= max_capacity_retries:
+                raise NoModelAvailable("Timed out waiting for model capacity across retries")
+
+            remaining_time = max(0.5, completion_deadline - self._clock())
+            max_w = (
+                min(remaining_time, inline_retry_max_s)
+                if (retry_count > 0 and not pin)
+                else min(
+                    remaining_time,
+                    self._settings.capacity.max_wait_interactive_s
+                    if priority == 0
+                    else self._settings.capacity.max_wait_background_s,
+                )
+            )
+
             try:
                 lease = await self.capacity.acquire(
                     profile,
@@ -743,20 +827,56 @@ class ModelBroker:
                     payload_hash=payload_hash,
                     skip=frozenset(skip),
                     max_wait_s=max_w,
+                    preferred_candidates=ranked_candidates,
+                    preferred_model=preferred_model_name,
                 )
-                
+
                 entry = lease.entry
+                if entry.name != preferred_model_name:
+                    routing = RoutingResult(
+                        model_entry=entry,
+                        decision=RoutingDecision.FALLBACK if not pin else routing.decision,
+                        reason=f"Fell back to '{entry.name}' (preferred '{preferred_model_name}' busy or deferred)",
+                        candidates_tried=routing.candidates_tried,
+                        grantable_models=routing.grantable_models,
+                        latency_estimate=routing.latency_estimate,
+                        cost_estimate=routing.cost_estimate,
+                        preferred_model=preferred_model_name,
+                        actual_model=entry.name,
+                    )
+                else:
+                    routing = RoutingResult(
+                        model_entry=entry,
+                        decision=routing.decision,
+                        reason=routing.reason,
+                        candidates_tried=routing.candidates_tried,
+                        grantable_models=routing.grantable_models,
+                        latency_estimate=routing.latency_estimate,
+                        cost_estimate=routing.cost_estimate,
+                        preferred_model=preferred_model_name,
+                        actual_model=entry.name,
+                    )
+                if task_id:
+                    self._routing_history[task_id] = routing
+
                 call_id = f"mc-{uuid.uuid4().hex[:12]}"
                 started = self._clock()
-                
+
                 try:
                     result = await self._call(entry, req)
                 except RateLimited as exc:
                     self.capacity.release(lease, tokens_in=0, tokens_out=0, outcome="rate_limited", error=exc)
                     await self._record_call(
-                        call_id, task_id, role, entry.name, started,
-                        int((self._clock() - started) * 1000), 0, 0,
-                        int(lease.waited_s * 1000), "rate_limited",
+                        call_id,
+                        task_id,
+                        role,
+                        entry.name,
+                        started,
+                        int((self._clock() - started) * 1000),
+                        0,
+                        0,
+                        int(lease.waited_s * 1000),
+                        "rate_limited",
                     )
                     retry_count += 1
                     if pin and (exc.retry_after or 0) > self._settings.capacity.max_wait_interactive_s:
@@ -764,79 +884,123 @@ class ModelBroker:
                     if not pin:
                         skip.add(entry.name)
                     continue
-                    
+
                 except asyncio.CancelledError:
                     self.capacity.release(lease, tokens_in=0, tokens_out=0, outcome="cancelled")
                     await self._record_call(
-                        call_id, task_id, role, entry.name, started,
-                        int((self._clock() - started) * 1000), 0, 0,
-                        int(lease.waited_s * 1000), "cancelled",
+                        call_id,
+                        task_id,
+                        role,
+                        entry.name,
+                        started,
+                        int((self._clock() - started) * 1000),
+                        0,
+                        0,
+                        int(lease.waited_s * 1000),
+                        "cancelled",
                     )
                     raise
-                    
+
                 except ProviderError as exc:
                     self._record_failure(entry, exc)
                     self.capacity.release(lease, tokens_in=0, tokens_out=0, outcome="error")
                     await self._record_call(
-                        call_id, task_id, role, entry.name, started,
-                        int((self._clock() - started) * 1000), 0, 0,
-                        int(lease.waited_s * 1000), "error",
+                        call_id,
+                        task_id,
+                        role,
+                        entry.name,
+                        started,
+                        int((self._clock() - started) * 1000),
+                        0,
+                        0,
+                        int(lease.waited_s * 1000),
+                        "error",
                     )
                     if pin:
                         raise
                     skip.add(entry.name)
+                    retry_count += 1
                     continue
-                
+
                 # Success
-                self.capacity.release(lease, tokens_in=result.input_tokens, tokens_out=result.output_tokens, outcome="ok")
+                self.capacity.release(
+                    lease, tokens_in=result.input_tokens, tokens_out=result.output_tokens, outcome="ok"
+                )
                 entry.last_error = None
                 entry.last_successful_call = self._clock()
                 cached = getattr(result, "cached_tokens", 0)
                 await self._record_call(
-                    call_id, task_id, role, entry.name, started,
+                    call_id,
+                    task_id,
+                    role,
+                    entry.name,
+                    started,
                     int((self._clock() - started) * 1000),
-                    result.input_tokens, result.output_tokens,
-                    int(lease.waited_s * 1000), "ok",
+                    result.input_tokens,
+                    result.output_tokens,
+                    int(lease.waited_s * 1000),
+                    "ok",
                     tokens_cached=cached,
                 )
                 await self._persist_usage()
-                
+
                 # Update telemetry
                 self._total_calls += 1
                 self._total_tokens_in += result.input_tokens
                 self._total_tokens_out += result.output_tokens
                 self._total_tokens_cached += cached
-                
+
                 return Completed(result, entry.name)
-                
-            except NoModelAvailable:
-                # Try selection again with updated skip list
-                if not pin:
-                    routing = await self.select_model(
-                        need=need,
-                        label=label,
-                        pin=pin,
-                        grants=self.grants if mode != Mode.LOCKED else None,
-                        task_id=task_id,
-                        payload_hash=payload_hash,
-                        mode=mode,
-                        skip=frozenset(skip),
-                        task_complexity=task_complexity,
-                        requires_tools=requires_tools,
-                        requires_vision=requires_vision,
-                        cost_sensitivity=cost_sensitivity,
-                        role=role,
-                        tag=tag,
-                    )
-                    if routing.model_entry is None:
-                        if routing.decision == RoutingDecision.NEEDS_PERMISSION:
-                            from lilly.domain.errors import NeedsGrant
-                            raise NeedsGrant(list(routing.grantable_models), int(label)) from None
-                        else:
-                            raise NoModelAvailable(routing.reason) from None
-                    continue
-                else:
+
+            except NoModelAvailable as exc:
+                retry_count += 1
+                if pin:
                     raise
+                if entry and entry.name:
+                    skip.add(entry.name)
+                elif preferred_model_name:
+                    skip.add(preferred_model_name)
+                if getattr(exc, "soonest", None):
+                    for model_name, _ in exc.soonest:
+                        skip.add(model_name)
+
+                if self._clock() >= completion_deadline or retry_count >= max_capacity_retries:
+                    raise NoModelAvailable(f"Capacity unavailable: {exc}") from exc
+
+                # Try selection again with updated skip list
+                routing = await self.select_model(
+                    need=need,
+                    label=label,
+                    pin=pin,
+                    grants=self.grants if mode != Mode.LOCKED else None,
+                    task_id=task_id,
+                    payload_hash=payload_hash,
+                    mode=mode,
+                    skip=frozenset(skip),
+                    task_complexity=task_complexity,
+                    requires_tools=requires_tools,
+                    requires_vision=requires_vision,
+                    cost_sensitivity=cost_sensitivity,
+                    model_tier=model_tier,
+                    tool_family=tool_family,
+                    verification=verification,
+                    role=role,
+                    tag=tag,
+                )
+                if routing.model_entry is None:
+                    if routing.decision == RoutingDecision.NEEDS_PERMISSION:
+                        from lilly.domain.errors import NeedsGrant
+
+                        raise NeedsGrant(list(routing.grantable_models), int(label)) from None
+                    else:
+                        raise NoModelAvailable(routing.reason) from None
+                preferred_model_name = routing.model_entry.name
+                ranked_candidates = (preferred_model_name,) + tuple(
+                    e.name
+                    for e in self.pool.entries
+                    if e.name != preferred_model_name and e.spec.enabled and e.name not in skip and self.has_key(e)
+                )
+                continue
 
     async def _call(self, entry: ModelEntry, req: CompletionRequest) -> CompletionResult:
         """Make a single provider call."""
@@ -845,8 +1009,9 @@ class ModelBroker:
         try:
             return await self._providers[entry.name].complete(req)
         except ProviderError as pe:
-            log.error("model %s raised ProviderError: %s (status=%s, retryable=%s)", 
-                     entry.name, pe, pe.status, pe.retryable)
+            log.error(
+                "model %s raised ProviderError: %s (status=%s, retryable=%s)", entry.name, pe, pe.status, pe.retryable
+            )
             raise
         except Exception as exc:
             # Only the type is logged: the message of an adapter error may quote the key
@@ -861,7 +1026,9 @@ class ModelBroker:
             entry.last_error = "rate limited by the provider"
         elif not exc.retryable:
             entry.breaker.failure(900.0)  # 15 minute cooldown for bad keys
-            entry.last_error = f"rejected by the provider (HTTP {exc.status})" if exc.status else "rejected by the provider"
+            entry.last_error = (
+                f"rejected by the provider (HTTP {exc.status})" if exc.status else "rejected by the provider"
+            )
         else:
             entry.breaker.failure(exc.retry_after)
             entry.last_error = "temporarily unavailable"
@@ -930,22 +1097,62 @@ class ModelBroker:
             return {"ok": False, "error": "no key saved for this model"}
         if not entry.try_begin(8, 8):
             return {"ok": False, "error": "over its configured rate or quota limit"}
-        
-        started = time.monotonic()
+
+        started = self._clock()
+        call_id = f"test-{uuid.uuid4().hex[:12]}"
         try:
-            await self._call(entry, CompletionRequest(
-                (Message("user", "Reply with the single word: ok"),), 8, deadline_s=20.0))
+            res = await self._call(
+                entry, CompletionRequest((Message("user", "Reply with the single word: ok"),), 8, deadline_s=20.0)
+            )
         except asyncio.CancelledError:
             entry.breaker.abort()
             raise
         except ProviderError as exc:
             self._record_failure(entry, exc)
+            dur_ms = round((self._clock() - started) * 1000)
+            await self._record_call(
+                call_id,
+                None,
+                "diagnostic_test",
+                entry.name,
+                started,
+                dur_ms,
+                0,
+                0,
+                0,
+                "error",
+            )
             explanation = await self._explain(entry, exc)
-            return {"ok": False, "error": explanation, "status": exc.status}
-        
+            return {
+                "ok": False,
+                "error": explanation or str(exc),
+                "status": getattr(exc, "status", None),
+                "latency_ms": dur_ms,
+            }
+
+        dur_ms = round((self._clock() - started) * 1000)
         entry.breaker.success()
         entry.last_error = None
-        return {"ok": True, "latency_ms": round((time.monotonic() - started) * 1000)}
+        entry.last_successful_call = self._clock()
+        self._total_calls += 1
+        tokens_in = getattr(res, "input_tokens", 0)
+        tokens_out = getattr(res, "output_tokens", 0)
+        self._total_tokens_in += tokens_in
+        self._total_tokens_out += tokens_out
+        await self._record_call(
+            call_id,
+            None,
+            "diagnostic_test",
+            entry.name,
+            started,
+            dur_ms,
+            tokens_in,
+            tokens_out,
+            0,
+            "ok",
+        )
+        reply = getattr(res, "content", "ok")
+        return {"ok": True, "latency_ms": dur_ms, "reply": reply}
 
     async def _explain(self, entry: ModelEntry, exc: ProviderError) -> str | None:
         """Get a user-friendly explanation for a model failure."""
@@ -965,14 +1172,30 @@ class ModelBroker:
         return self.pool.snapshot()
 
     # For backward compatibility with existing interfaces
-    async def route(self, need: Cap = Cap.NONE, label: Label = Label.PUBLIC, *, pin: str | None = None,
-              grants: GrantStore | None = None, task_id: str | None = None, payload_hash: str | None = None,
-              mode: Mode = Mode.ASK, skip: frozenset[str] = frozenset(), quick: bool = False,
-              usable: Callable[[ModelEntry], bool] = lambda e: True) -> tuple[ModelEntry | None, str, tuple[str, ...]]:
+    async def route(
+        self,
+        need: Cap = Cap.NONE,
+        label: Label = Label.PUBLIC,
+        *,
+        pin: str | None = None,
+        grants: GrantStore | None = None,
+        task_id: str | None = None,
+        payload_hash: str | None = None,
+        mode: Mode = Mode.ASK,
+        skip: frozenset[str] = frozenset(),
+        quick: bool = False,
+        usable: Callable[[ModelEntry], bool] = lambda e: True,
+    ) -> tuple[ModelEntry | None, str, tuple[str, ...]]:
         """Backward compatibility with existing route interface."""
         routing = await self.select_model(
-            need=need, label=label, pin=pin, grants=grants, task_id=task_id,
-            payload_hash=payload_hash, mode=mode, skip=skip,
+            need=need,
+            label=label,
+            pin=pin,
+            grants=grants,
+            task_id=task_id,
+            payload_hash=payload_hash,
+            mode=mode,
+            skip=skip,
         )
         if routing.model_entry:
             return routing.model_entry, routing.reason, routing.grantable_models

@@ -1,4 +1,5 @@
 """Streaming replies: providers report the text so far, and the executor publishes it at a bounded rate."""
+
 from __future__ import annotations
 
 import json
@@ -34,8 +35,11 @@ def request(seen: list[str]) -> CompletionRequest:
 
 
 async def test_ollama_reports_the_text_so_far_after_each_piece() -> None:
-    lines = [{"message": {"content": "Hel"}, "done": False}, {"message": {"content": "lo"}, "done": False},
-             {"message": {"content": ""}, "done": True, "done_reason": "stop", "prompt_eval_count": 3, "eval_count": 2}]
+    lines = [
+        {"message": {"content": "Hel"}, "done": False},
+        {"message": {"content": "lo"}, "done": False},
+        {"message": {"content": ""}, "done": True, "done_reason": "stop", "prompt_eval_count": 3, "eval_count": 2},
+    ]
     c = client(lambda r: httpx.Response(200, content=("\n".join(json.dumps(x) for x in lines) + "\n").encode()))
     seen: list[str] = []
     done = await OllamaProvider(c, "m").complete(request(seen))
@@ -47,12 +51,19 @@ async def test_openai_style_streaming_collects_text_usage_and_finish_reason() ->
 
     def handler(r: httpx.Request) -> httpx.Response:
         bodies.append(json.loads(r.content))
-        return httpx.Response(200, content=sse(delta("Hel"), delta("lo", "stop"),
-                                               {"choices": [], "usage": {"prompt_tokens": 4, "completion_tokens": 2}}))
+        return httpx.Response(
+            200,
+            content=sse(
+                delta("Hel"),
+                delta("lo", "stop"),
+                {"choices": [], "usage": {"prompt_tokens": 4, "completion_tokens": 2}},
+            ),
+        )
 
     keys = MemoryKeyStore({"openai": "sk-test"})
-    p = OpenAICompatProvider("openai", client(handler), keys, "openai", "gpt-4o-mini", "https://x.test/v1",
-                             stream_usage=True)
+    p = OpenAICompatProvider(
+        "openai", client(handler), keys, "openai", "gpt-4o-mini", "https://x.test/v1", stream_usage=True
+    )
     seen: list[str] = []
     done = await p.complete(request(seen))
     assert (done.text, done.input_tokens, done.output_tokens, done.finish_reason) == ("Hello", 4, 2, "stop")
@@ -89,8 +100,9 @@ async def test_without_a_listener_the_ordinary_non_streaming_call_is_used() -> N
 @pytest.mark.parametrize("body", [b"data: not json\n\n", b"", sse(delta("cut"), done=False)])
 async def test_a_broken_or_cut_off_stream_is_a_retryable_failure(body: bytes) -> None:
     keys = MemoryKeyStore({"mistral": "k"})
-    p = OpenAICompatProvider("mistral", client(lambda r: httpx.Response(200, content=body)), keys, "mistral", "m",
-                             "https://x.test/v1")
+    p = OpenAICompatProvider(
+        "mistral", client(lambda r: httpx.Response(200, content=body)), keys, "mistral", "m", "https://x.test/v1"
+    )
     with pytest.raises(ProviderError) as info:
         await p.complete(request([]))
     assert info.value.retryable
@@ -98,8 +110,14 @@ async def test_a_broken_or_cut_off_stream_is_a_retryable_failure(body: bytes) ->
 
 async def test_an_error_status_is_mapped_while_streaming() -> None:
     keys = MemoryKeyStore({"mistral": "k"})
-    p = OpenAICompatProvider("mistral", client(lambda r: httpx.Response(429, headers={"retry-after": "7"})), keys,
-                             "mistral", "m", "https://x.test/v1")
+    p = OpenAICompatProvider(
+        "mistral",
+        client(lambda r: httpx.Response(429, headers={"retry-after": "7"})),
+        keys,
+        "mistral",
+        "m",
+        "https://x.test/v1",
+    )
     with pytest.raises(ProviderError) as info:
         await p.complete(request([]))
     assert info.value.retry_after == 7.0
@@ -108,7 +126,9 @@ async def test_an_error_status_is_mapped_while_streaming() -> None:
 async def test_an_oversized_event_stream_is_cut_off() -> None:
     c = client(lambda r: httpx.Response(200, content=b"data: " + b"x" * 5000))
     with pytest.raises(ProviderError):
-        await post_sse(c, "https://x.test", headers={}, body={}, deadline_s=5.0, on_event=lambda e: None, max_bytes=1000)
+        await post_sse(
+            c, "https://x.test", headers={}, body={}, deadline_s=5.0, on_event=lambda e: None, max_bytes=1000
+        )
 
 
 class StubBus:
@@ -124,7 +144,7 @@ def test_published_text_is_throttled_and_carries_the_whole_text_so_far() -> None
     stream = TextStream(bus, "t1", "s1", lambda: now[0], min_interval_s=0.2)  # type: ignore[arg-type]
     stream("a")
     now[0] = 0.05
-    stream("ab")                      # too soon: dropped
+    stream("ab")  # too soon: dropped
     now[0] = 0.3
     stream("abc")
     assert [m["text"] for m in bus.messages] == ["a", "abc"]

@@ -3,6 +3,7 @@
 Selection is deterministic: the first enabled model that fits the capability, the data label,
 the user's permissions and its quota wins. Failure state is kept per model.
 """
+
 from __future__ import annotations
 
 import time
@@ -24,8 +25,8 @@ class ModelEntry:
     daily: DailyQuota | None
     breaker: CircuitBreaker
     last_error: str | None = field(default=None)
-    tokens: list[int] = field(default_factory=lambda: [0, 0, 0])      # [calls, tokens in, tokens out] since Lilly started
-    watch: LimitWatch = field(default_factory=LimitWatch)             # what the provider's rejections taught us
+    tokens: list[int] = field(default_factory=lambda: [0, 0, 0])  # [calls, tokens in, tokens out] since Lilly started
+    watch: LimitWatch = field(default_factory=LimitWatch)  # what the provider's rejections taught us
     minute_tokens: TokenWindow | None = None
     daily_tokens: DailyTokens | None = None
     inflight: int = 0
@@ -78,7 +79,10 @@ class ModelEntry:
             self.minute_tokens.commit(total_tokens)
         if self.daily_tokens:
             self.daily_tokens.commit(total_tokens)
-        return self.breaker.begin()
+        if not self.breaker.begin():
+            return False
+        self.watch.began()
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,10 +101,20 @@ class ProviderPool:
     def get(self, name: str) -> ModelEntry | None:
         return next((e for e in self.entries if e.name == name), None)
 
-    def route(self, need: Cap = Cap.NONE, label: Label = Label.PUBLIC, *, pin: str | None = None,
-              grants: GrantStore | None = None, task_id: str | None = None, payload_hash: str | None = None,
-              mode: Mode = Mode.ASK, skip: frozenset[str] = frozenset(), quick: bool = False,
-              usable: Callable[[ModelEntry], bool] = lambda e: True) -> Routing:
+    def route(
+        self,
+        need: Cap = Cap.NONE,
+        label: Label = Label.PUBLIC,
+        *,
+        pin: str | None = None,
+        grants: GrantStore | None = None,
+        task_id: str | None = None,
+        payload_hash: str | None = None,
+        mode: Mode = Mode.ASK,
+        skip: frozenset[str] = frozenset(),
+        quick: bool = False,
+        usable: Callable[[ModelEntry], bool] = lambda e: True,
+    ) -> Routing:
         """Pick a model or say why not. A pinned model is never replaced silently."""
         candidates = [e for e in self.entries if e.spec.enabled and e.name not in skip and usable(e)]
         if pin:
@@ -108,7 +122,7 @@ class ProviderPool:
             if only is None:
                 return Routing(None, f"pinned model {pin!r} is unavailable")
             candidates = [only]
-        if quick:       # quick models first; the rest keep their order, so nothing is lost if they are down
+        if quick:  # quick models first; the rest keep their order, so nothing is lost if they are down
             candidates.sort(key=lambda e: not e.spec.quick)
         grantable: list[str] = []
         for e in candidates:
@@ -116,8 +130,13 @@ class ProviderPool:
                 continue
             ok, grant = label_access(e, label, grants, task_id, payload_hash, mode)
             if not ok:
-                if e.max_label < label and e.ask_private and mode is not Mode.LOCKED \
-                        and not (label is Label.SECRET and not e.local) and (mode is Mode.ASK or e.trains):
+                if (
+                    e.max_label < label
+                    and e.ask_private
+                    and mode is not Mode.LOCKED
+                    and not (label is Label.SECRET and not e.local)
+                    and (mode is Mode.ASK or e.trains)
+                ):
                     grantable.append(e.name)
                 continue
             if e.try_begin():
@@ -134,19 +153,31 @@ class ProviderPool:
         """Live quota and breaker state for the Models screen."""
         out: list[dict[str, object]] = []
         for e in self.entries:
-            out.append({
-                "name": e.name, "enabled": e.spec.enabled, "breaker": e.breaker.state,
-                "lane": e.spec.lane, "tags": list(e.spec.tags),
-                "minute_used": e.minute.used if e.minute else None, "rpm": e.spec.rpm,
-                "day_used": e.daily.used if e.daily else None, "rpd": e.spec.rpd,
-                "tpm_used": e.minute_tokens.used if e.minute_tokens else None, "tpm": e.spec.tpm,
-                "tpd_used": e.daily_tokens.used if e.daily_tokens else None, "tpd": e.spec.tpd,
-                "resets_in_s": round(e.daily.seconds_to_reset()) if e.daily else None,
-                "last_error": e.last_error, "calls": e.tokens[0], "tokens_in": e.tokens[1],
-                "tokens_out": e.tokens[2],
-                "suggested_rpm": _lower(e.watch.rpm, e.spec.rpm), "suggested_rpd": _lower(e.watch.rpd, e.spec.rpd),
-                "inflight": e.inflight,
-            })
+            out.append(
+                {
+                    "name": e.name,
+                    "enabled": e.spec.enabled,
+                    "breaker": e.breaker.state,
+                    "lane": e.spec.lane,
+                    "tags": list(e.spec.tags),
+                    "minute_used": e.minute.used if e.minute else None,
+                    "rpm": e.spec.rpm,
+                    "day_used": e.daily.used if e.daily else None,
+                    "rpd": e.spec.rpd,
+                    "tpm_used": e.minute_tokens.used if e.minute_tokens else None,
+                    "tpm": e.spec.tpm,
+                    "tpd_used": e.daily_tokens.used if e.daily_tokens else None,
+                    "tpd": e.spec.tpd,
+                    "resets_in_s": round(e.daily.seconds_to_reset()) if e.daily else None,
+                    "last_error": e.last_error,
+                    "calls": e.tokens[0],
+                    "tokens_in": e.tokens[1],
+                    "tokens_out": e.tokens[2],
+                    "suggested_rpm": _lower(e.watch.rpm, e.spec.rpm),
+                    "suggested_rpd": _lower(e.watch.rpd, e.spec.rpd),
+                    "inflight": e.inflight,
+                }
+            )
         return out
 
 
@@ -159,25 +190,53 @@ def _entry(spec: ModelSpec, kept: ModelEntry | None, clock: Clock) -> ModelEntry
     """The entry for `spec`, reusing from `kept` each counter whose own limit is unchanged and the breaker while
     it is still the same endpoint."""
     minute_tokens = (
-        kept.minute_tokens if kept and kept.spec.tpm == spec.tpm else (TokenWindow(spec.tpm, 60.0, clock) if spec.tpm else None)
+        kept.minute_tokens
+        if kept and kept.spec.tpm == spec.tpm
+        else (TokenWindow(spec.tpm, 60.0, clock) if spec.tpm else None)
     )
     daily_tokens = (
-        kept.daily_tokens if kept and (kept.spec.tpd, kept.spec.tz) == (spec.tpd, spec.tz) else (
-            DailyTokens(spec.tpd, spec.tz) if spec.tpd else None
-        )
+        kept.daily_tokens
+        if kept and (kept.spec.tpd, kept.spec.tz) == (spec.tpd, spec.tz)
+        else (DailyTokens(spec.tpd, spec.tz) if spec.tpd else None)
     )
     if kept is None or (kept.spec.provider, kept.spec.model_id, kept.spec.base_url, kept.spec.key_ref) != (
-            spec.provider, spec.model_id, spec.base_url, spec.key_ref):
-        return ModelEntry(spec, SlidingWindowLimiter(spec.rpm, 60.0, clock) if spec.rpm else None,
-                          DailyQuota(spec.rpd, spec.tz) if spec.rpd else None, CircuitBreaker(clock=clock),
-                          minute_tokens=minute_tokens, daily_tokens=daily_tokens)
-    minute = kept.minute if kept.spec.rpm == spec.rpm else SlidingWindowLimiter(spec.rpm, 60.0, clock) if spec.rpm else None
-    daily = kept.daily if (kept.spec.rpd, kept.spec.tz) == (spec.rpd, spec.tz) else \
-        DailyQuota(spec.rpd, spec.tz) if spec.rpd else None
-    return ModelEntry(spec, minute, daily, kept.breaker, kept.last_error, kept.tokens, kept.watch,
-                      minute_tokens=minute_tokens, daily_tokens=daily_tokens,
-                      inflight=kept.inflight, token_ratio=kept.token_ratio,
-                      last_successful_call=kept.last_successful_call)
+        spec.provider,
+        spec.model_id,
+        spec.base_url,
+        spec.key_ref,
+    ):
+        return ModelEntry(
+            spec,
+            SlidingWindowLimiter(spec.rpm, 60.0, clock) if spec.rpm else None,
+            DailyQuota(spec.rpd, spec.tz) if spec.rpd else None,
+            CircuitBreaker(clock=clock),
+            minute_tokens=minute_tokens,
+            daily_tokens=daily_tokens,
+        )
+    minute = (
+        kept.minute if kept.spec.rpm == spec.rpm else SlidingWindowLimiter(spec.rpm, 60.0, clock) if spec.rpm else None
+    )
+    daily = (
+        kept.daily
+        if (kept.spec.rpd, kept.spec.tz) == (spec.rpd, spec.tz)
+        else DailyQuota(spec.rpd, spec.tz)
+        if spec.rpd
+        else None
+    )
+    return ModelEntry(
+        spec,
+        minute,
+        daily,
+        kept.breaker,
+        kept.last_error,
+        kept.tokens,
+        kept.watch,
+        minute_tokens=minute_tokens,
+        daily_tokens=daily_tokens,
+        inflight=kept.inflight,
+        token_ratio=kept.token_ratio,
+        last_successful_call=kept.last_successful_call,
+    )
 
 
 def build_pool(settings: Settings, previous: ProviderPool | None = None, clock: Clock = time.monotonic) -> ProviderPool:

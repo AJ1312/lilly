@@ -1,4 +1,5 @@
 """Pure retrieval helper: safe FTS5 query building."""
+
 from __future__ import annotations
 
 import re
@@ -6,7 +7,30 @@ import re
 _TERM = re.compile(r"[^\W_]{2,}", re.UNICODE)
 
 
-_STOPWORDS = frozenset(["the", "an", "and", "or", "of", "to", "in", "on", "for", "is", "it", "this", "that", "with", "as", "at", "by", "be", "are", "was"])
+_STOPWORDS = frozenset(
+    [
+        "the",
+        "an",
+        "and",
+        "or",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "is",
+        "it",
+        "this",
+        "that",
+        "with",
+        "as",
+        "at",
+        "by",
+        "be",
+        "are",
+        "was",
+    ]
+)
 
 
 def fts_query(text: str, max_terms: int = 12) -> str | None:
@@ -24,4 +48,3 @@ def fts_query(text: str, max_terms: int = 12) -> str | None:
         if len(terms) >= max_terms:
             break
     return " OR ".join(f'"{t}"' for t in terms) if terms else None
-

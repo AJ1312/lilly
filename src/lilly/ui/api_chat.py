@@ -1,4 +1,5 @@
 """Conversations, tasks, approvals, the kill switch and the live event stream."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +12,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from lilly.domain.decisions import DRIFTS, FOLLOWS
 from lilly.domain.errors import NotFound, ValidationFailed
+from lilly.domain.labels import ApprovalMode
 from lilly.domain.sheet import TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
 from lilly.domain.tasks import ExecutionTarget, TaskOutcome, TaskState
@@ -43,9 +45,13 @@ KEEPALIVE_S = 15.0
 async def list_threads(request: Request) -> Response:
     con = runtime(request).db.reader
     query = request.query_params.get("q", "").strip()
-    rows = (conversations.search_conversations(con, query) if query else
-            conversations.list_conversations(con, include_archived=request.query_params.get("archived") == "1",
-                                             limit=limit_param(request, 100)))
+    rows = (
+        conversations.search_conversations(con, query)
+        if query
+        else conversations.list_conversations(
+            con, include_archived=request.query_params.get("archived") == "1", limit=limit_param(request, 100)
+        )
+    )
     return JSONResponse({"threads": [conversation_json(c) for c in rows]})
 
 
@@ -63,9 +69,11 @@ async def get_thread(request: Request) -> Response:
         verdict = checked.payload.get("choice") if checked else None
         item = task_json(task)
         item["reply_check"] = verdict if verdict in (FOLLOWS, DRIFTS) else None
+        item["steps"] = [step_json(s) for s in tasks.list_steps(rt.db.reader, task.id)]
         thread_tasks.append(item)
-    return JSONResponse({"thread": conversation_json(conv), "messages": [message_json(m) for m in msgs],
-                         "tasks": thread_tasks})
+    return JSONResponse(
+        {"thread": conversation_json(conv), "messages": [message_json(m) for m in msgs], "tasks": thread_tasks}
+    )
 
 
 async def update_thread(request: Request) -> Response:
@@ -73,8 +81,11 @@ async def update_thread(request: Request) -> Response:
     data = await json_body(request)
     title, archived = text(data, "title", required=False, max_len=200), flag(data, "archived")
     now = rt.clock()
-    row = await rt.db.write(lambda con: conversations.update_conversation(
-        con, request.path_params["thread_id"], now, title=title, archived=archived))
+    row = await rt.db.write(
+        lambda con: conversations.update_conversation(
+            con, request.path_params["thread_id"], now, title=title, archived=archived
+        )
+    )
     return JSONResponse({"thread": conversation_json(row)})
 
 
@@ -113,15 +124,28 @@ async def submit_task(request: Request) -> Response:
             target = ExecutionTarget(raw_target.lower())
         except ValueError:
             raise ValidationFailed(f"unknown execution target: {raw_target}") from None
-    row = await rt.orchestrator.submit(SubmitRequest(
-        goal=text(data, "goal", max_len=4000) or "",
-        conversation_id=text(data, "conversation_id", required=False, max_len=64),
-        agent_id=text(data, "agent_id", required=False, max_len=64),
-        skill=text(data, "skill", required=False, max_len=64),
-        params=params,
-        pin_model=text(data, "pin_model", required=False, max_len=64),
-        profile=profile, intent=requested_intent,
-        target=target))
+    raw_approval_mode = text(data, "approval_mode", required=False, max_len=16) or text(data, "mode", required=False, max_len=16)
+    approval_mode: ApprovalMode | None = None
+    if raw_approval_mode:
+        try:
+            approval_mode = ApprovalMode(raw_approval_mode.upper())
+        except ValueError:
+            pass
+    row = await rt.orchestrator.submit(
+        SubmitRequest(
+            goal=text(data, "goal", max_len=4000) or "",
+            conversation_id=text(data, "conversation_id", required=False, max_len=64)
+            or text(data, "thread_id", required=False, max_len=64),
+            agent_id=text(data, "agent_id", required=False, max_len=64),
+            skill=text(data, "skill", required=False, max_len=64),
+            params=params,
+            pin_model=text(data, "pin_model", required=False, max_len=64),
+            profile=profile,
+            intent=requested_intent,
+            target=target,
+            approval_mode=approval_mode,
+        )
+    )
     return JSONResponse({"task": task_json(row)}, 202)
 
 
@@ -156,11 +180,20 @@ async def list_tasks(request: Request) -> Response:
     offset = int(raw_offset) if raw_offset.isdigit() else 0
     limit = limit_param(request, 50, 200)
 
-    total = tasks.count_tasks(con, states=states, outcomes=outcomes, target=target,
-                              agent_id=agent_id, conversation_id=conv_id, query=query)
-    rows = tasks.list_tasks(con, states=states, outcomes=outcomes, target=target,
-                            agent_id=agent_id, conversation_id=conv_id, query=query,
-                            offset=offset, limit=limit)
+    total = tasks.count_tasks(
+        con, states=states, outcomes=outcomes, target=target, agent_id=agent_id, conversation_id=conv_id, query=query
+    )
+    rows = tasks.list_tasks(
+        con,
+        states=states,
+        outcomes=outcomes,
+        target=target,
+        agent_id=agent_id,
+        conversation_id=conv_id,
+        query=query,
+        offset=offset,
+        limit=limit,
+    )
     return JSONResponse({"tasks": [task_json(t) for t in rows], "total": total, "offset": offset, "limit": limit})
 
 
@@ -174,12 +207,17 @@ async def get_task(request: Request) -> Response:
     announced = latest(rt.db.reader, task_id, "plan")
     checked = latest(rt.db.reader, task_id, "reply_check")
     verdict = checked.payload.get("choice") if checked else None
-    return JSONResponse({"task": task_json(row), "steps": [step_json(s) for s in tasks.list_steps(rt.db.reader, task_id)],
-                         "approvals": pending,
-                         # the newest plan as announced: tool, expectation, dependencies and the predicted verdict
-                         "plan_steps": announced.payload.get("steps", []) if announced else [],
-                         # Laya's advice on the finished reply, when it was asked and answered; it never changed the reply
-                         "reply_check": verdict if verdict in (FOLLOWS, DRIFTS) else None})
+    return JSONResponse(
+        {
+            "task": task_json(row),
+            "steps": [step_json(s) for s in tasks.list_steps(rt.db.reader, task_id)],
+            "approvals": pending,
+            # the newest plan as announced: tool, expectation, dependencies and the predicted verdict
+            "plan_steps": announced.payload.get("steps", []) if announced else [],
+            # Laya's advice on the finished reply, when it was asked and answered; it never changed the reply
+            "reply_check": verdict if verdict in (FOLLOWS, DRIFTS) else None,
+        }
+    )
 
 
 async def task_events(request: Request) -> Response:
@@ -239,9 +277,14 @@ async def stop_everything(request: Request) -> Response:
 
 
 async def list_skills(request: Request) -> Response:
-    return JSONResponse({"skills": [
-        {"name": s.name, "summary": s.summary, "params": list(s.params), "risk": s.max_risk.name}
-        for s in BUILTIN_SKILLS.values()]})
+    return JSONResponse(
+        {
+            "skills": [
+                {"name": s.name, "summary": s.summary, "params": list(s.params), "risk": s.max_risk.name}
+                for s in BUILTIN_SKILLS.values()
+            ]
+        }
+    )
 
 
 # ---- approvals -------------------------------------------------------------------------------
@@ -260,10 +303,17 @@ async def decide_approval(request: Request) -> Response:
     approve = flag(data, "approve")
     if approve is None:
         raise ValidationFailed("approve must be true or false")
+    payload_h = text(data, "payload_hash", required=False, max_len=64)
+    if not payload_h:
+        existing = rt.approvals.get(request.path_params["approval_id"])
+        if existing:
+            payload_h = existing.payload_hash
     row = await rt.approvals.decide(
-        request.path_params["approval_id"], approve=approve,
-        payload_hash=text(data, "payload_hash", max_len=64) or "",
-        choice=text(data, "choice", required=False, max_len=64))
+        request.path_params["approval_id"],
+        approve=approve,
+        payload_hash=payload_h or "",
+        choice=text(data, "choice", required=False, max_len=64),
+    )
     return JSONResponse({"approval": approval_json(row)})
 
 
@@ -290,5 +340,8 @@ async def _frames(bus: EventBus) -> AsyncIterator[str]:
 
 
 async def live_events(request: Request) -> Response:
-    return StreamingResponse(_frames(runtime(request).bus), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        _frames(runtime(request).bus),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

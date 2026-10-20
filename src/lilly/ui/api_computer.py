@@ -1,4 +1,5 @@
 """Read-only computer state for the task workspace."""
+
 from __future__ import annotations
 
 import asyncio

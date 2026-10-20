@@ -1,4 +1,5 @@
 """Spaces and pages: validation, optimistic concurrency, isolation between spaces, cascades and search."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -135,8 +136,9 @@ def test_create_page_basics(con: sqlite3.Connection) -> None:
     assert (page.created_at, page.updated_at, page.parent_id, page.space_id) == (3.0, 3.0, None, "s")
 
 
-@pytest.mark.parametrize("title,content", [("", "x"), ("   ", "x"), ("t" * (MAX_TITLE + 1), "x"),
-                                           ("t", "c" * (MAX_CONTENT + 1))])
+@pytest.mark.parametrize(
+    "title,content", [("", "x"), ("   ", "x"), ("t" * (MAX_TITLE + 1), "x"), ("t", "c" * (MAX_CONTENT + 1))]
+)
 def test_create_page_rejects_out_of_bounds_input(con: sqlite3.Connection, title: str, content: str) -> None:
     create_space(con, "s", "S", "", 1.0)
     with pytest.raises(ValidationFailed):
@@ -258,9 +260,16 @@ def test_update_page_unknown_is_not_found(con: sqlite3.Connection) -> None:
         update_page(con, "s", "ghost", 1, 1.0, title="x")
 
 
-@pytest.mark.parametrize("kw", [{"title": ""}, {"title": "  "}, {"title": "t" * (MAX_TITLE + 1)},
-                                {"content": "c" * (MAX_CONTENT + 1)},
-                                {"title": "valid change", "content": "c" * (MAX_CONTENT + 1)}])
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"title": ""},
+        {"title": "  "},
+        {"title": "t" * (MAX_TITLE + 1)},
+        {"content": "c" * (MAX_CONTENT + 1)},
+        {"title": "valid change", "content": "c" * (MAX_CONTENT + 1)},
+    ],
+)
 def test_invalid_update_is_rejected_atomically(con: sqlite3.Connection, kw: dict[str, str]) -> None:
     create_space(con, "s", "S", "", 1.0)
     create_page(con, "p", "s", "Title", "body", 1.0)

@@ -1,4 +1,5 @@
 """A stand-in for Docker or Podman that follows the `Engines` contract and records what it was asked."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,7 @@ class FakeEngine:
         self.ran: list[list[str]] = []
         self.output = "hello\n"
         self.exit_code: int | None = 0
-        self.hang = False                     # the next command never finishes (reported as timed out)
+        self.hang = False  # the next command never finishes (reported as timed out)
         self.delay = 0.0
         self.running_now = self.peak = 0
         self.fail_start = False

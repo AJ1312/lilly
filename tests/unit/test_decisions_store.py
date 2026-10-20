@@ -1,4 +1,5 @@
 """The decision log: round-trip, bounds, pruning, outcomes, calibration arithmetic, and the `lilly decisions` command."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -26,18 +27,37 @@ def con(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     c.close()
 
 
-def rec(ts: float = 1000.0, kind: Kind = Kind.PICK, decider: str | None = "match", choice: str | None = "a",
-        confidence: float | None = 0.9, shadow: bool = False, summary: str = "open firefox",
-        reason: str = "ok", outcome: str = "unknown") -> DecisionRecord:
+def rec(
+    ts: float = 1000.0,
+    kind: Kind = Kind.PICK,
+    decider: str | None = "match",
+    choice: str | None = "a",
+    confidence: float | None = 0.9,
+    shadow: bool = False,
+    summary: str = "open firefox",
+    reason: str = "ok",
+    outcome: str = "unknown",
+) -> DecisionRecord:
     return DecisionRecord(ts, kind, "task-1", decider, choice, confidence, shadow, 3, summary, reason, outcome)
 
 
 def test_a_record_comes_back_unchanged(con: sqlite3.Connection) -> None:
     row_id = decisions.insert(con, rec(shadow=True))
     [row] = decisions.recent(con)
-    assert (row.id, row.ts, row.task_id, row.kind, row.decider, row.choice, row.confidence, row.shadow,
-            row.outcome, row.options, row.summary, row.reason) == (
-        row_id, 1000.0, "task-1", "pick", "match", "a", 0.9, True, "unknown", 3, "open firefox", "ok")
+    assert (
+        row.id,
+        row.ts,
+        row.task_id,
+        row.kind,
+        row.decider,
+        row.choice,
+        row.confidence,
+        row.shadow,
+        row.outcome,
+        row.options,
+        row.summary,
+        row.reason,
+    ) == (row_id, 1000.0, "task-1", "pick", "match", "a", 0.9, True, "unknown", 3, "open firefox", "ok")
 
 
 def test_a_no_decision_row_has_empty_decider_choice_and_confidence(con: sqlite3.Connection) -> None:
@@ -47,7 +67,9 @@ def test_a_no_decision_row_has_empty_decider_choice_and_confidence(con: sqlite3.
 
 
 def test_the_store_redacts_and_caps_text_even_if_a_caller_did_not(con: sqlite3.Connection) -> None:
-    decisions.insert(con, rec(summary=("word " * 200) + "sk-abcdefghijklmnopqrstuv", reason="r" * 999, choice="c" * 999))
+    decisions.insert(
+        con, rec(summary=("word " * 200) + "sk-abcdefghijklmnopqrstuv", reason="r" * 999, choice="c" * 999)
+    )
     [row] = decisions.recent(con)
     assert len(row.summary) <= 300 and len(row.reason) <= 200 and len(row.choice or "") <= 120
     decisions.insert(con, rec(summary="key sk-abcdefghijklmnopqrstuv here"))
@@ -97,7 +119,9 @@ def test_labelled_returns_only_answers_with_a_known_outcome(con: sqlite3.Connect
     assert sorted(decisions.labelled(con)) == [("pick", "match", 0.6, False), ("pick", "match", 0.9, True)]
 
 
-def test_the_log_never_grows_past_its_bound_even_without_pruning(con: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_log_never_grows_past_its_bound_even_without_pruning(
+    con: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(decisions, "MAX_ROWS", 10)
     for i in range(25):
         decisions.insert(con, rec(ts=float(i)))
@@ -105,14 +129,15 @@ def test_the_log_never_grows_past_its_bound_even_without_pruning(con: sqlite3.Co
     assert len(rows) == 10 and rows[-1].ts == 15.0 and rows[0].ts == 24.0
 
 
-def test_pruning_removes_rows_older_than_the_cutoff_and_enforces_the_bound(con: sqlite3.Connection,
-                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pruning_removes_rows_older_than_the_cutoff_and_enforces_the_bound(
+    con: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
     now = 100 * DAY
     for age in (1, 5, 40, 60):
         decisions.insert(con, rec(ts=now - age * DAY))
     assert decisions.prune(con, 30, now) == 2
     assert len(decisions.recent(con)) == 2
-    assert decisions.prune(con, 0, now) == 0                         # 0 days: keep everything
+    assert decisions.prune(con, 0, now) == 0  # 0 days: keep everything
     monkeypatch.setattr(decisions, "MAX_ROWS", 1)
     assert decisions.prune(con, 30, now) == 1 and len(decisions.recent(con)) == 1
 
@@ -128,11 +153,13 @@ def test_task_retention_also_prunes_the_decision_log(con: sqlite3.Connection) ->
 async def test_the_pipeline_logs_through_the_database_sink(tmp_path: Path) -> None:
     db = Database(tmp_path / "lilly.db")
     try:
+
         class Always:
             name = "match"
 
             async def decide(self, request: object) -> object:
                 from lilly.domain.decisions import Answer
+
                 return Answer("match", "a", 0.95)
 
         pipeline = DecisionPipeline(DecisionSettings, lambda: {"match": Always()}, DatabaseSink(db), Clock())  # type: ignore[dict-item]
@@ -187,7 +214,7 @@ def test_too_few_outcomes_make_no_suggestion() -> None:
 
 
 def test_samples_at_the_same_confidence_are_judged_together() -> None:
-    samples = [(0.9, True)] * 10 + [(0.9, False)] * 10      # one level, half right: it cannot be split
+    samples = [(0.9, True)] * 10 + [(0.9, False)] * 10  # one level, half right: it cannot be split
     assert calibrate(samples, 0.95, 0.5).threshold is None
 
 
@@ -234,7 +261,7 @@ def test_calibrate_suggests_a_threshold_and_changes_nothing(home: Path, capsys: 
     assert "suggested 0.90" in out and "keeps 44% of answers" in out and "right 100% of the time" in out
     assert "loop / loop" in out and "too few outcomes" in out
     assert "Nothing was changed" in out
-    assert not (home / "config" / "settings.json").exists()      # no setting was written
+    assert not (home / "config" / "settings.json").exists()  # no setting was written
     assert main(["decisions", "calibrate", "--target", "1.0"]) == 0
     assert "pick / match: 90 answers" in capsys.readouterr().out
 
@@ -254,21 +281,31 @@ async def test_a_busy_database_means_the_decision_is_not_logged_but_is_still_mad
     assert await DatabaseSink(Busy()).record(rec()) is None  # type: ignore[arg-type]
 
 
-def test_the_two_assist_questions_appear_in_report_and_calibrate_like_any_other(home: Path,
-                                                                                capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_two_assist_questions_appear_in_report_and_calibrate_like_any_other(
+    home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     main(["decisions", "report"])
     con = open_db(home / "lilly.db")
     for kind, choice in ((Kind.PLAN, "off"), (Kind.REPLY, "drifts")):
         for confidence, right in synthetic():
-            decisions.insert(con, rec(kind=kind, decider="laya", choice=choice, shadow=True, confidence=confidence,
-                                      outcome="accepted" if right else "corrected"))
+            decisions.insert(
+                con,
+                rec(
+                    kind=kind,
+                    decider="laya",
+                    choice=choice,
+                    shadow=True,
+                    confidence=confidence,
+                    outcome="accepted" if right else "corrected",
+                ),
+            )
     con.close()
     capsys.readouterr()
     assert main(["decisions", "report"]) == 0
     report = capsys.readouterr().out
     for kind in ("plan", "reply"):
         line = next(line for line in report.splitlines() if line.startswith(kind) and " laya " in line)
-        assert "90" in line and "100%" in line and "82%" in line      # 90 asked, all answered, 74 of 90 right
+        assert "90" in line and "100%" in line and "82%" in line  # 90 asked, all answered, 74 of 90 right
     assert main(["decisions", "calibrate", "--target", "0.95"]) == 0
     calibrated = capsys.readouterr().out
     assert "plan / laya: 90 answers" in calibrated and "reply / laya: 90 answers" in calibrated

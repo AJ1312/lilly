@@ -38,10 +38,10 @@ export const ResourcesView: React.FC = () => {
     <div className="view-container" style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)' }}>System Resources & Telemetry</h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+          <h1 className="greeting-text">System Resources & Telemetry</h1>
+          <div className="greeting-sub">
             Real-time CPU, RAM, disk utilization, running tasks, and Lilly engine process footprint.
-          </p>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>

@@ -1,4 +1,5 @@
 """JSON-lines logging with redaction filter and file rotation."""
+
 from __future__ import annotations
 
 import json
@@ -10,8 +11,8 @@ from typing import Any
 
 from lilly.domain.reasoning import redact
 
-MAX_LOG_BYTES = 5 * 1024 * 1024   # 5 MB per file
-BACKUP_COUNT = 5                   # 5 backups = 25 MB total cap
+MAX_LOG_BYTES = 5 * 1024 * 1024  # 5 MB per file
+BACKUP_COUNT = 5  # 5 backups = 25 MB total cap
 
 
 class RedactingFormatter(logging.Formatter):

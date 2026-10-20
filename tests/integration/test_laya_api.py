@@ -1,4 +1,5 @@
 """The Laya endpoints, and the running app picking Laya up without a restart."""
+
 from __future__ import annotations
 
 import asyncio
@@ -124,16 +125,26 @@ async def test_enabled_must_be_a_boolean(api: Api) -> None:
 
 
 # ---- the pre-check and the self-test --------------------------------------------------------------------
-GOOD = [laya_install.Check("This computer", True, "Linux (x86_64)"), laya_install.Check("Disk space", True, "50.0 GB free")]
+GOOD = [
+    laya_install.Check("This computer", True, "Linux (x86_64)"),
+    laya_install.Check("Disk space", True, "50.0 GB free"),
+]
 
 
-def set_up(api: Api, tmp_path: Path, *, installed: bool = True, checks: list[laya_install.Check] | None = None,
-           maker: Any = None) -> None:
+def set_up(
+    api: Api,
+    tmp_path: Path,
+    *,
+    installed: bool = True,
+    checks: list[laya_install.Check] | None = None,
+    maker: Any = None,
+) -> None:
     addon = tmp_path / "laya"
     if installed:
         finished_install(addon, lambda line: None)
-    api.runtime.laya = LayaService(addon, finished_install, checker=lambda path: checks or GOOD,
-                                   maker=maker or (lambda path: stub_decider()))
+    api.runtime.laya = LayaService(
+        addon, finished_install, checker=lambda path: checks or GOOD, maker=maker or (lambda path: stub_decider())
+    )
 
 
 async def test_the_check_and_the_test_need_a_session(api: Api) -> None:
@@ -179,11 +190,14 @@ async def test_the_test_proves_it_works_and_changes_nothing(api: Api, tmp_path: 
     r = await api.send("POST", "/api/laya/test", {})
     body = r.json()
     assert r.status_code == 200 and body["ok"] is True and body["loaded"] is True and body["error"] is None
-    assert [(x["expected"], x["got"], x["ok"]) for x in body["results"]] == [("yes", "yes", True), ("no", "no", True),
-                                                                              ("loop", "loop", True)]
+    assert [(x["expected"], x["got"], x["ok"]) for x in body["results"]] == [
+        ("yes", "yes", True),
+        ("no", "no", True),
+        ("loop", "loop", True),
+    ]
     assert set(body["results"][0]) == {"name", "expected", "got", "confidence", "ms", "ok"} and "load_ms" in body
     assert api.runtime.settings.decisions == before and (await api.get("/api/laya")).json()["enabled_for"] == []
-    assert made[0]._proc is None and made[0].state == "off"          # not left loaded
+    assert made[0]._proc is None and made[0].state == "off"  # not left loaded
 
 
 async def test_a_failing_test_is_a_report_not_an_error(api: Api, tmp_path: Path) -> None:
@@ -195,7 +209,9 @@ async def test_a_failing_test_is_a_report_not_an_error(api: Api, tmp_path: Path)
 
 async def test_a_second_test_while_one_is_running_is_refused(api: Api, tmp_path: Path) -> None:
     await api.sign_in()
-    set_up(api, tmp_path, maker=lambda path: stub_decider(command=[sys.executable, "-c", "import time; time.sleep(30)"]))
+    set_up(
+        api, tmp_path, maker=lambda path: stub_decider(command=[sys.executable, "-c", "import time; time.sleep(30)"])
+    )
     first = asyncio.create_task(api.send("POST", "/api/laya/test", {}))
     for _ in range(200):
         if api.runtime.laya._testing:
@@ -203,7 +219,7 @@ async def test_a_second_test_while_one_is_running_is_refused(api: Api, tmp_path:
         await asyncio.sleep(0.01)
     second = await api.send("POST", "/api/laya/test", {})
     assert second.status_code == 409 and "already running" in second.json()["error"]
-    assert (await api.send("DELETE", "/api/laya")).status_code == 409           # nor can it be removed under the test
+    assert (await api.send("DELETE", "/api/laya")).status_code == 409  # nor can it be removed under the test
     first.cancel()
     await asyncio.gather(first, return_exceptions=True)
     assert not api.runtime.laya._testing

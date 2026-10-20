@@ -3,6 +3,7 @@
 Supports type, required, enum, minimum, maximum, items, properties, and additionalProperties.
 Returns clear error paths like 'args.path: required' with zero external dependencies.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -17,7 +18,7 @@ class SchemaValidationError(Exception):
 
 def validate_schema(schema: Mapping[str, Any], data: Any, path: str = "args") -> list[str]:
     """Validate data against a JSON Schema, returning a list of error strings.
-    
+
     Empty list means validation succeeded.
     """
     errors: list[str] = []

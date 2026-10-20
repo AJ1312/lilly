@@ -1,5 +1,6 @@
 """The pipeline: chain order, fall-through, time limits, caps, shadow mode, and that nothing it returns can be trusted
 less than the options the caller offered."""
+
 from __future__ import annotations
 
 import asyncio
@@ -44,6 +45,7 @@ class Fake:
 def says(choice: str | None, confidence: float = 0.9, **kw: object) -> Behaviour:
     async def act(request: Request) -> Answer | None:
         return Answer("x", choice, confidence, **kw)  # type: ignore[arg-type]
+
     return act
 
 
@@ -99,7 +101,9 @@ async def test_the_first_confident_valid_answer_wins_and_later_deciders_are_not_
 
 
 async def test_a_decider_that_is_not_sure_enough_falls_through_to_the_next() -> None:
-    p, sink = pipe(settings(step("rules", 0.8), step("match")), Fake("rules", says("a", 0.79)), Fake("match", says("c", 0.6)))
+    p, sink = pipe(
+        settings(step("rules", 0.8), step("match")), Fake("rules", says("a", 0.79)), Fake("match", says("c", 0.6))
+    )
     out = await p.decide(Kind.PICK, "t", OPTIONS, CTX)
     assert (out.choice, out.decider) == ("c", "match")
     assert "rules was not sure enough" in sink.records[0].reason
@@ -155,6 +159,7 @@ async def test_an_impossible_confidence_is_refused(confidence: float) -> None:
 async def test_a_decider_that_returns_the_wrong_type_is_refused() -> None:
     async def junk(request: Request) -> Answer | None:
         return "a"  # type: ignore[return-value]
+
     p, _ = pipe(settings(step("rules")), Fake("rules", junk))
     assert (await p.decide(Kind.PICK, "t", OPTIONS, CTX)).choice is None
 
@@ -227,7 +232,7 @@ async def test_a_task_may_only_ask_so_many_questions() -> None:
     got = [(await p.decide(Kind.PICK, "t1", OPTIONS, CTX)).choice for _ in range(4)]
     assert got == ["a", "a", None, None]
     assert "decision allowance" in sink.records[2].reason
-    assert (await p.decide(Kind.PICK, "t2", OPTIONS, CTX)).choice == "a"      # another task has its own allowance
+    assert (await p.decide(Kind.PICK, "t2", OPTIONS, CTX)).choice == "a"  # another task has its own allowance
 
 
 async def test_tokens_spent_by_a_model_decider_reduce_what_is_left_for_the_task() -> None:
@@ -278,7 +283,10 @@ async def test_the_per_task_bookkeeping_is_bounded() -> None:
 
 # ---- property test ----------------------------------------------------------------------------------------
 def _random_behaviour(rng: random.Random) -> Behaviour:
-    kind = rng.choice(["valid", "valid", "valid", "stranger", "none", "boom", "bad_conf", "bad_rank", "junk"] + (["slow"] if rng.random() < 0.15 else []))
+    kind = rng.choice(
+        ["valid", "valid", "valid", "stranger", "none", "boom", "bad_conf", "bad_rank", "junk"]
+        + (["slow"] if rng.random() < 0.15 else [])
+    )
 
     async def act(request: Request) -> Answer | None:
         ids = [o.id for o in request.options]
@@ -294,6 +302,7 @@ def _random_behaviour(rng: random.Random) -> Behaviour:
         conf = rng.choice([float("nan"), 5.0, -2.0]) if kind == "bad_conf" else rng.random()
         rank = ("stranger",) if kind == "bad_rank" else tuple(rng.sample(ids, len(ids)))
         return Answer("x", choice, conf, rank, rng.randint(-5, 500))
+
     return act
 
 
@@ -308,8 +317,12 @@ async def test_random_configs_and_behaviours_never_escape_the_offered_options() 
         kind = rng.choice(list(Kind))
         chain = tuple(ChainStep(n, rng.random(), 0.05) for n in rng.sample(names, rng.randint(0, 4)))
         shadow = rng.random() < 0.3
-        cfg = DecisionSettings(rng.random() < 0.9, rng.randint(1, 4), rng.randint(0, 300),
-                               {k.value: KindSettings(rng.random() < 0.9, shadow, chain) for k in Kind})
+        cfg = DecisionSettings(
+            rng.random() < 0.9,
+            rng.randint(1, 4),
+            rng.randint(0, 300),
+            {k.value: KindSettings(rng.random() < 0.9, shadow, chain) for k in Kind},
+        )
         registry: dict[str, Decider] = {n: Fake(n, _random_behaviour(rng)) for n in names if rng.random() < 0.8}
         options = tuple(Option(f"id{i}", f"label {i}") for i in range(rng.randint(0, 5)))
         sink = ListSink(fail=rng.random() < 0.1)
@@ -346,6 +359,7 @@ async def test_a_decider_that_appears_later_is_used_without_rebuilding_the_pipel
 
 # ---- Laya assist: the two extra questions and getting ready for them ---------------------------------------
 
+
 @pytest.mark.parametrize("kind, yes, no", [(Kind.PLAN, "fits", "off"), (Kind.REPLY, "follows", "drifts")])
 async def test_the_new_questions_act_when_asked_to_and_only_log_in_watch_mode(kind: Kind, yes: str, no: str) -> None:
     options = (Option(yes), Option(no))
@@ -380,16 +394,16 @@ async def test_preparing_warms_the_deciders_of_an_active_question_that_can_warm_
     p, _ = pipe(settings(step("small_model"), step("laya"), kind=Kind.PLAN), laya, small)
     p.prepare(Kind.PLAN)
     p.prepare(Kind.PLAN)
-    assert laya.warmed == 2           # asking again is the decider's own business: warm() is idempotent
-    assert small.requests == []       # nothing is asked, only warmed
+    assert laya.warmed == 2  # asking again is the decider's own business: warm() is idempotent
+    assert small.requests == []  # nothing is asked, only warmed
 
 
 async def test_preparing_does_nothing_for_a_question_that_is_off_or_whose_decider_is_missing() -> None:
     laya = Warmer("laya", silent)
     p, _ = pipe(settings(step("laya"), kind=Kind.PLAN), laya)
-    p.prepare(Kind.REPLY)                                             # not switched on
+    p.prepare(Kind.REPLY)  # not switched on
     assert laya.warmed == 0
-    gone, _ = pipe(settings(step("laya"), kind=Kind.PLAN))            # switched on, Laya not installed
+    gone, _ = pipe(settings(step("laya"), kind=Kind.PLAN))  # switched on, Laya not installed
     gone.prepare(Kind.PLAN)
     off, _ = pipe(settings(step("laya"), kind=Kind.PLAN, enabled=False), laya)
     off.prepare(Kind.PLAN)

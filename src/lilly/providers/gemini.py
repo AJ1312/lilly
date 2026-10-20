@@ -1,4 +1,5 @@
 """Adapter for the Google Gemini API with native function calling."""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,7 @@ _TYPE_MAP = {
 
 def to_gemini_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
     """Convert JSON Schema to the subset accepted by Google Gemini function declarations.
-    
+
     Verified against ai.google.dev/api/rest/v1beta/models/generateContent:
     - Types must be uppercase: STRING, INTEGER, NUMBER, BOOLEAN, ARRAY, OBJECT
     - Supported fields: type, description, properties, required, items, enum
@@ -93,8 +94,14 @@ def _format_gemini_tool(t: ToolSchema) -> dict[str, Any]:
 class GeminiProvider(Provider):
     name = "gemini"
 
-    def __init__(self, client: httpx.AsyncClient, keys: KeyStore, key_ref: str, model_id: str,
-                 base_url: str = "https://generativelanguage.googleapis.com/v1beta") -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        keys: KeyStore,
+        key_ref: str,
+        model_id: str,
+        base_url: str = "https://generativelanguage.googleapis.com/v1beta",
+    ) -> None:
         self._client, self._keys, self._key_ref = client, keys, key_ref
         self._model_id, self._base_url = model_id, base_url.rstrip("/")
 
@@ -117,28 +124,32 @@ class GeminiProvider(Provider):
             elif m.role == "tool":
                 # In Gemini, tool responses are user turns with functionResponse parts
                 func_name = wire_name(m.tool_call_id or "")
-                contents.append({
-                    "role": "user",
-                    "parts": [
-                        {
-                            "functionResponse": {
-                                "name": func_name,
-                                "response": {"output": m.content},
+                contents.append(
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "functionResponse": {
+                                    "name": func_name,
+                                    "response": {"output": m.content},
+                                }
                             }
-                        }
-                    ],
-                })
+                        ],
+                    }
+                )
             elif m.role == "assistant":
                 parts: list[dict[str, Any]] = []
                 if m.content:
                     parts.append({"text": m.content})
                 for tc in m.tool_calls:
-                    parts.append({
-                        "functionCall": {
-                            "name": wire_name(tc.name),
-                            "args": dict(tc.arguments or {}),
+                    parts.append(
+                        {
+                            "functionCall": {
+                                "name": wire_name(tc.name),
+                                "args": dict(tc.arguments or {}),
+                            }
                         }
-                    })
+                    )
                 if not parts:
                     parts.append({"text": ""})
                 contents.append({"role": "model", "parts": parts})
@@ -149,8 +160,14 @@ class GeminiProvider(Provider):
                         raw = await asyncio.to_thread(_read_image, image_path)
                     except (OSError, ValueError) as exc:
                         raise ProviderError(retryable=False) from exc
-                    user_parts.append({"inline_data": {"mime_type": mimetypes.guess_type(image_path)[0] or "image/png",
-                                                        "data": base64.b64encode(raw).decode("ascii")}})
+                    user_parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": mimetypes.guess_type(image_path)[0] or "image/png",
+                                "data": base64.b64encode(raw).decode("ascii"),
+                            }
+                        }
+                    )
                 contents.append({"role": "user", "parts": user_parts})
 
         config: dict[str, Any] = {"maxOutputTokens": req.max_tokens, "temperature": req.temperature}
@@ -162,16 +179,15 @@ class GeminiProvider(Provider):
             body["systemInstruction"] = {"parts": [{"text": system}]}
 
         if req.tools:
-            body["tools"] = [
-                {
-                    "functionDeclarations": [_format_gemini_tool(t) for t in req.tools]
-                }
-            ]
+            body["tools"] = [{"functionDeclarations": [_format_gemini_tool(t) for t in req.tools]}]
 
         data = await post_json(
-            self._client, f"{self._base_url}/models/{self._model_id}:generateContent",
+            self._client,
+            f"{self._base_url}/models/{self._model_id}:generateContent",
             headers={"x-goog-api-key": secret.reveal(), "Content-Type": "application/json"},
-            body=body, deadline_s=req.deadline_s)
+            body=body,
+            deadline_s=req.deadline_s,
+        )
         try:
             cand = data["candidates"][0]
             parts = cand.get("content", {}).get("parts", [])
@@ -184,13 +200,15 @@ class GeminiProvider(Provider):
                     fn_name = unwire_name(str(fc.get("name", "")))
                     args = fc.get("args") or {}
                     tc_id = str(fc.get("id") or f"call_{uuid.uuid4().hex[:8]}")
-                    tool_calls.append(ModelToolCall(
-                        id=tc_id,
-                        name=fn_name,
-                        arguments=args,
-                        raw=json.dumps(args),
-                        error=None,
-                    ))
+                    tool_calls.append(
+                        ModelToolCall(
+                            id=tc_id,
+                            name=fn_name,
+                            arguments=args,
+                            raw=json.dumps(args),
+                            error=None,
+                        )
+                    )
 
             usage = data.get("usageMetadata") or {}
             cached_tokens = int(usage.get("cachedContentTokenCount", 0))

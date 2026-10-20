@@ -2,6 +2,7 @@
 
 What this proves is how Lilly calls the engine and handles its output, exit codes, silence and runaway output. That a
 real Docker or Podman accepts these arguments is checked by hand (docs/VERIFICATION.md)."""
+
 from __future__ import annotations
 
 import stat
@@ -95,7 +96,7 @@ async def test_output_is_streamed_whole_so_far_and_the_exit_code_comes_back(engi
     result = await engine.run(["exec", "ok"], 10, seen.append)
     assert (result.exit_code, result.output, result.timed_out) == (0, "one\ntwo\n", False) and seen[-1] == "one\ntwo\n"
     failed = await engine.run(["exec", "fail"], 10, None)
-    assert failed.exit_code == 3 and "boom" in failed.output          # errors and output arrive together
+    assert failed.exit_code == 3 and "boom" in failed.output  # errors and output arrive together
 
 
 async def test_runaway_output_is_cut_to_its_tail_without_filling_memory(engine: CliEngine) -> None:

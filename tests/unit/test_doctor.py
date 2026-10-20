@@ -70,7 +70,12 @@ def install_marker(tmp_path: Path, **marker: str) -> None:
 
 def test_laya_not_being_installed_is_fine_and_says_how_to_start(tmp_path: Path) -> None:
     line = laya_line(tmp_path)
-    assert line.ok and "not installed" in line.detail and "works fully without it" in line.detail and "lilly laya check" in line.detail
+    assert (
+        line.ok
+        and "not installed" in line.detail
+        and "works fully without it" in line.detail
+        and "lilly laya check" in line.detail
+    )
 
 
 def test_an_installed_laya_is_reported_as_off_until_it_is_turned_on(tmp_path: Path) -> None:

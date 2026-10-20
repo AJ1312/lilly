@@ -493,30 +493,40 @@ export const WorkspaceView: React.FC = () => {
                                 fontSize: '11px',
                                 fontFamily: 'var(--font-mono)',
                                 overflowX: 'auto',
+                                maxWidth: '100%',
+                                minWidth: 0,
                               }}
                             >
-                              <pre style={{ margin: 0 }}>{JSON.stringify(st.args, null, 2)}</pre>
-                            </div>
-                          )}
-
-                          {st.result !== undefined && (
-                            <div
-                              style={{
-                                backgroundColor: 'var(--bg-card)',
-                                padding: '6px 8px',
-                                borderRadius: 'var(--radius-xs)',
-                                fontSize: '11px',
-                                fontFamily: 'var(--font-mono)',
-                                overflowX: 'auto',
-                                maxHeight: '120px',
-                                border: '1px solid var(--border-subtle)',
-                              }}
-                            >
-                              <pre style={{ margin: 0 }}>
-                                {typeof st.result === 'string' ? st.result : JSON.stringify(st.result, null, 2)}
+                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {JSON.stringify(st.args, null, 2)}
                               </pre>
                             </div>
                           )}
+
+                          {(() => {
+                            const outputVal = (st as any).output !== undefined ? (st as any).output : st.result
+                            if (outputVal === undefined) return null
+                            return (
+                              <div
+                                style={{
+                                  backgroundColor: 'var(--bg-card)',
+                                  padding: '6px 8px',
+                                  borderRadius: 'var(--radius-xs)',
+                                  fontSize: '11px',
+                                  fontFamily: 'var(--font-mono)',
+                                  overflowX: 'auto',
+                                  maxHeight: '140px',
+                                  border: '1px solid var(--border-subtle)',
+                                  maxWidth: '100%',
+                                  minWidth: 0,
+                                }}
+                              >
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {typeof outputVal === 'string' ? outputVal : JSON.stringify(outputVal, null, 2)}
+                                </pre>
+                              </div>
+                            )
+                          })()}
                         </div>
                       ))
                     )}

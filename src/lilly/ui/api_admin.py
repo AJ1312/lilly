@@ -1,4 +1,5 @@
 """Signing in, settings, models and keys, security controls, and the user's data (backup, export)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -106,15 +107,24 @@ async def get_settings(request: Request) -> Response:
     for row in rt.router.status():
         s = specs.get(str(row["name"]))
         if s is not None:
-            rows.append({**row, "caps": [c.name for c in type(s.caps) if c and c in s.caps],
-                         "max_label": s.max_label.name, "private_access": s.private_access, "trains": s.trains})
+            rows.append(
+                {
+                    **row,
+                    "caps": [c.name for c in type(s.caps) if c and c in s.caps],
+                    "max_label": s.max_label.name,
+                    "private_access": s.private_access,
+                    "trains": s.trains,
+                }
+            )
         else:
             rows.append(row)
-    return JSONResponse({
-        "settings": settings_to_dict(rt.settings),
-        "problems": rt.settings_problems,
-        "models": rows,
-    })
+    return JSONResponse(
+        {
+            "settings": settings_to_dict(rt.settings),
+            "problems": rt.settings_problems,
+            "models": rows,
+        }
+    )
 
 
 async def put_settings(request: Request) -> Response:
@@ -148,8 +158,15 @@ async def list_models(request: Request) -> Response:
     rows = []
     for row in rt.router.status():
         s = specs[str(row["name"])]
-        rows.append({**row, "caps": [c.name for c in type(s.caps) if c and c in s.caps],
-                     "max_label": s.max_label.name, "private_access": s.private_access, "trains": s.trains})
+        rows.append(
+            {
+                **row,
+                "caps": [c.name for c in type(s.caps) if c and c in s.caps],
+                "max_label": s.max_label.name,
+                "private_access": s.private_access,
+                "trains": s.trains,
+            }
+        )
     return JSONResponse({"models": rows, "permissions": len(rt.grants)})
 
 
@@ -162,8 +179,15 @@ async def discover_ollama(request: Request) -> Response:
     status = await runtime(request).router.discover_ollama(request.path_params["name"])
     if status is None:
         raise NotFound(request.path_params["name"])
-    return JSONResponse({"reachable": status.reachable, "version": status.version, "models": list(status.models),
-                         "model_ready": status.model_ready, "message": status.message})
+    return JSONResponse(
+        {
+            "reachable": status.reachable,
+            "version": status.version,
+            "models": list(status.models),
+            "model_ready": status.model_ready,
+            "message": status.message,
+        }
+    )
 
 
 async def revoke_permissions(request: Request) -> Response:
@@ -174,9 +198,12 @@ async def list_keys(request: Request) -> Response:
     rt = runtime(request)
     refs = _key_refs(rt)
     present = await asyncio.to_thread(lambda: [rt.keys.get(r) is not None for r in refs])
-    return JSONResponse({"store": {"kind": getattr(rt.keys, "kind", "unknown"),
-                                   "secure": bool(getattr(rt.keys, "secure", False))},
-                         "keys": [{"ref": r, "present": p} for r, p in zip(refs, present, strict=True)]})
+    return JSONResponse(
+        {
+            "store": {"kind": getattr(rt.keys, "kind", "unknown"), "secure": bool(getattr(rt.keys, "secure", False))},
+            "keys": [{"ref": r, "present": p} for r, p in zip(refs, present, strict=True)],
+        }
+    )
 
 
 def _known_ref(request: Request) -> str:
@@ -211,15 +238,29 @@ async def system_info(request: Request) -> Response:
     rt = runtime(request)
     stats: dict[str, Any] = await asyncio.to_thread(collect_stats, 5)
     m = rt.maintenance
-    return JSONResponse({
-        "version": __version__, "python": sys.version.split()[0], "platform": platform.platform(),
-        "home": str(rt.paths.root), "uptime_s": round(rt.clock() - rt.started_at),
-        "running_tasks": rt.orchestrator.active_count, "pending_approvals": len(rt.approvals.pending()),
-        "stay_awake_active": rt.power.holding, "settings_problems": rt.settings_problems,
-        "key_store": {"kind": getattr(rt.keys, "kind", "unknown"), "secure": bool(getattr(rt.keys, "secure", False))},
-        "maintenance": {"last_backup": m.last_backup or None, "last_backup_file": m.last_backup_file,
-                        "integrity_ok": m.integrity_ok},
-        "stats": stats})
+    return JSONResponse(
+        {
+            "version": __version__,
+            "python": sys.version.split()[0],
+            "platform": platform.platform(),
+            "home": str(rt.paths.root),
+            "uptime_s": round(rt.clock() - rt.started_at),
+            "running_tasks": rt.orchestrator.active_count,
+            "pending_approvals": len(rt.approvals.pending()),
+            "stay_awake_active": rt.power.holding,
+            "settings_problems": rt.settings_problems,
+            "key_store": {
+                "kind": getattr(rt.keys, "kind", "unknown"),
+                "secure": bool(getattr(rt.keys, "secure", False)),
+            },
+            "maintenance": {
+                "last_backup": m.last_backup or None,
+                "last_backup_file": m.last_backup_file,
+                "integrity_ok": m.integrity_ok,
+            },
+            "stats": stats,
+        }
+    )
 
 
 _SELF = psutil.Process()
@@ -239,9 +280,15 @@ def _footprint(rt: Runtime) -> dict[str, Any]:
     with _SELF.oneshot():
         mem, threads, cpu = _SELF.memory_info().rss, _SELF.num_threads(), _SELF.cpu_percent(interval=None)
     db_bytes = sum(f.stat().st_size for f in rt.paths.db.parent.glob(rt.paths.db.name + "*") if f.is_file())
-    return {"pid": _SELF.pid, "cpu_percent": round(cpu, 1), "memory_bytes": mem, "threads": threads,
-            "database_bytes": db_bytes, "backups_bytes": _folder_bytes(rt.paths.backups),
-            "logs_bytes": _folder_bytes(rt.paths.log)}
+    return {
+        "pid": _SELF.pid,
+        "cpu_percent": round(cpu, 1),
+        "memory_bytes": mem,
+        "threads": threads,
+        "database_bytes": db_bytes,
+        "backups_bytes": _folder_bytes(rt.paths.backups),
+        "logs_bytes": _folder_bytes(rt.paths.log),
+    }
 
 
 async def resources(request: Request) -> Response:
@@ -251,16 +298,29 @@ async def resources(request: Request) -> Response:
     machine, footprint = await asyncio.gather(asyncio.to_thread(collect_stats, 8), asyncio.to_thread(_footprint, rt))
     live = tasks.list_tasks(rt.db.reader, states=tuple(s for s in TaskState if s not in TERMINAL), limit=50)
     lim = rt.settings.limits
-    return JSONResponse({
-        "machine": machine, "lilly": footprint,
-        "tasks": {"running": rt.orchestrator.running_count, "queued": rt.orchestrator.queued_count,
-                  "waiting_approval": len(rt.approvals.pending()),
-                  "live": [{"id": t.id, "goal": t.goal[:120], "state": t.state.value, "created_at": t.created_at}
-                           for t in live]},
-        "limits": {"max_running": lim.max_running, "step_timeout_s": lim.step_timeout_s, "task_minutes": lim.task_minutes,
-                   "lanes": lim.lanes, "local_unload_s": lim.local_unload_s},
-        "models": rt.router.status(),
-        "stay_awake_active": rt.power.holding})
+    return JSONResponse(
+        {
+            "machine": machine,
+            "lilly": footprint,
+            "tasks": {
+                "running": rt.orchestrator.running_count,
+                "queued": rt.orchestrator.queued_count,
+                "waiting_approval": len(rt.approvals.pending()),
+                "live": [
+                    {"id": t.id, "goal": t.goal[:120], "state": t.state.value, "created_at": t.created_at} for t in live
+                ],
+            },
+            "limits": {
+                "max_running": lim.max_running,
+                "step_timeout_s": lim.step_timeout_s,
+                "task_minutes": lim.task_minutes,
+                "lanes": lim.lanes,
+                "local_unload_s": lim.local_unload_s,
+            },
+            "models": rt.router.status(),
+            "stay_awake_active": rt.power.holding,
+        }
+    )
 
 
 async def backup_now(request: Request) -> Response:
@@ -275,8 +335,9 @@ async def prune_now(request: Request) -> Response:
 async def export_data(request: Request) -> Response:
     rt = runtime(request)
     body = json.dumps(rt.export_all(), indent=1)
-    return Response(body, media_type="application/json",
-                    headers={"Content-Disposition": 'attachment; filename="lilly-export.json"'})
+    return Response(
+        body, media_type="application/json", headers={"Content-Disposition": 'attachment; filename="lilly-export.json"'}
+    )
 
 
 async def health(request: Request) -> Response:
@@ -309,44 +370,49 @@ async def get_capacity(request: Request) -> Response:
         for r in rows
     ]
     est_tasks = min((r.estimated_tasks_left for r in rows if r.estimated_tasks_left is not None), default=None)
-    return JSONResponse({
-        "models": models,
-        "queue_length": q_len,
-        "estimated_tasks_left_today": est_tasks,
-    })
+    return JSONResponse(
+        {
+            "models": models,
+            "queue_length": q_len,
+            "estimated_tasks_left_today": est_tasks,
+        }
+    )
 
 
 async def get_catalog(request: Request) -> Response:
     """Serve provider catalog entries."""
     from lilly.providers.catalog import load_catalog
+
     entries = load_catalog()
-    return JSONResponse([
-        {
-            "id": e.id,
-            "name": e.name,
-            "provider": e.provider,
-            "model_id": e.model_id,
-            "base_url": e.base_url,
-            "openai_compatible": e.openai_compatible,
-            "starter": e.starter,
-            "enabled": e.enabled,
-            "local": e.local,
-            "lane": e.lane,
-            "tags": list(e.tags),
-            "caps": list(e.caps),
-            "key_ref": e.key_ref,
-            "free_tier": {
-                "rpm": e.free_tier.rpm,
-                "rpd": e.free_tier.rpd,
-                "tpm": e.free_tier.tpm,
-                "tpd": e.free_tier.tpd,
-                "notes": e.free_tier.notes,
-            },
-            "tools": e.tools,
-            "max_context_tokens": e.max_context_tokens,
-            "source_url": e.source_url,
-            "verified_on": e.verified_on,
-            "confidence": e.confidence,
-        }
-        for e in entries
-    ])
+    return JSONResponse(
+        [
+            {
+                "id": e.id,
+                "name": e.name,
+                "provider": e.provider,
+                "model_id": e.model_id,
+                "base_url": e.base_url,
+                "openai_compatible": e.openai_compatible,
+                "starter": e.starter,
+                "enabled": e.enabled,
+                "local": e.local,
+                "lane": e.lane,
+                "tags": list(e.tags),
+                "caps": list(e.caps),
+                "key_ref": e.key_ref,
+                "free_tier": {
+                    "rpm": e.free_tier.rpm,
+                    "rpd": e.free_tier.rpd,
+                    "tpm": e.free_tier.tpm,
+                    "tpd": e.free_tier.tpd,
+                    "notes": e.free_tier.notes,
+                },
+                "tools": e.tools,
+                "max_context_tokens": e.max_context_tokens,
+                "source_url": e.source_url,
+                "verified_on": e.verified_on,
+                "confidence": e.confidence,
+            }
+            for e in entries
+        ]
+    )

@@ -36,6 +36,7 @@ export interface Task {
   cost_usd?: number
   tokens_used?: number
   duration_s?: number
+  steps?: StepRecord[]
 }
 
 export interface StepRecord {
@@ -137,11 +138,14 @@ export interface Agent {
 
 export interface Memory {
   id: string
-  fact: string
+  fact?: string
+  text?: string
   category?: string
+  tags?: string[]
   confidence?: number
   created_at: number
-  updated_at: number
+  at?: number
+  updated_at?: number
   source_task_id?: string | null
 }
 

@@ -1,4 +1,5 @@
 """Plans are validated against the registry; skills are pinned data that can never raise risk."""
+
 from __future__ import annotations
 
 import pytest
@@ -39,8 +40,16 @@ def test_every_builtin_skill_is_valid(name: str) -> None:
 
 
 def test_the_builtin_skills() -> None:
-    assert sorted(BUILTIN_SKILLS) == ["data-profile", "file-organizer", "job-search", "research", "resource-hogs", "run-and-explain",
-                                      "summarize-docs", "system-health"]
+    assert sorted(BUILTIN_SKILLS) == [
+        "data-profile",
+        "file-organizer",
+        "job-search",
+        "research",
+        "resource-hogs",
+        "run-and-explain",
+        "summarize-docs",
+        "system-health",
+    ]
 
 
 def test_a_skill_cannot_exceed_its_declared_risk() -> None:

@@ -1,4 +1,5 @@
 """The router routes around any failing model, not only ones that raise ProviderError."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -64,6 +65,7 @@ async def test_testing_a_model_that_raises_unexpectedly_reports_and_releases_the
 
 async def test_with_no_key_at_all_the_error_says_to_add_one(tmp_path: Path) -> None:
     from lilly.domain.errors import NoModelAvailable
+
     db = Database(tmp_path / "lilly.db")
     client = httpx.AsyncClient()
     r = ModelRouter(Settings(models=(ModelSpec("m", "mistral", "m"),)), MemoryKeyStore({}), client, db, GrantStore())
@@ -91,18 +93,26 @@ async def test_a_refusal_for_rate_stops_that_model_being_tried_again_and_teaches
 
     db = Database(tmp_path / "lilly.db")
     client = httpx.AsyncClient()
-    r = ModelRouter(Settings(models=(ModelSpec("a", "mistral", "m"), ModelSpec("b", "gemini", "m")), capacity=CapacitySettings(spread="ordered")),
-                    MemoryKeyStore({"mistral": "k", "gemini": "k"}), client, db, GrantStore())
+    r = ModelRouter(
+        Settings(
+            models=(ModelSpec("a", "mistral", "m"), ModelSpec("b", "gemini", "m")),
+            capacity=CapacitySettings(spread="ordered"),
+        ),
+        MemoryKeyStore({"mistral": "k", "gemini": "k"}),
+        client,
+        db,
+        GrantStore(),
+    )
     await r.start()
     r._providers = {"a": Limited(), "b": Healthy()}
     try:
         for _ in range(3):
             assert (await r.complete(REQ)).model == "a"
-        assert (await r.complete(REQ)).model == "b"            # a refused: b answered
+        assert (await r.complete(REQ)).model == "b"  # a refused: b answered
         assert (await r.complete(REQ)).model == "b"
-        assert Limited.calls == 4                              # a was not asked again while it was told to wait
+        assert Limited.calls == 4  # a was not asked again while it was told to wait
         row = next(x for x in r.status() if x["name"] == "a")
-        assert row["suggested_rpm"] == 2                       # three worked in the minute: 90% of that, rounded down
+        assert row["suggested_rpm"] == 2  # three worked in the minute: 90% of that, rounded down
     finally:
         await client.aclose()
         db.close()

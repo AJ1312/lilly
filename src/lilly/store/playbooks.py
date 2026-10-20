@@ -1,4 +1,5 @@
 """Playbooks: versioned reusable workflow templates extracted from successful tasks."""
+
 from __future__ import annotations
 
 import json
@@ -9,8 +10,10 @@ from typing import Any
 from lilly.domain.errors import NotFound, ValidationFailed
 from lilly.domain.tasks import ExecutionTarget
 
-_COLS = ("id, name, description, task_signature, version, steps_json, parameters_json, "
-         "preconditions_json, target, provenance_task_id, success_count, status, created_at, updated_at")
+_COLS = (
+    "id, name, description, task_signature, version, steps_json, parameters_json, "
+    "preconditions_json, target, provenance_task_id, success_count, status, created_at, updated_at"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,8 +89,20 @@ def create_playbook(
     precond_json = json.dumps(preconditions or {})
     con.execute(
         f"INSERT INTO playbooks({_COLS}) VALUES(?,?,?,?,1,?,?,?,?,?,1,?,?,?)",
-        (id, name, description, sig, steps_json, params_json, precond_json,
-         target.value, provenance_task_id, status, now, now),
+        (
+            id,
+            name,
+            description,
+            sig,
+            steps_json,
+            params_json,
+            precond_json,
+            target.value,
+            provenance_task_id,
+            status,
+            now,
+            now,
+        ),
     )
     row = get_playbook(con, id)
     assert row is not None

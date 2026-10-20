@@ -1,4 +1,5 @@
 """In-process event bus feeding the live event stream (SSE)."""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,5 @@
 """When backups happen: not at every start, never at the cost of good copies, and not in a tight retry loop."""
+
 from __future__ import annotations
 
 import asyncio
@@ -40,7 +41,7 @@ async def test_a_restart_does_not_take_another_backup_when_a_recent_one_exists(p
     files = old_backups(paths, 2, age_s=600)
     rt = await start(paths)
     try:
-        await asyncio.sleep(0.2)                        # housekeeping has had its first pass
+        await asyncio.sleep(0.2)  # housekeeping has had its first pass
         assert rt.maintenance.last_backup == pytest.approx(files[-1].stat().st_mtime)
         assert rt.maintenance.last_backup_file == files[-1].name
         assert sorted(p.name for p in paths.backups.glob("*.db")) == [f.name for f in files]
@@ -48,7 +49,9 @@ async def test_a_restart_does_not_take_another_backup_when_a_recent_one_exists(p
         await rt.close()
 
 
-async def test_a_damaged_database_never_pushes_good_backups_out(paths: LillyPaths, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_damaged_database_never_pushes_good_backups_out(
+    paths: LillyPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
     files = old_backups(paths, snapshot.MAX_BACKUPS, age_s=3 * 86400)
     monkeypatch.setattr(snapshot, "integrity_ok", lambda con: False)
     rt = await start(paths)
@@ -60,7 +63,9 @@ async def test_a_damaged_database_never_pushes_good_backups_out(paths: LillyPath
         await rt.close()
 
 
-async def test_a_failing_backup_is_not_retried_every_few_seconds(paths: LillyPaths, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_failing_backup_is_not_retried_every_few_seconds(
+    paths: LillyPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
     attempts = 0
 
     async def failing(self: Runtime) -> Path:

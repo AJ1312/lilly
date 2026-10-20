@@ -1,4 +1,5 @@
 """Tests for stdlib JSON Schema validator in lilly.domain.schema."""
+
 from __future__ import annotations
 
 import pytest

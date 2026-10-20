@@ -9,6 +9,7 @@ Validates:
 6. Reduced unnecessary calls (repeated failed call prevention, read caching, namespace invalidation, summarization gate)
 7. Cost measurement (provider-reported tokens, latency, cache hits)
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -41,6 +42,7 @@ from lilly.store.readcache import IDEMPOTENT_TOOLS, ReadCache
 # ---------------------------------------------------------------------------
 # 1. Smart Routing Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_smart_routing_deterministic_first() -> None:
@@ -117,6 +119,7 @@ async def test_smart_routing_laya_for_uncertainty() -> None:
 # 2. Lazy Tool Loading & Schema Caching Tests
 # ---------------------------------------------------------------------------
 
+
 def test_provider_schema_caching() -> None:
     """Stable tool schemas are cached across provider calls."""
     schema = ToolSchema(
@@ -148,6 +151,7 @@ def test_provider_schema_caching() -> None:
 # 3. Prompt Caching Tokens Tracking Tests
 # ---------------------------------------------------------------------------
 
+
 def test_completion_result_tracks_cached_tokens() -> None:
     """CompletionResult captures cached_tokens reported by providers."""
     result = CompletionResult(
@@ -164,6 +168,7 @@ def test_completion_result_tracks_cached_tokens() -> None:
 # ---------------------------------------------------------------------------
 # 4. Adaptive Context Compaction & Protection Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_adaptive_compaction_preserves_essential_elements() -> None:
@@ -219,6 +224,7 @@ def test_make_digest_includes_retrievable_reference() -> None:
 # 5. Read Cache Idempotency & Invalidation Tests
 # ---------------------------------------------------------------------------
 
+
 def test_read_cache_idempotency_and_invalidation() -> None:
     """ReadCache caches idempotent tools and invalidates on mutations."""
     cache = ReadCache()
@@ -253,6 +259,7 @@ def test_read_cache_idempotency_and_invalidation() -> None:
 # ---------------------------------------------------------------------------
 # 6. Unnecessary Summarization Avoidance Gate Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_summarization_gate_avoids_extra_model_calls() -> None:

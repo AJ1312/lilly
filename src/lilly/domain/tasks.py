@@ -1,4 +1,5 @@
 """Task lifecycle: the states a task can be in and the moves between them."""
+
 from __future__ import annotations
 
 from enum import Enum
@@ -50,14 +51,14 @@ class LoopAnswer(str):
         return instance
 
 
-TERMINAL: frozenset[TaskState] = frozenset(
-    {TaskState.DONE, TaskState.FAILED, TaskState.CANCELLED, TaskState.EXPIRED}
-)
+TERMINAL: frozenset[TaskState] = frozenset({TaskState.DONE, TaskState.FAILED, TaskState.CANCELLED, TaskState.EXPIRED})
 
 _S = TaskState
 _FORWARD: dict[TaskState, frozenset[TaskState]] = {
     _S.PENDING: frozenset({_S.PLANNING}),
-    _S.PLANNING: frozenset({_S.RUNNING, _S.DONE, _S.WAITING_APPROVAL}),  # DONE: direct answer; WAITING_APPROVAL: model grant
+    _S.PLANNING: frozenset(
+        {_S.RUNNING, _S.DONE, _S.WAITING_APPROVAL}
+    ),  # DONE: direct answer; WAITING_APPROVAL: model grant
     _S.RUNNING: frozenset({_S.WAITING_APPROVAL, _S.VERIFYING}),
     _S.WAITING_APPROVAL: frozenset({_S.PLANNING, _S.RUNNING, _S.EXPIRED}),
     _S.VERIFYING: frozenset({_S.DONE}),

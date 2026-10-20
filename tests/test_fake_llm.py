@@ -1,4 +1,5 @@
 """Tests for the FakeLLMServer (FAKE-01 and FAKE-02)."""
+
 from __future__ import annotations
 
 import httpx

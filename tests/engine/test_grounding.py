@@ -1,4 +1,5 @@
 """Tests for GroundingVerifier, ReceiptBuilder, and protected paths safety (GR-01..08)."""
+
 from __future__ import annotations
 
 import json
@@ -27,8 +28,7 @@ def test_gr_01_seen_urls_and_paths_kept() -> None:
     gv.record_step("fs.read", {"path": "/workspace/project/src/main.py"}, "code content")
 
     candidate = (
-        "I checked https://example.com/docs and found /workspace/project/src/main.py "
-        "and /workspace/project/README.md."
+        "I checked https://example.com/docs and found /workspace/project/src/main.py and /workspace/project/README.md."
     )
     ok, unseen = gv.verify(candidate)
     assert ok is True
@@ -278,4 +278,3 @@ def test_gr_additional_recording_coverage() -> None:
     assert gv.is_path_seen("/workspace/root/sub/c.txt") is True
     assert gv.is_path_seen("/workspace/root/d.txt") is True
     assert gv.is_path_seen("/workspace/root/any/nested/file.txt") is True
-

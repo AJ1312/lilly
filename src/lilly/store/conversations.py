@@ -1,4 +1,5 @@
 """Conversations and their messages."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -55,10 +56,13 @@ def _title(title: str) -> str:
     return title
 
 
-def create_conversation(con: sqlite3.Connection, id: str, title: str, now: float,
-                        space_id: str | None = None) -> ConversationRow:
-    con.execute("INSERT INTO conversations(id, space_id, title, created_at, updated_at) VALUES(?,?,?,?,?)",
-                (id, space_id, _title(title), now, now))
+def create_conversation(
+    con: sqlite3.Connection, id: str, title: str, now: float, space_id: str | None = None
+) -> ConversationRow:
+    con.execute(
+        "INSERT INTO conversations(id, space_id, title, created_at, updated_at) VALUES(?,?,?,?,?)",
+        (id, space_id, _title(title), now, now),
+    )
     row = get_conversation(con, id)
     assert row is not None
     return row
@@ -69,8 +73,9 @@ def get_conversation(con: sqlite3.Connection, conversation_id: str) -> Conversat
     return _conv(r) if r else None
 
 
-def list_conversations(con: sqlite3.Connection, *, include_archived: bool = False,
-                       space_id: str | None = None, limit: int = 100) -> list[ConversationRow]:
+def list_conversations(
+    con: sqlite3.Connection, *, include_archived: bool = False, space_id: str | None = None, limit: int = 100
+) -> list[ConversationRow]:
     where, args = [], []
     if not include_archived:
         where.append("archived=0")
@@ -81,13 +86,13 @@ def list_conversations(con: sqlite3.Connection, *, include_archived: bool = Fals
     return [_conv(r) for r in con.execute(sql + " ORDER BY updated_at DESC LIMIT ?", (*args, limit))]
 
 
-def update_conversation(con: sqlite3.Connection, conversation_id: str, now: float, *, title: str | None = None,
-                        archived: bool | None = None) -> ConversationRow:
+def update_conversation(
+    con: sqlite3.Connection, conversation_id: str, now: float, *, title: str | None = None, archived: bool | None = None
+) -> ConversationRow:
     if get_conversation(con, conversation_id) is None:
         raise NotFound(conversation_id)
     if title is not None:
-        con.execute("UPDATE conversations SET title=?, updated_at=? WHERE id=?",
-                    (_title(title), now, conversation_id))
+        con.execute("UPDATE conversations SET title=?, updated_at=? WHERE id=?", (_title(title), now, conversation_id))
     if archived is not None:
         con.execute("UPDATE conversations SET archived=? WHERE id=?", (int(archived), conversation_id))
     row = get_conversation(con, conversation_id)
@@ -100,8 +105,17 @@ def delete_conversation(con: sqlite3.Connection, conversation_id: str) -> None:
         raise NotFound(conversation_id)
 
 
-def add_message(con: sqlite3.Connection, conversation_id: str, role: str, content: str, now: float, *,
-                label: Label = Label.PUBLIC, untrusted: bool = False, task_id: str | None = None) -> MessageRow:
+def add_message(
+    con: sqlite3.Connection,
+    conversation_id: str,
+    role: str,
+    content: str,
+    now: float,
+    *,
+    label: Label = Label.PUBLIC,
+    untrusted: bool = False,
+    task_id: str | None = None,
+) -> MessageRow:
     if role not in ("user", "assistant"):
         raise ValidationFailed("role must be user or assistant")
     with tx(con):
@@ -110,23 +124,28 @@ def add_message(con: sqlite3.Connection, conversation_id: str, role: str, conten
         cur = con.execute(
             "INSERT INTO messages(conversation_id, task_id, role, content, label, untrusted, created_at) "
             "VALUES(?,?,?,?,?,?,?)",
-            (conversation_id, task_id, role, content[:MAX_CONTENT], int(label), int(untrusted), now))
+            (conversation_id, task_id, role, content[:MAX_CONTENT], int(label), int(untrusted), now),
+        )
         con.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now, conversation_id))
     row = con.execute(f"SELECT {_MSG} FROM messages WHERE id=?", (cur.lastrowid,)).fetchone()
     return _msg(row)
 
 
-def list_messages(con: sqlite3.Connection, conversation_id: str, *, after_id: int = 0,
-                  limit: int = 200) -> list[MessageRow]:
-    rows = con.execute(f"SELECT {_MSG} FROM messages WHERE conversation_id=? AND id>? ORDER BY id LIMIT ?",
-                       (conversation_id, after_id, limit)).fetchall()
+def list_messages(
+    con: sqlite3.Connection, conversation_id: str, *, after_id: int = 0, limit: int = 200
+) -> list[MessageRow]:
+    rows = con.execute(
+        f"SELECT {_MSG} FROM messages WHERE conversation_id=? AND id>? ORDER BY id LIMIT ?",
+        (conversation_id, after_id, limit),
+    ).fetchall()
     return [_msg(r) for r in rows]
 
 
 def recent_messages(con: sqlite3.Connection, conversation_id: str, limit: int) -> list[MessageRow]:
     """The last `limit` messages, oldest first: the history a new task starts from."""
-    rows = con.execute(f"SELECT {_MSG} FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT ?",
-                       (conversation_id, limit)).fetchall()
+    rows = con.execute(
+        f"SELECT {_MSG} FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT ?", (conversation_id, limit)
+    ).fetchall()
     return [_msg(r) for r in reversed(rows)]
 
 
@@ -139,5 +158,7 @@ def search_conversations(con: sqlite3.Connection, query: str, limit: int = 20) -
         f"SELECT {', '.join('c.' + c.strip() for c in _CONV.split(','))} FROM conversations c WHERE c.id IN ("
         "SELECT m.conversation_id FROM messages_fts f JOIN messages m ON m.id=f.rowid "
         "WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts) LIMIT 200) "
-        "ORDER BY c.updated_at DESC LIMIT ?", (q, limit)).fetchall()
+        "ORDER BY c.updated_at DESC LIMIT ?",
+        (q, limit),
+    ).fetchall()
     return [_conv(r) for r in rows]

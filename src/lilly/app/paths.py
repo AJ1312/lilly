@@ -1,4 +1,5 @@
 """The ~/.lilly folder layout, created private (0700) and refused if others can write to it."""
+
 from __future__ import annotations
 
 import os
@@ -19,8 +20,8 @@ class LillyPaths:
     config: Path
     db: Path
     settings: Path
-    token: Path       # the access token that signs you in to the UI
-    secret: Path      # signs session cookies; replacing it signs everyone out
+    token: Path  # the access token that signs you in to the UI
+    secret: Path  # signs session cookies; replacing it signs everyone out
 
 
 def init_paths(root: Path | str | None = None) -> LillyPaths:

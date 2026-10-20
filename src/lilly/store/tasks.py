@@ -1,4 +1,5 @@
 """Tasks and their steps."""
+
 from __future__ import annotations
 
 import json
@@ -12,9 +13,11 @@ from lilly.domain.tasks import TERMINAL, ExecutionTarget, TaskOutcome, TaskState
 from lilly.store.connection import tx
 from lilly.store.events import append_event
 
-_TASK_COLS = ("id, conversation_id, agent_id, state, goal, mode, label, tainted, skill, "
-              "plan_json, pinned_model, answer, error, created_at, updated_at, finished_at, "
-              "parent_task_id, depth, profile_json, outcome, outcome_reason, target")
+_TASK_COLS = (
+    "id, conversation_id, agent_id, state, goal, mode, label, tainted, skill, "
+    "plan_json, pinned_model, answer, error, created_at, updated_at, finished_at, "
+    "parent_task_id, depth, profile_json, outcome, outcome_reason, target"
+)
 _STEP_COLS = "step_id, position, tool, status, args_json, output, label, untrusted, error, started_at, finished_at"
 MAX_OUTPUT = 262_144
 MAX_ARGS = 16_384
@@ -83,9 +86,22 @@ def _task(r: tuple[Any, ...]) -> TaskRow:
         target = ExecutionTarget.HOST
 
     return TaskRow(
-        str(r[0]), r[1], r[2], TaskState(r[3]), str(r[4]), int(r[5]),
-        Label(r[6]), bool(r[7]), r[8], r[9], r[10], r[11], r[12],
-        float(r[13]), float(r[14]), r[15],
+        str(r[0]),
+        r[1],
+        r[2],
+        TaskState(r[3]),
+        str(r[4]),
+        int(r[5]),
+        Label(r[6]),
+        bool(r[7]),
+        r[8],
+        r[9],
+        r[10],
+        r[11],
+        r[12],
+        float(r[13]),
+        float(r[14]),
+        r[15],
         str(r[16]) if len(r) > 16 and r[16] is not None else None,
         int(r[17]) if len(r) > 17 and r[17] is not None else 0,
         str(r[18]) if len(r) > 18 and r[18] is not None else "{}",
@@ -95,16 +111,45 @@ def _task(r: tuple[Any, ...]) -> TaskRow:
     )
 
 
-def create_task(con: sqlite3.Connection, *, id: str, goal: str, mode: int,
-                label: Label, tainted: bool, now: float, conversation_id: str | None = None,
-                agent_id: str | None = None, skill: str | None = None,
-                pinned_model: str | None = None, parent_task_id: str | None = None,
-                depth: int = 0, profile_json: str = "{}",
-                target: ExecutionTarget = ExecutionTarget.HOST) -> TaskRow:
+def create_task(
+    con: sqlite3.Connection,
+    *,
+    id: str,
+    goal: str,
+    mode: int,
+    label: Label,
+    tainted: bool,
+    now: float,
+    conversation_id: str | None = None,
+    agent_id: str | None = None,
+    skill: str | None = None,
+    pinned_model: str | None = None,
+    parent_task_id: str | None = None,
+    depth: int = 0,
+    profile_json: str = "{}",
+    target: ExecutionTarget = ExecutionTarget.HOST,
+) -> TaskRow:
     con.execute(
         f"INSERT INTO tasks({_TASK_COLS}) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,NULL,NULL,?,?,NULL,?,?,?,'unverified',NULL,?)",
-        (id, conversation_id, agent_id, TaskState.PENDING.value, goal, mode, int(label),
-         int(tainted), skill, pinned_model, now, now, parent_task_id, depth, profile_json, target.value))
+        (
+            id,
+            conversation_id,
+            agent_id,
+            TaskState.PENDING.value,
+            goal,
+            mode,
+            int(label),
+            int(tainted),
+            skill,
+            pinned_model,
+            now,
+            now,
+            parent_task_id,
+            depth,
+            profile_json,
+            target.value,
+        ),
+    )
     task = get_task(con, id)
     assert task is not None
     return task
@@ -115,12 +160,16 @@ def get_task(con: sqlite3.Connection, task_id: str) -> TaskRow | None:
     return _task(r) if r else None
 
 
-def count_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None = None,
-                outcomes: tuple[TaskOutcome, ...] | None = None,
-                target: ExecutionTarget | None = None,
-                agent_id: str | None = None,
-                conversation_id: str | None = None,
-                query: str | None = None) -> int:
+def count_tasks(
+    con: sqlite3.Connection,
+    *,
+    states: tuple[TaskState, ...] | None = None,
+    outcomes: tuple[TaskOutcome, ...] | None = None,
+    target: ExecutionTarget | None = None,
+    agent_id: str | None = None,
+    conversation_id: str | None = None,
+    query: str | None = None,
+) -> int:
     where: list[str] = []
     args: list[Any] = []
     if states:
@@ -146,13 +195,19 @@ def count_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None
     return int(row[0]) if row else 0
 
 
-def list_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None = None,
-               outcomes: tuple[TaskOutcome, ...] | None = None,
-               target: ExecutionTarget | None = None,
-               agent_id: str | None = None,
-               conversation_id: str | None = None, before: float | None = None,
-               query: str | None = None,
-               offset: int = 0, limit: int = 50) -> list[TaskRow]:
+def list_tasks(
+    con: sqlite3.Connection,
+    *,
+    states: tuple[TaskState, ...] | None = None,
+    outcomes: tuple[TaskOutcome, ...] | None = None,
+    target: ExecutionTarget | None = None,
+    agent_id: str | None = None,
+    conversation_id: str | None = None,
+    before: float | None = None,
+    query: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> list[TaskRow]:
     where: list[str] = []
     args: list[Any] = []
     if states:
@@ -183,9 +238,17 @@ def list_tasks(con: sqlite3.Connection, *, states: tuple[TaskState, ...] | None 
     return [_task(r) for r in rows]
 
 
-def set_state(con: sqlite3.Connection, task_id: str, new: TaskState, now: float, *,
-              answer: str | None = None, error: str | None = None,
-              outcome: TaskOutcome | None = None, outcome_reason: str | None = None) -> TaskRow:
+def set_state(
+    con: sqlite3.Connection,
+    task_id: str,
+    new: TaskState,
+    now: float,
+    *,
+    answer: str | None = None,
+    error: str | None = None,
+    outcome: TaskOutcome | None = None,
+    outcome_reason: str | None = None,
+) -> TaskRow:
     """Move a task along its lifecycle. Illegal moves raise ConflictError; finished tasks never change."""
     with tx(con):
         task = get_task(con, task_id)
@@ -209,7 +272,8 @@ def set_state(con: sqlite3.Connection, task_id: str, new: TaskState, now: float,
             "UPDATE tasks SET state=?, updated_at=?, finished_at=?, answer=COALESCE(?, answer), "
             "error=COALESCE(?, error), outcome=COALESCE(?, outcome), outcome_reason=COALESCE(?, outcome_reason) "
             "WHERE id=?",
-            (new.value, now, now if new in TERMINAL else None, answer, error, outcome_val, outcome_reason, task_id))
+            (new.value, now, now if new in TERMINAL else None, answer, error, outcome_val, outcome_reason, task_id),
+        )
     updated = get_task(con, task_id)
     assert updated is not None
     return updated
@@ -217,8 +281,10 @@ def set_state(con: sqlite3.Connection, task_id: str, new: TaskState, now: float,
 
 def update_context(con: sqlite3.Connection, task_id: str, *, label: Label, tainted: bool, now: float) -> None:
     """Persist the task's running label and taint. Neither can ever go down."""
-    con.execute("UPDATE tasks SET label=MAX(label, ?), tainted=MAX(tainted, ?), updated_at=? WHERE id=?",
-                (int(label), int(tainted), now, task_id))
+    con.execute(
+        "UPDATE tasks SET label=MAX(label, ?), tainted=MAX(tainted, ?), updated_at=? WHERE id=?",
+        (int(label), int(tainted), now, task_id),
+    )
 
 
 def set_plan(con: sqlite3.Connection, task_id: str, plan_json: str, now: float) -> None:
@@ -230,34 +296,55 @@ def interrupt_unfinished(con: sqlite3.Connection, now: float) -> list[str]:
     with tx(con):
         ids = [r[0] for r in con.execute(f"SELECT id FROM tasks WHERE state NOT IN {_TERMINAL_SQL}")]
         for task_id in ids:
-            con.execute("UPDATE steps SET status='failed', error='interrupted', finished_at=? "
-                        "WHERE task_id=? AND status IN ('pending','running','waiting')", (now, task_id))
-            con.execute("UPDATE tasks SET state='FAILED', error='interrupted by a restart', updated_at=?, "
-                        "finished_at=? WHERE id=?", (now, now, task_id))
-            append_event(con, task_id, "state", {"state": "FAILED", "reason": "interrupted by a restart"},
-                         "system", now)
+            con.execute(
+                "UPDATE steps SET status='failed', error='interrupted', finished_at=? "
+                "WHERE task_id=? AND status IN ('pending','running','waiting')",
+                (now, task_id),
+            )
+            con.execute(
+                "UPDATE tasks SET state='FAILED', error='interrupted by a restart', updated_at=?, "
+                "finished_at=? WHERE id=?",
+                (now, now, task_id),
+            )
+            append_event(
+                con, task_id, "state", {"state": "FAILED", "reason": "interrupted by a restart"}, "system", now
+            )
     return ids
 
 
 # ---- steps -------------------------------------------------------------------
 def _step(r: tuple[Any, ...]) -> StepRow:
-    return StepRow(str(r[0]), int(r[1]), str(r[2]), str(r[3]), str(r[4]), r[5], Label(r[6]), bool(r[7]),
-                   r[8], r[9], r[10])
+    return StepRow(
+        str(r[0]), int(r[1]), str(r[2]), str(r[3]), str(r[4]), r[5], Label(r[6]), bool(r[7]), r[8], r[9], r[10]
+    )
 
 
 def create_steps(con: sqlite3.Connection, task_id: str, steps: list[tuple[str, str, str]]) -> None:
     """Record a plan's steps as pending, after any steps already recorded (a replan adds a second attempt).
     Each item is (step_id, tool, args_json)."""
     with tx(con):
-        start = con.execute("SELECT COALESCE(MAX(position) + 1, 0) FROM steps WHERE task_id=?", (task_id,)).fetchone()[0]
+        start = con.execute("SELECT COALESCE(MAX(position) + 1, 0) FROM steps WHERE task_id=?", (task_id,)).fetchone()[
+            0
+        ]
         con.executemany(
             "INSERT INTO steps(task_id, step_id, position, tool, status, args_json) VALUES(?,?,?,?,'pending',?)",
-            [(task_id, sid, start + i, tool, _clip_args(args)) for i, (sid, tool, args) in enumerate(steps)])
+            [(task_id, sid, start + i, tool, _clip_args(args)) for i, (sid, tool, args) in enumerate(steps)],
+        )
 
 
-def update_step(con: sqlite3.Connection, task_id: str, step_id: str, status: str, now: float, *,
-                output: str | None = None, label: Label = Label.PUBLIC, untrusted: bool = False,
-                error: str | None = None, args_json: str | None = None) -> None:
+def update_step(
+    con: sqlite3.Connection,
+    task_id: str,
+    step_id: str,
+    status: str,
+    now: float,
+    *,
+    output: str | None = None,
+    label: Label = Label.PUBLIC,
+    untrusted: bool = False,
+    error: str | None = None,
+    args_json: str | None = None,
+) -> None:
     started = now if status == "running" else None
     finished = now if status in ("done", "failed", "skipped") else None
     clipped = output if output is None or len(output) <= MAX_OUTPUT else output[:MAX_OUTPUT]
@@ -265,8 +352,19 @@ def update_step(con: sqlite3.Connection, task_id: str, step_id: str, status: str
         "UPDATE steps SET status=?, output=COALESCE(?, output), label=MAX(label, ?), "
         "untrusted=MAX(untrusted, ?), error=COALESCE(?, error), args_json=COALESCE(?, args_json), "
         "started_at=COALESCE(?, started_at), finished_at=COALESCE(?, finished_at) WHERE task_id=? AND step_id=?",
-        (status, clipped, int(label), int(untrusted), error,
-         _clip_args(args_json) if args_json else None, started, finished, task_id, step_id))
+        (
+            status,
+            clipped,
+            int(label),
+            int(untrusted),
+            error,
+            _clip_args(args_json) if args_json else None,
+            started,
+            finished,
+            task_id,
+            step_id,
+        ),
+    )
 
 
 def list_steps(con: sqlite3.Connection, task_id: str) -> list[StepRow]:
@@ -282,5 +380,3 @@ def get_step(con: sqlite3.Connection, task_id: str, step_id: str) -> StepRow | N
 def list_children(con: sqlite3.Connection, parent_task_id: str) -> list[TaskRow]:
     rows = con.execute(f"SELECT {_TASK_COLS} FROM tasks WHERE parent_task_id=?", (parent_task_id,)).fetchall()
     return [_task(r) for r in rows]
-
-

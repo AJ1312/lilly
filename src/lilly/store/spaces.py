@@ -1,4 +1,5 @@
 """Spaces (folders for notes, chats and agents) and the pages inside them."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -49,8 +50,10 @@ def create_space(con: sqlite3.Connection, id: str, name: str, description: str, 
     name = name.strip()
     if not 1 <= len(name) <= MAX_SPACE_NAME:
         raise ValidationFailed(f"space name must be 1 to {MAX_SPACE_NAME} characters")
-    con.execute("INSERT INTO spaces(id, name, description, created_at) VALUES(?,?,?,?)",
-                (id, name, description.strip()[:1000], now))
+    con.execute(
+        "INSERT INTO spaces(id, name, description, created_at) VALUES(?,?,?,?)",
+        (id, name, description.strip()[:1000], now),
+    )
     row = get_space(con, id)
     assert row is not None
     return row
@@ -65,8 +68,9 @@ def list_spaces(con: sqlite3.Connection) -> list[SpaceRow]:
     return [_space(r) for r in con.execute("SELECT id, name, description, created_at FROM spaces ORDER BY created_at")]
 
 
-def update_space(con: sqlite3.Connection, space_id: str, *, name: str | None = None,
-                 description: str | None = None) -> SpaceRow:
+def update_space(
+    con: sqlite3.Connection, space_id: str, *, name: str | None = None, description: str | None = None
+) -> SpaceRow:
     if get_space(con, space_id) is None:
         raise NotFound(space_id)
     if name is not None:
@@ -100,16 +104,20 @@ def _check_parent(con: sqlite3.Connection, space_id: str, page_id: str | None, p
         cur = row[1]
 
 
-def create_page(con: sqlite3.Connection, id: str, space_id: str, title: str, content: str, now: float,
-                parent_id: str | None = None) -> PageRow:
+def create_page(
+    con: sqlite3.Connection, id: str, space_id: str, title: str, content: str, now: float, parent_id: str | None = None
+) -> PageRow:
     title = title.strip()
     if not 1 <= len(title) <= MAX_TITLE or len(content) > MAX_CONTENT:
         raise ValidationFailed("page title or content out of bounds")
     if get_space(con, space_id) is None:
         raise NotFound(space_id)
     _check_parent(con, space_id, None, parent_id)
-    con.execute("INSERT INTO pages(id, space_id, parent_id, title, content, revision, created_at, updated_at) "
-                "VALUES(?,?,?,?,?,1,?,?)", (id, space_id, parent_id, title, content, now, now))
+    con.execute(
+        "INSERT INTO pages(id, space_id, parent_id, title, content, revision, created_at, updated_at) "
+        "VALUES(?,?,?,?,?,1,?,?)",
+        (id, space_id, parent_id, title, content, now, now),
+    )
     row = get_page(con, space_id, id)
     assert row is not None
     return row
@@ -126,12 +134,22 @@ def get_page_any(con: sqlite3.Connection, page_id: str) -> PageRow | None:
 
 
 def list_pages(con: sqlite3.Connection, space_id: str) -> list[PageRow]:
-    return [_page(r) for r in con.execute(
-        f"SELECT {_PAGE} FROM pages WHERE space_id=? ORDER BY updated_at DESC", (space_id,))]
+    return [
+        _page(r)
+        for r in con.execute(f"SELECT {_PAGE} FROM pages WHERE space_id=? ORDER BY updated_at DESC", (space_id,))
+    ]
 
 
-def update_page(con: sqlite3.Connection, space_id: str, page_id: str, expected_revision: int, now: float, *,
-                title: str | None = None, content: str | None = None) -> PageRow:
+def update_page(
+    con: sqlite3.Connection,
+    space_id: str,
+    page_id: str,
+    expected_revision: int,
+    now: float,
+    *,
+    title: str | None = None,
+    content: str | None = None,
+) -> PageRow:
     """Optimistic concurrency: a stale `expected_revision` raises ConflictError instead of overwriting."""
     with tx(con):
         page = get_page(con, space_id, page_id)
@@ -143,8 +161,10 @@ def update_page(con: sqlite3.Connection, space_id: str, page_id: str, expected_r
         new_content = page.content if content is None else content
         if not 1 <= len(new_title) <= MAX_TITLE or len(new_content) > MAX_CONTENT:
             raise ValidationFailed("page title or content out of bounds")
-        con.execute("UPDATE pages SET title=?, content=?, revision=revision+1, updated_at=? WHERE id=?",
-                    (new_title, new_content, now, page_id))
+        con.execute(
+            "UPDATE pages SET title=?, content=?, revision=revision+1, updated_at=? WHERE id=?",
+            (new_title, new_content, now, page_id),
+        )
     row = get_page(con, space_id, page_id)
     assert row is not None
     return row
@@ -163,5 +183,6 @@ def search_pages(con: sqlite3.Connection, query: str, *, space_id: str | None = 
         "SELECT p.id, p.space_id, p.parent_id, p.title, p.content, p.revision, p.created_at, p.updated_at "
         "FROM pages_fts f JOIN pages p ON p.rowid=f.rowid "
         "WHERE pages_fts MATCH ? AND (? IS NULL OR p.space_id=?) ORDER BY bm25(pages_fts) LIMIT ?",
-        (q, space_id, space_id, limit)).fetchall()
+        (q, space_id, space_id, limit),
+    ).fetchall()
     return [_page(r) for r in rows]

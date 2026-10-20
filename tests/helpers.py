@@ -1,4 +1,5 @@
 """Shared test helpers."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -38,10 +39,20 @@ class ScriptedCompleter:
     model: str = "fake-model"
     needs_grant: bool = False
 
-    async def complete(self, req: CompletionRequest, *, need: Cap = Cap.NONE, label: Label = Label.PUBLIC,
-                       task_id: str | None = None, payload_hash: str | None = None, mode: Mode = Mode.ASK,
-                       pin: str | None = None, role: str = "act", tag: str | None = None,
-                       priority: int = 0) -> Completed:
+    async def complete(
+        self,
+        req: CompletionRequest,
+        *,
+        need: Cap = Cap.NONE,
+        label: Label = Label.PUBLIC,
+        task_id: str | None = None,
+        payload_hash: str | None = None,
+        mode: Mode = Mode.ASK,
+        pin: str | None = None,
+        role: str = "act",
+        tag: str | None = None,
+        priority: int = 0,
+    ) -> Completed:
         self.calls.append(req)
         self.labels.append(label)
         self.pins.append(pin)
@@ -55,7 +66,7 @@ class ScriptedCompleter:
         if isinstance(reply, CompletionResult):
             return Completed(reply, self.model)
         text = reply(req) if callable(reply) else reply
-        if req.on_text is not None:          # like a model that writes a little at a time
+        if req.on_text is not None:  # like a model that writes a little at a time
             req.on_text(text[: len(text) // 2])
             req.on_text(text)
         return Completed(CompletionResult(text, 10, 10, "stop"), self.model)

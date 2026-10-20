@@ -1,4 +1,5 @@
 """The orchestrator: accepts tasks, queues them, runs a few at a time, and can stop them all at once."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +11,7 @@ from dataclasses import dataclass, field, replace
 
 from lilly.domain.errors import ConflictError, LillyError, NotFound, ValidationFailed
 from lilly.domain.ids import new_id
-from lilly.domain.labels import Label, Mode
+from lilly.domain.labels import ApprovalMode, Label, Mode
 from lilly.domain.settings import EngineSettings, Settings
 from lilly.domain.sheet import PetSheet, TaskProfile
 from lilly.domain.skills import BUILTIN_SKILLS
@@ -40,14 +41,15 @@ class SubmitRequest:
     skill: str | None = None
     params: Mapping[str, str] = field(default_factory=dict)
     pin_model: str | None = None
-    source: str = "app"          # where the request came from: "app", or a chat app such as "telegram"
-    outside: bool = False        # the text came from outside Lilly's own interface: the task starts out untrusted
+    source: str = "app"  # where the request came from: "app", or a chat app such as "telegram"
+    outside: bool = False  # the text came from outside Lilly's own interface: the task starts out untrusted
     profile: TaskProfile | None = None
     parent_task_id: str | None = None
     depth: int = 0
     mode: Mode | None = None
     intent: Intent | None = None
     target: ExecutionTarget = ExecutionTarget.HOST
+    approval_mode: ApprovalMode | None = None
 
 
 class Gate:
@@ -86,7 +88,7 @@ class Orchestrator:
         self._gate = Gate(deps.limits().max_running)
         self._active: dict[str, tuple[asyncio.Task[None], TaskRunner]] = {}
         self._session_ids: dict[str, str] = {}
-        self._submitting = 0                              # submits that hold a slot but are not in _active yet
+        self._submitting = 0  # submits that hold a slot but are not in _active yet
         self._finishing: set[asyncio.Task[None]] = set()  # cleanups of cancelled tasks
         self._closed = False
         self._replies = ReplyChecker(deps.decisions) if deps.decisions is not None else None
@@ -154,7 +156,7 @@ class Orchestrator:
             raise NotFound(f"conversation {req.conversation_id}")
 
         mode = req.mode if req.mode is not None else self._effective_mode(agent.mode if agent else None)
-        pin = req.pin_model or (agent.model if agent else "") or None   # a request's pin beats the pet's own model
+        pin = req.pin_model or (agent.model if agent else "") or None  # a request's pin beats the pet's own model
         task_id, conv_id, now = new_id(), req.conversation_id or new_id(), self._d.clock()
         title = goal[:60]
         sheet = agent_store.parsed_sheet_for(agent) if agent else None
@@ -173,53 +175,89 @@ class Orchestrator:
                         continue
                     if name.startswith("computer.") and not agent.computer_allowed:
                         continue
-                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "agent.discover", "result.read", "agent.delegate"):
+                if (
+                    sheet is not None
+                    and not sheet.allows(name)
+                    and name not in ("agent.ask", "agent.plan", "agent.discover", "result.read", "agent.delegate")
+                ):
                     continue
                 available_tool_names.add(name)
 
             for tool in profile.tools:
                 if tool not in available_tool_names:
-                    raise ValidationFailed(f'You can narrow a pet for one task, not widen it: "{tool}" is not available to {pet_name}.')
+                    raise ValidationFailed(
+                        f'You can narrow a pet for one task, not widen it: "{tool}" is not available to {pet_name}.'
+                    )
 
         def create(con: sqlite3.Connection) -> tasks.TaskRow:
             if not req.conversation_id:
-                conversations.create_conversation(con, conv_id, title, now,
-                                                  agent.space_id if agent else None)
+                conversations.create_conversation(con, conv_id, title, now, agent.space_id if agent else None)
             row = tasks.create_task(
-                con, id=task_id, goal=goal, mode=int(mode),
-                label=Label.PUBLIC, tainted=req.outside, now=now, conversation_id=conv_id,
-                agent_id=agent.id if agent else None, skill=req.skill, pinned_model=pin,
-                parent_task_id=req.parent_task_id, depth=req.depth,
+                con,
+                id=task_id,
+                goal=goal,
+                mode=int(mode),
+                label=Label.PUBLIC,
+                tainted=req.outside,
+                now=now,
+                conversation_id=conv_id,
+                agent_id=agent.id if agent else None,
+                skill=req.skill,
+                pinned_model=pin,
+                parent_task_id=req.parent_task_id,
+                depth=req.depth,
                 profile_json=json.dumps(profile.to_dict()) if profile else "{}",
-                target=req.target)
+                target=req.target,
+            )
             conversations.add_message(con, conv_id, "user", goal, now, task_id=task_id)
-            append_event(con, task_id, "created", {
-                "mode": mode.name, "intent": req.intent.value if req.intent else "AUTO",
-                "target": req.target.value,
-                "skill": req.skill, "agent": agent.name if agent else None, "source": req.source,
-            }, "user", now)
+            append_event(
+                con,
+                task_id,
+                "created",
+                {
+                    "mode": mode.name,
+                    "intent": req.intent.value if req.intent else "AUTO",
+                    "target": req.target.value,
+                    "skill": req.skill,
+                    "agent": agent.name if agent else None,
+                    "source": req.source,
+                },
+                "user",
+                now,
+            )
             return row
 
-        self._submitting += 1      # the slot is held from here, before the first await
+        self._submitting += 1  # the slot is held from here, before the first await
         try:
             row = await db.write(create)
             if self._d.session_runtime is not None:
                 session = self._d.session_runtime.create_session(
-                    task_id, goal, agent_id=agent.id if agent else None,
-                    conversation_id=conv_id, initial_model=pin)
+                    task_id, goal, agent_id=agent.id if agent else None, conversation_id=conv_id, initial_model=pin
+                )
                 await self._d.session_runtime.start_session(session.session_id)
                 self._session_ids[task_id] = session.session_id
-            if self._closed:       # shutdown began while the task was being written: nobody would stop it
+            if self._closed:  # shutdown began while the task was being written: nobody would stop it
                 await self._cancel_queued(task_id)
                 raise ConflictError("Lilly is shutting down")
             owner_text = agent_store.owner_text_for(agent) if agent else ""
-            spec = RunSpec(goal, conv_id, owner_text, req.skill, req.params, pin, sheet=sheet, profile=profile,
-                           intent=req.intent, target=row.target)
+            spec = RunSpec(
+                goal,
+                conv_id,
+                owner_text,
+                req.skill,
+                req.params,
+                pin,
+                sheet=sheet,
+                profile=profile,
+                intent=req.intent,
+                target=row.target,
+                approval_mode=req.approval_mode,
+            )
             runner = TaskRunner(self._scoped_deps(agent, sheet=sheet, profile=profile), row, spec, self._replies)
             handle = asyncio.create_task(self._run(runner), name=f"lilly-task-{task_id}")
             self._active[task_id] = (handle, runner)
             handle.add_done_callback(lambda h: self._ended(task_id, h))
-            if agent is not None and self._narrowed_since(agent):   # changed after it was read, before it was registered
+            if agent is not None and self._narrowed_since(agent):  # changed after it was read, before it was registered
                 runner.request_cancel(AGENT_CHANGED)
                 handle.cancel()
         finally:
@@ -234,8 +272,11 @@ class Orchestrator:
             raise NotFound(task_id)
         if original.state is not TaskState.FAILED or original.error != "interrupted by a restart":
             raise ConflictError("only a task interrupted by a restart can be resumed")
-        interrupted_steps = [step for step in tasks.list_steps(self._d.db.reader, task_id)
-                             if step.error == "interrupted" and step.status == "failed"]
+        interrupted_steps = [
+            step
+            for step in tasks.list_steps(self._d.db.reader, task_id)
+            if step.error == "interrupted" and step.status == "failed"
+        ]
         if interrupted_steps and not confirm_ambiguous:
             raise ConflictError("an interrupted action may have taken effect; confirm before resuming")
         profile = None
@@ -243,15 +284,32 @@ class Orchestrator:
             profile = TaskProfile.from_dict(json.loads(original.profile_json))
         except (TypeError, ValueError, json.JSONDecodeError):
             profile = None
-        child = await self.submit(SubmitRequest(
-            goal=original.goal, conversation_id=original.conversation_id, agent_id=original.agent_id,
-            skill=original.skill, pin_model=original.pinned_model, outside=original.tainted,
-            profile=profile, parent_task_id=original.id, depth=original.depth + 1,
-            mode=Mode(original.mode), target=original.target))
+        child = await self.submit(
+            SubmitRequest(
+                goal=original.goal,
+                conversation_id=original.conversation_id,
+                agent_id=original.agent_id,
+                skill=original.skill,
+                pin_model=original.pinned_model,
+                outside=original.tainted,
+                profile=profile,
+                parent_task_id=original.id,
+                depth=original.depth + 1,
+                mode=Mode(original.mode),
+                target=original.target,
+            )
+        )
         now = self._d.clock()
-        await self._d.db.write(lambda con: append_event(
-            con, original.id, "recovery", {"child_task_id": child.id, "confirmed_ambiguous": confirm_ambiguous},
-            "user", now))
+        await self._d.db.write(
+            lambda con: append_event(
+                con,
+                original.id,
+                "recovery",
+                {"child_task_id": child.id, "confirmed_ambiguous": confirm_ambiguous},
+                "user",
+                now,
+            )
+        )
         return child
 
     def _narrowed_since(self, agent: agent_store.AgentRow) -> bool:
@@ -279,7 +337,11 @@ class Orchestrator:
                         continue
                     if name.startswith("computer.") and not agent.computer_allowed:
                         continue
-                if sheet is not None and not sheet.allows(name) and name not in ("agent.ask", "agent.plan", "agent.discover", "result.read", "agent.delegate"):
+                if (
+                    sheet is not None
+                    and not sheet.allows(name)
+                    and name not in ("agent.ask", "agent.plan", "agent.discover", "result.read", "agent.delegate")
+                ):
                     continue
                 if profile is not None and name in profile.tools_off:
                     continue
@@ -292,6 +354,7 @@ class Orchestrator:
 
             def engine_fn() -> EngineSettings:
                 return settings_ref.engine
+
         return replace(self._d, tools=allowed, engine_settings=engine_fn)
 
     async def _run(self, runner: TaskRunner) -> None:

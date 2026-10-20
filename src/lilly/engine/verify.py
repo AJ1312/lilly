@@ -1,4 +1,5 @@
 """Rule-based checks on what a step produced. No model is asked to grade its own work."""
+
 from __future__ import annotations
 
 # Tools whose reply may legitimately be short or empty.

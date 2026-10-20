@@ -6,6 +6,7 @@ answers only with a choice and a confidence: it cannot be told to do anything el
 
     python laya_worker.py <model folder> <sha256 of the weights>
 """
+
 from __future__ import annotations
 
 import importlib
@@ -45,7 +46,7 @@ def serve(agent: Any, lines: Any, out: Any) -> None:
             try:
                 req = json.loads(line)
                 reply = ask(agent, req)
-            except Exception:   # a bad question must not stop the worker; the caller only needs to know it failed
+            except Exception:  # a bad question must not stop the worker; the caller only needs to know it failed
                 reply = {"id": req.get("id") if isinstance(req, dict) else None, "error": "failed"}
             out.write(json.dumps(reply) + "\n")
         out.flush()

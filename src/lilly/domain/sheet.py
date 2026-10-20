@@ -6,6 +6,7 @@ Implements Part 5 of the specification:
 - Line-numbered diagnostics SHEET-001..010 with exact messages
 - No external YAML parser dependency
 """
+
 from __future__ import annotations
 
 import fnmatch
@@ -158,7 +159,6 @@ class TaskProfile:
         models_raw = data.get("models") or {}
         models = {str(k): str(v) for k, v in models_raw.items()} if isinstance(models_raw, Mapping) else {}
         return cls(tools_off=tools_off, tools=tools, steps=steps, models=models)
-
 
 
 def tool_required_permission(tool_name: str) -> tuple[str, str] | None:
@@ -573,9 +573,7 @@ class SheetParser:
 
         return out
 
-    def _parse_sections(
-        self, lines: list[str], start_line: int
-    ) -> tuple[dict[str, str], dict[str, str]]:
+    def _parse_sections(self, lines: list[str], start_line: int) -> tuple[dict[str, str], dict[str, str]]:
         sections: dict[str, str] = {}
         skills: dict[str, str] = {}
         seen_sections: set[str] = set()

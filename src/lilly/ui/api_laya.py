@@ -1,4 +1,5 @@
 """The optional Laya model: whether it is installed, installing it, and turning it on or off."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, replace
@@ -68,6 +69,7 @@ async def set_assist(request: Request) -> Response:
         kind_settings = rt.settings.decisions.for_kind(kind)
         if kind_settings.min_samples > 0:
             from lilly.store import decisions as dec_store
+
             summaries = dec_store.summary(rt.db.reader)
             matching = [s for s in summaries if s.kind == kind.value and s.decider == "laya"]
             accepted = sum(s.accepted for s in matching)
@@ -87,6 +89,6 @@ async def set_assist(request: Request) -> Response:
 
 async def remove(request: Request) -> Response:
     rt = runtime(request)
-    await rt.laya.remove()          # refuses while an install is running
+    await rt.laya.remove()  # refuses while an install is running
     await _switch(rt, False)
     return JSONResponse(_view(rt))

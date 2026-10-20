@@ -1,4 +1,5 @@
 """GET /api/decisions: signed-in only, bounded, filterable."""
+
 from __future__ import annotations
 
 import pytest

@@ -1,4 +1,5 @@
 """The Telegram bridge against a fake Telegram: pairing, the allowlist, untrusted tasks, rate limits, approvals."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,8 +35,11 @@ class Rig:
     async def configure(self, **over: object) -> str:
         """An agent that may be reached from chat, and the bridge switched on for it."""
         rt = self.api.runtime
-        agent = await rt.db.write(lambda con: agents.create_agent(con, "chatty", "Chat", "be brief", 1, rt.clock(),
-                                                                  chat_allowed=True, files_allowed=True))
+        agent = await rt.db.write(
+            lambda con: agents.create_agent(
+                con, "chatty", "Chat", "be brief", 1, rt.clock(), chat_allowed=True, files_allowed=True
+            )
+        )
         settings = BridgeSettings(enabled=True, agent_id=agent.id, **over)  # type: ignore[arg-type]
         await rt.apply_settings(replace(rt.settings, bridges=settings))
         return agent.id
@@ -90,7 +94,7 @@ async def test_pairing_needs_the_right_code_and_works_once(rig: Rig) -> None:
     assert bridges.identity(rig.api.runtime.db.reader, "telegram", OWNER) is None
     rig.tg.say(OWNER, f"/pair {issued['code']}")
     await rig.until(lambda: bridges.identity(rig.api.runtime.db.reader, "telegram", OWNER) is not None)
-    rig.tg.say(STRANGER, f"/pair {issued['code']}")                 # the same code again, from someone else
+    rig.tg.say(STRANGER, f"/pair {issued['code']}")  # the same code again, from someone else
     await rig.until(lambda: len(rig.tg.sent) == 3)
     assert bridges.identity(rig.api.runtime.db.reader, "telegram", STRANGER) is None
     assert [i["user_id"] for i in rig.service.status()["identities"]] == [OWNER]  # type: ignore[attr-defined]
@@ -122,7 +126,7 @@ async def test_an_answer_that_used_private_data_stays_in_the_app_by_default(rig:
     rig.api.provider.replies = [plan(answer="secret stuff")]
     rig.tg.say(OWNER, "tell me")
     await rig.until(lambda: any("On it" in t for t in rig.tg.texts(OWNER)))
-    await rig.until(lambda: "secret stuff" in rig.tg.texts(OWNER))      # public data: sent as normal
+    await rig.until(lambda: "secret stuff" in rig.tg.texts(OWNER))  # public data: sent as normal
     # Now a task that has read private data: label it PERSONAL in the store, then finish through the bridge.
     row = tasks.list_tasks(rig.api.runtime.db.reader)[0]
     await rig.api.runtime.db.write(lambda con: con.execute("UPDATE tasks SET label=1 WHERE id=?", (row.id,)))
@@ -138,7 +142,7 @@ async def test_a_message_over_the_limit_and_a_flood_are_refused(rig: Rig) -> Non
     rig.tg.say(OWNER, "x" * 101)
     await rig.until(lambda: any("too long" in t for t in rig.tg.texts(OWNER)))
     rig.api.provider.replies = [plan(answer="a"), plan(answer="b")]
-    for text in ("one", "two", "three"):       # the over-long message used the first of three slots
+    for text in ("one", "two", "three"):  # the over-long message used the first of three slots
         rig.tg.say(OWNER, text)
     await rig.until(lambda: any("lot of messages" in t for t in rig.tg.texts(OWNER)))
     assert len(tasks.list_tasks(rig.api.runtime.db.reader)) == 2
@@ -169,7 +173,7 @@ async def test_a_replayed_update_does_not_run_twice(rig: Rig) -> None:
     rig.api.provider.replies = [plan(answer="once"), plan(answer="twice")]
     update = rig.tg.say(OWNER, "do it")
     await rig.until(lambda: "once" in rig.tg.texts(OWNER))
-    rig.tg.updates.append({**rig.tg.updates[-1]})                     # Telegram sends the same update again
+    rig.tg.updates.append({**rig.tg.updates[-1]})  # Telegram sends the same update again
     assert rig.tg.updates[-1]["update_id"] == update
     await asyncio.sleep(0.3)
     assert len(tasks.list_tasks(rig.api.runtime.db.reader)) == 1
@@ -183,8 +187,9 @@ async def test_stop_cancels_what_is_running_from_this_chat(rig: Rig) -> None:
     settings["file_roots"] = [str(rig.api.shared)]
     await rig.api.sign_in()
     await rig.api.send("PUT", "/api/settings", settings)
-    rig.api.provider.replies = [plan(step("s1", "fs.write", path=str(target), content="x"),
-                                     step("s2", "llm.work", task="t", input="i"))]
+    rig.api.provider.replies = [
+        plan(step("s1", "fs.write", path=str(target), content="x"), step("s2", "llm.work", task="t", input="i"))
+    ]
     rig.tg.say(OWNER, "write a file")
     await rig.until(lambda: any("Approve" in str(m.get("reply_markup")) for m in rig.tg.sent))
     rig.tg.say(OWNER, "/stop")
@@ -200,35 +205,49 @@ async def test_an_approval_in_chat_shows_the_exact_action_and_only_that_can_be_a
     settings["file_roots"] = [str(rig.api.shared)]
     await rig.api.send("PUT", "/api/settings", settings)
     target = rig.api.shared / "note.txt"
-    rig.api.provider.replies = [plan(step("s1", "fs.write", path=str(target), content="hello"),
-                                     step("s2", "llm.work", task="say done", input="$s1.output")), "All done."]
+    rig.api.provider.replies = [
+        plan(
+            step("s1", "fs.write", path=str(target), content="hello"),
+            step("s2", "llm.work", task="say done", input="$s1.output"),
+        ),
+        "All done.",
+    ]
     rig.tg.say(OWNER, "write a note")
     await rig.until(lambda: any(m.get("reply_markup") for m in rig.tg.sent))
     card = next(m for m in rig.tg.sent if m.get("reply_markup"))
     assert "fs.write" in str(card["text"]) and str(target) in str(card["text"]) and "hello" in str(card["text"])
     buttons = card["reply_markup"]["inline_keyboard"][0]
-    assert [b["text"] for b in buttons] == ["Approve", "Decline"] and all(len(b["callback_data"]) <= 64 for b in buttons)
+    assert [b["text"] for b in buttons] == ["Approve", "Decline"] and all(
+        len(b["callback_data"]) <= 64 for b in buttons
+    )
     assert not target.exists()
-    rig.tg.press(STRANGER, buttons[0]["callback_data"])                # someone else pressing it does nothing
+    rig.tg.press(STRANGER, buttons[0]["callback_data"])  # someone else pressing it does nothing
     await asyncio.sleep(0.2)
     assert not target.exists()
     rig.tg.press(OWNER, buttons[0]["callback_data"])
     await rig.until(lambda: "All done." in rig.tg.texts(OWNER))
     assert target.read_text() == "hello"
     assert rig.tg.edits and "Approved" in str(rig.tg.edits[0]["text"])
-    rig.tg.press(OWNER, buttons[0]["callback_data"])                   # single use
+    rig.tg.press(OWNER, buttons[0]["callback_data"])  # single use
     await rig.until(lambda: any("no longer waiting" in str(a.get("text")) for a in rig.tg.answers))
 
 
 async def test_computer_control_can_only_be_approved_in_the_app(rig: Rig) -> None:
     rt = rig.api.runtime
-    agent = await rt.db.write(lambda con: agents.create_agent(
-        con, "ctl", "Ctl", "x", 1, rt.clock(), chat_allowed=True, computer_allowed=True))
-    await rt.apply_settings(replace(rt.settings, modules=rt.settings.modules | {"computer"},
-                                    bridges=BridgeSettings(enabled=True, agent_id=agent.id)))
+    agent = await rt.db.write(
+        lambda con: agents.create_agent(con, "ctl", "Ctl", "x", 1, rt.clock(), chat_allowed=True, computer_allowed=True)
+    )
+    await rt.apply_settings(
+        replace(
+            rt.settings,
+            modules=rt.settings.modules | {"computer"},
+            bridges=BridgeSettings(enabled=True, agent_id=agent.id),
+        )
+    )
     await rig.pair()
-    rig.api.provider.replies = [plan(step("s1", "computer.notify", title="hi", message="there"),
-                                     step("s2", "llm.work", task="t", input="i"))]
+    rig.api.provider.replies = [
+        plan(step("s1", "computer.notify", title="hi", message="there"), step("s2", "llm.work", task="t", input="i"))
+    ]
     rig.tg.say(OWNER, "notify me")
     await rig.until(lambda: any("approved in the Lilly app" in t for t in rig.tg.texts(OWNER)))
     assert not any(m.get("reply_markup") for m in rig.tg.sent)
@@ -257,6 +276,7 @@ async def test_setting_the_token_checks_it_and_clearing_it_stops_the_bridge(api:
     service = BridgeService(api.runtime, lambda token: TelegramApi(http, token, BASE), poll_s=1, backoff_s=0.05)
     await service.start()
     from lilly.domain.errors import ConflictError
+
     with pytest.raises(ConflictError, match="did not work"):
         await service.set_token("999:WRONG")
     assert api.runtime.keys.get(TOKEN_REF) is None
@@ -270,6 +290,7 @@ async def test_setting_the_token_checks_it_and_clearing_it_stops_the_bridge(api:
 
 async def test_pairing_needs_a_token_first(api: Api) -> None:
     from lilly.domain.errors import ConflictError
+
     service = BridgeService(api.runtime)
     with pytest.raises(ConflictError, match="token"):
         await service.new_pairing()
@@ -289,8 +310,10 @@ async def _ask_to_write(rig: Rig, name: str, content: str) -> dict[str, object]:
     await rig.configure()
     await rig.pair()
     await rig.allow_files()
-    rig.api.provider.replies = [plan(step("s1", "fs.write", path=name, content=content),
-                                     step("s2", "llm.work", task="t", input="$s1.output")), "All done."]
+    rig.api.provider.replies = [
+        plan(step("s1", "fs.write", path=name, content=content), step("s2", "llm.work", task="t", input="$s1.output")),
+        "All done.",
+    ]
     rig.tg.say(OWNER, "write it")
     await rig.until(lambda: any("fs.write" in t for t in rig.tg.texts(OWNER)))
     return next(m for m in rig.tg.sent if "fs.write" in str(m["text"]))
@@ -334,7 +357,7 @@ async def test_replacing_the_token_with_another_bots_starts_its_updates_from_scr
     db = rig.api.runtime.db
     await rig.service.set_token(TOKEN)
     await db.write(lambda con: bridges.set_last_update(con, "telegram", 500))
-    await rig.service.set_token(TOKEN)                 # the same bot again: nothing is forgotten
+    await rig.service.set_token(TOKEN)  # the same bot again: nothing is forgotten
     assert bridges.last_update(db.reader, "telegram") == 500
     rig.tg.username = "other_bot"
     await rig.service.set_token(TOKEN)

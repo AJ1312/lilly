@@ -9,6 +9,7 @@ Implements Part 5 delegation rules:
 - Child answer returns as untrusted data (4A.9) and raises parent label and taint
 - Cancel cascades
 """
+
 from __future__ import annotations
 
 import asyncio

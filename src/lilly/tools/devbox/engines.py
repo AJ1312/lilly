@@ -2,6 +2,7 @@
 
 Only the exec output is read as text; everything else is judged by exit code. Never run in tests: tests use a fake
 that follows the same `Engines` contract, and this file is checked by hand on a real engine (see docs/VERIFICATION.md)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,14 +17,14 @@ from lilly.domain.devbox import CONTAINER_NAME, MAX_OUTPUT_CHARS, Engine, Output
 from lilly.domain.errors import ToolError
 
 KILL_GRACE_S = 5.0
-PULL_S = 1800.0                      # a first download can be large
-QUICK_S = 60.0                       # inspect, create, start, stop and remove all answer quickly
+PULL_S = 1800.0  # a first download can be large
+QUICK_S = 60.0  # inspect, create, start, stop and remove all answer quickly
 _PREFERRED = (Engine.DOCKER, Engine.PODMAN)
 
 
 def find_engine(wanted: Engine, which: Callable[[str], str | None] = shutil.which) -> tuple[str, str] | None:
     """(name, path) of the engine to use, or None when none is installed."""
-    for name in (_PREFERRED if wanted is Engine.AUTO else (wanted,)):
+    for name in _PREFERRED if wanted is Engine.AUTO else (wanted,):
         if (path := which(name.value)) is not None:
             return name.value, path
     return None
@@ -35,8 +36,13 @@ class CliEngine:
 
     async def _call(self, *args: str, timeout_s: float = QUICK_S) -> tuple[int, str]:
         proc = await asyncio.create_subprocess_exec(
-            self._path, *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT, start_new_session=True)
+            self._path,
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
         try:
             async with asyncio.timeout(timeout_s):
                 out, _ = await proc.communicate()
@@ -79,10 +85,16 @@ class CliEngine:
 
     async def run(self, args: list[str], timeout_s: float, on_output: OutputSink | None) -> RunResult:
         proc = await asyncio.create_subprocess_exec(
-            self._path, *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT, limit=1_000_000, start_new_session=True)
+            self._path,
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            limit=1_000_000,
+            start_new_session=True,
+        )
         assert proc.stdout is not None
-        decoder = codecs.getincrementaldecoder("utf-8")("replace")     # a character may straddle two reads
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")  # a character may straddle two reads
         text, dropped, timed_out = "", False, False
         try:
             async with asyncio.timeout(timeout_s):
@@ -100,7 +112,7 @@ class CliEngine:
             await _kill(proc)
             raise
         if timed_out:
-            await _kill(proc)       # the command inside the box may live on: the caller destroys the box
+            await _kill(proc)  # the command inside the box may live on: the caller destroys the box
         return RunResult(None if timed_out else proc.returncode, text, dropped, timed_out)
 
 

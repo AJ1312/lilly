@@ -1,4 +1,5 @@
 """What a pet looks like and how what its owner wrote for it reaches the planner."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ MAX_HUE = 359
 
 @dataclass(frozen=True, slots=True)
 class Look:
-    hue: int | None          # degrees on the colour wheel; None keeps the pet's own colours
+    hue: int | None  # degrees on the colour wheel; None keeps the pet's own colours
     accessory: str
     eyes: str
     blush: bool
@@ -43,8 +44,12 @@ def parse_look(raw: object) -> Look:
     blush = raw.get("blush", DEFAULT_LOOK.blush)
     if not isinstance(blush, bool):
         raise ValidationFailed("look.blush must be true or false")
-    return Look(hue, _choice(raw, "accessory", ACCESSORIES, DEFAULT_LOOK.accessory),
-                _choice(raw, "eyes", EYES, DEFAULT_LOOK.eyes), blush)
+    return Look(
+        hue,
+        _choice(raw, "accessory", ACCESSORIES, DEFAULT_LOOK.accessory),
+        _choice(raw, "eyes", EYES, DEFAULT_LOOK.eyes),
+        blush,
+    )
 
 
 def look_to_dict(look: Look) -> dict[str, Any]:

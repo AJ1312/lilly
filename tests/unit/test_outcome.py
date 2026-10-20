@@ -1,4 +1,5 @@
 """Plain-English error text and the argument helpers shared by the runner, the executor and the scheduler."""
+
 from __future__ import annotations
 
 import pytest

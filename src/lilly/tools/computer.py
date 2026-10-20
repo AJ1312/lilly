@@ -3,6 +3,7 @@
 The approval mode controls ordinary visible interaction. Shell execution,
 process control, secret handling and policy denials remain hard gates.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,8 +31,24 @@ from lilly.tools.computer_runtime import ComputerFrame, ComputerRuntime
 MAX_OUTPUT_BYTES = 64_000
 MAX_RUN_S = 120.0
 _APP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,59}$")
-_BLOCKED_PROGRAMS = frozenset({"sudo", "su", "doas", "pkexec", "shutdown", "reboot", "halt", "poweroff", "mkfs",
-                               "fdisk", "diskutil", "launchctl", "csrutil", "nvram"})
+_BLOCKED_PROGRAMS = frozenset(
+    {
+        "sudo",
+        "su",
+        "doas",
+        "pkexec",
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
+        "mkfs",
+        "fdisk",
+        "diskutil",
+        "launchctl",
+        "csrutil",
+        "nvram",
+    }
+)
 _SHELLS = frozenset({"sh", "bash", "zsh", "fish", "dash", "ksh"})
 _SAFE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR")
 
@@ -57,8 +74,12 @@ class ComputerClickTool(Tool):
         self._runtime = runtime
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        frame = await self._runtime.click(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "target"),
-                                          str_arg(args, "expected", required=False))
+        frame = await self._runtime.click(
+            ctx.task_id,
+            str_arg(args, "target"),
+            str_arg(args, "frame_id", required=False),
+            str_arg(args, "expected", required=False),
+        )
         return _frame_result(self._runtime, frame)
 
 
@@ -69,9 +90,13 @@ class ComputerTypeTool(Tool):
         self._runtime = runtime
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        frame = await self._runtime.type_text(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "target"),
-                                              str_arg(args, "text", max_len=2000),
-                                              str_arg(args, "expected", required=False))
+        frame = await self._runtime.type_text(
+            ctx.task_id,
+            text=str_arg(args, "text", max_len=2000),
+            target=str_arg(args, "target", required=False),
+            frame_id=str_arg(args, "frame_id", required=False),
+            expected=str_arg(args, "expected", required=False),
+        )
         return _frame_result(self._runtime, frame)
 
 
@@ -82,8 +107,12 @@ class ComputerPressTool(Tool):
         self._runtime = runtime
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        frame = await self._runtime.press(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "key"),
-                                          str_arg(args, "expected", required=False))
+        frame = await self._runtime.press(
+            ctx.task_id,
+            str_arg(args, "key"),
+            str_arg(args, "frame_id", required=False),
+            str_arg(args, "expected", required=False),
+        )
         return _frame_result(self._runtime, frame)
 
 
@@ -94,7 +123,11 @@ class ComputerMoveTool(Tool):
         self._runtime = runtime
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        frame = await self._runtime.move(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "target"))
+        frame = await self._runtime.move(
+            ctx.task_id,
+            str_arg(args, "target"),
+            str_arg(args, "frame_id", required=False),
+        )
         return _frame_result(self._runtime, frame)
 
 
@@ -105,8 +138,11 @@ class ComputerScrollTool(Tool):
         self._runtime = runtime
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        frame = await self._runtime.scroll(ctx.task_id, str_arg(args, "frame_id"),
-                                           int_arg(args, "amount", 1, lo=-20, hi=20))
+        frame = await self._runtime.scroll(
+            ctx.task_id,
+            int_arg(args, "amount", 1, lo=-20, hi=20),
+            str_arg(args, "frame_id", required=False),
+        )
         return _frame_result(self._runtime, frame)
 
 
@@ -117,16 +153,26 @@ class ComputerDragTool(Tool):
         self._runtime = runtime
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        frame = await self._runtime.drag(ctx.task_id, str_arg(args, "frame_id"), str_arg(args, "start"),
-                                         str_arg(args, "end"), str_arg(args, "expected", required=False))
+        frame = await self._runtime.drag(
+            ctx.task_id,
+            str_arg(args, "start"),
+            str_arg(args, "end"),
+            str_arg(args, "frame_id", required=False),
+            str_arg(args, "expected", required=False),
+        )
         return _frame_result(self._runtime, frame)
 
 
 def _spawn_detached(argv: list[str]) -> None:
     """Start a program and let it live on its own; its output is not ours."""
     try:
-        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,  # nosec B603
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,  # nosec B603
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     except OSError as exc:
         raise ToolError(f"could not start it: {exc.strerror}") from exc
 
@@ -187,6 +233,18 @@ class OpenAppTool(Tool):
                 raise ToolError(f"'{app}' is not installed or not on the PATH")
             argv = [program]
         await asyncio.to_thread(_spawn_detached, argv)
+        if sys.platform == "darwin":
+            def _activate() -> None:
+                osascript = shutil.which("osascript")
+                if osascript:
+                    with contextlib.suppress(Exception):
+                        subprocess.run(  # nosec B603
+                            [osascript, "-e", f'tell application "{app}" to activate'],
+                            capture_output=True,
+                            timeout=5,
+                        )
+            await asyncio.to_thread(_activate)
+            await asyncio.sleep(0.3)
         return ToolResult(f"Opened {app}.", Label.PUBLIC, False)
 
 
@@ -214,8 +272,14 @@ def _list_processes(by: str, limit: int) -> list[dict[str, float | int | str]]:
         with contextlib.suppress(psutil.Error):
             info = p.info
             if info["username"] == me:
-                rows.append({"pid": info["pid"], "name": info["name"] or "unknown",
-                             "memory": float(info["memory_percent"] or 0.0), "cpu": float(info["cpu_percent"] or 0.0)})
+                rows.append(
+                    {
+                        "pid": info["pid"],
+                        "name": info["name"] or "unknown",
+                        "memory": float(info["memory_percent"] or 0.0),
+                        "cpu": float(info["cpu_percent"] or 0.0),
+                    }
+                )
     rows.sort(key=lambda r: float(r["memory" if by == "memory" else "cpu"]), reverse=True)
     return rows[:limit]
 
@@ -248,8 +312,11 @@ class StopProcessTool(Tool):
             proc.kill() if force else proc.terminate()
             proc.wait(timeout=5)
         except psutil.TimeoutExpired:
-            return ToolResult(f"Asked {actual} ({pid}) to stop, but it is still running. "
-                              "Use force to end it immediately.", Label.PUBLIC, False)
+            return ToolResult(
+                f"Asked {actual} ({pid}) to stop, but it is still running. Use force to end it immediately.",
+                Label.PUBLIC,
+                False,
+            )
         except psutil.NoSuchProcess:
             pass
         except psutil.AccessDenied:
@@ -264,8 +331,14 @@ class NotifyTool(Tool):
         message = str_arg(args, "message", max_len=500)
         title = str_arg(args, "title", max_len=100, required=False) or "Lilly"
         if sys.platform == "darwin":
-            script = ["-e", "on run argv", "-e", "display notification (item 1 of argv) with title (item 2 of argv)",
-                      "-e", "end run"]
+            script = [
+                "-e",
+                "on run argv",
+                "-e",
+                "display notification (item 1 of argv) with title (item 2 of argv)",
+                "-e",
+                "end run",
+            ]
             argv = [shutil.which("osascript") or "osascript", *script, message, title]
         else:
             program = shutil.which("notify-send")
@@ -334,8 +407,14 @@ async def _run_group(argv: list[str], cwd: Path, limit_s: float) -> ToolResult:
     env.setdefault("LANG", "C.UTF-8")
     try:
         proc = await asyncio.create_subprocess_exec(
-            *argv, cwd=cwd, env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT, start_new_session=True)
+            *argv,
+            cwd=cwd,
+            env=env,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
     except FileNotFoundError:
         raise ToolError(f"'{argv[0]}' was not found") from None
     except OSError as exc:

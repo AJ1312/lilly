@@ -1,4 +1,5 @@
 """Chat bridges, pure rules: settings bounds, one-time pairing codes, rate limits, message limits."""
+
 from __future__ import annotations
 
 import pytest
@@ -21,15 +22,18 @@ def test_defaults_are_off_and_cautious() -> None:
     assert errs == [] and parsed == b
 
 
-@pytest.mark.parametrize("raw,fragment", [
-    ("nope", "must be an object"),
-    ({"enabled": "yes"}, "enabled must be true or false"),
-    ({"per_minute": 0}, "per_minute must be a whole number from 1 to 30"),
-    ({"max_chars": 99999}, "max_chars must be a whole number from 100 to 4000"),
-    ({"agent_id": 5}, "agent_id must be text"),
-    ({"surprise": 1}, "unknown setting"),
-    ({"private_replies": 1}, "private_replies must be true or false"),
-])
+@pytest.mark.parametrize(
+    "raw,fragment",
+    [
+        ("nope", "must be an object"),
+        ({"enabled": "yes"}, "enabled must be true or false"),
+        ({"per_minute": 0}, "per_minute must be a whole number from 1 to 30"),
+        ({"max_chars": 99999}, "max_chars must be a whole number from 100 to 4000"),
+        ({"agent_id": 5}, "agent_id must be text"),
+        ({"surprise": 1}, "unknown setting"),
+        ({"private_replies": 1}, "private_replies must be true or false"),
+    ],
+)
 def test_bad_settings_are_rejected_with_a_reason(raw: object, fragment: str) -> None:
     parsed, errs = parse_bridge(raw)
     assert parsed is None and any(fragment in e for e in errs)
@@ -41,11 +45,11 @@ def test_a_pairing_code_works_once_and_only_in_time() -> None:
     code = p.new()
     assert len(code) == 8 and code.isalnum() and code == code.upper()
     assert p.redeem("wrong123", 1) is False
-    assert p.redeem(code.lower(), 1) is True          # case does not matter when typing on a phone
-    assert p.redeem(code, 1) is False              # used up
+    assert p.redeem(code.lower(), 1) is True  # case does not matter when typing on a phone
+    assert p.redeem(code, 1) is False  # used up
     second = p.new()
     clock.advance(61)
-    assert p.redeem(second, 1) is False            # expired
+    assert p.redeem(second, 1) is False  # expired
 
 
 def test_a_new_code_replaces_the_old_one() -> None:
@@ -59,9 +63,9 @@ def test_guessing_is_limited_per_sender_so_a_stranger_cannot_burn_the_owners_cod
     code = p.new()
     for _ in range(3):
         assert p.redeem("AAAAAAAA", 666) is False
-    assert p.redeem(code, 666) is False            # this sender is locked out, even with the right code
+    assert p.redeem(code, 666) is False  # this sender is locked out, even with the right code
     assert p.active() is not None
-    assert p.redeem(code, 1) is True               # the owner is not affected
+    assert p.redeem(code, 1) is True  # the owner is not affected
 
 
 def test_a_flood_of_wrong_guesses_from_many_senders_still_burns_the_code() -> None:
@@ -77,10 +81,10 @@ def test_the_table_of_senders_is_bounded_and_a_new_code_clears_it() -> None:
     code = p.new()
     for sender in range(50):
         p.redeem("AAAAAAAA", sender)
-    assert p.redeem(code, 0) is True                # sender 0 was forgotten, so it is not locked out
+    assert p.redeem(code, 0) is True  # sender 0 was forgotten, so it is not locked out
     p.redeem("AAAAAAAA", 7)
     again = p.new()
-    assert p.redeem(again, 7) is True               # a new code starts everyone afresh
+    assert p.redeem(again, 7) is True  # a new code starts everyone afresh
 
 
 def test_active_reports_the_code_deadline_only_while_it_is_usable() -> None:
@@ -110,11 +114,14 @@ def test_the_rate_limiter_forgets_idle_senders() -> None:
     assert len(limit._seen) <= 3
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("  hello   there ", "hello ther"),   # whitespace collapsed first, then cut to 10
-    ("a\u0000b", "ab"),
-    ("x" * 50, "x" * 10),
-])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("  hello   there ", "hello ther"),  # whitespace collapsed first, then cut to 10
+        ("a\u0000b", "ab"),
+        ("x" * 50, "x" * 10),
+    ],
+)
 def test_inbound_text_is_cleaned_and_cut(text: str, expected: str) -> None:
     assert clean_inbound(text, 10) == expected
 

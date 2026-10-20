@@ -1,4 +1,5 @@
 """Stored MCP servers and approvals: validation, cascade, and withdrawal of an approval when a server changes."""
+
 from __future__ import annotations
 
 import sqlite3

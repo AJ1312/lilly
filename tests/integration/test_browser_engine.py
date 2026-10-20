@@ -1,4 +1,5 @@
 """Browser tools inside a real task: approvals follow the chosen mode, a page taints the task, Stop all closes it."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,7 +22,9 @@ from tests.browser_site.server import Site
 from tests.helpers import plan, step
 from tests.integration.lab import Lab
 
-CHROME = next(iter(sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome"))), os.environ.get("LILLY_CHROME", ""))
+CHROME = next(
+    iter(sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome"))), os.environ.get("LILLY_CHROME", "")
+)
 pytestmark = [pytest.mark.asyncio, pytest.mark.skipif(not CHROME or not Path(CHROME).is_file(), reason="no Chromium")]
 
 
@@ -38,7 +41,10 @@ class Web:
             step("s1", "browser.open", url=self.site.base + "/"),
             step("s2", "browser.find", query="plain button"),
             step("s3", "browser.click", target="$s2.output"),
-            step("s4", "llm.work", task="x", input="$s3.output"), mode=Mode.ASK, goal=GOAL)
+            step("s4", "llm.work", task="x", input="$s3.output"),
+            mode=Mode.ASK,
+            goal=GOAL,
+        )
 
 
 @pytest.fixture
@@ -58,7 +64,7 @@ async def test_in_ask_every_mode_a_click_waits_for_the_exact_target_to_be_approv
     await web.lab.engine.approvals.decide(pending.id, approve=True, payload_hash=pending.payload_hash)
     done = await web.lab.engine.wait(row.id, timeout=30)
     assert done.state is TaskState.DONE, done.error
-    assert done.tainted                                    # a page was read, so the task counts as having read outside text
+    assert done.tainted  # a page was read, so the task counts as having read outside text
     assert [s.status for s in tasks.list_steps(web.lab.engine.db.reader, row.id)] == ["done"] * 4
 
 
@@ -72,7 +78,7 @@ async def test_in_ask_risky_mode_a_plain_click_goes_ahead_without_asking(web: We
 
 async def test_in_allowlist_mode_the_listed_site_is_automatic_and_another_is_not(web: Web) -> None:
     web.cfg[0] = BrowserSettings(mode=BrowserMode.ALLOWLIST, allow_hosts=("127.0.0.1",), idle_quit_s=30)
-    done = await web.lab.engine.wait((await web.run_plain_click()).id, timeout=30)   # type: ignore[attr-defined]
+    done = await web.lab.engine.wait((await web.run_plain_click()).id, timeout=30)  # type: ignore[attr-defined]
     assert done.state is TaskState.DONE and web.lab.engine.approvals.pending() == []
     web.cfg[0] = BrowserSettings(mode=BrowserMode.ALLOWLIST, allow_hosts=("example.org",), idle_quit_s=30)
     row = await web.run_plain_click()
@@ -84,11 +90,14 @@ async def test_in_allowlist_mode_the_listed_site_is_automatic_and_another_is_not
 
 async def test_a_password_cannot_be_typed_even_when_everything_is_auto_approved(web: Web) -> None:
     web.cfg[0] = BrowserSettings(mode=BrowserMode.ALLOWLIST, allow_hosts=("127.0.0.1",), idle_quit_s=30)
-    web.lab.engine.completer.replies = [plan(answer="I cannot type a password for you.")]    # the replan
-    row = await web.lab.submit(step("s1", "browser.open", url=web.site.base + "/"),
-                               step("s2", "browser.find", query="password"),
-                               step("s3", "browser.type", target="$s2.output", text="hunter2"),
-                               step("s4", "llm.work", task="x", input="$s3.output"), goal=GOAL)
+    web.lab.engine.completer.replies = [plan(answer="I cannot type a password for you.")]  # the replan
+    row = await web.lab.submit(
+        step("s1", "browser.open", url=web.site.base + "/"),
+        step("s2", "browser.find", query="password"),
+        step("s3", "browser.type", target="$s2.output", text="hunter2"),
+        step("s4", "llm.work", task="x", input="$s3.output"),
+        goal=GOAL,
+    )
     done = await web.lab.engine.wait(row.id, timeout=30)
     assert done.state is TaskState.DONE and "cannot type a password" in (done.answer or "")
     failed = next(s for s in tasks.list_steps(web.lab.engine.db.reader, row.id) if s.step_id == "s3")
@@ -100,9 +109,13 @@ async def test_a_page_taints_the_task_so_a_later_file_write_still_asks(web: Web,
     web.cfg[0] = BrowserSettings(mode=BrowserMode.ALLOWLIST, allow_hosts=("127.0.0.1",), idle_quit_s=30)
     target = web.lab.engine.root / "note.txt"
     web.lab.engine.completer.replies = ["ok"]
-    row = await web.lab.submit(step("s1", "browser.open", url=web.site.base + "/injected"),
-                               step("s2", "fs.write", path=str(target), content="from the page"),
-                               step("s3", "llm.work", task="x", input="$s1.output"), mode=Mode.OPEN, goal=GOAL)
+    row = await web.lab.submit(
+        step("s1", "browser.open", url=web.site.base + "/injected"),
+        step("s2", "fs.write", path=str(target), content="from the page"),
+        step("s3", "llm.work", task="x", input="$s1.output"),
+        mode=Mode.OPEN,
+        goal=GOAL,
+    )
     pending = await web.lab.engine.wait_for_approval(timeout=30)
     assert "fs.write" in pending.summary and not target.exists()
     await web.lab.engine.approvals.decide(pending.id, approve=False, payload_hash=pending.payload_hash)

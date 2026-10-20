@@ -1,4 +1,5 @@
 """What Lilly remembers and what the user writes: memory, spaces and notes, agents."""
+
 from __future__ import annotations
 
 import contextlib
@@ -67,8 +68,11 @@ async def list_memory(request: Request) -> Response:
     rt = runtime(request)
     query = request.query_params.get("q", "").strip()
     tag = request.query_params.get("tag", "").strip() or None
-    rows = (memory.search_memory(rt.db.reader, query, limit=limit_param(request, 50)) if query
-            else memory.list_memory(rt.db.reader, limit_param(request, 200, 1000)))
+    rows = (
+        memory.search_memory(rt.db.reader, query, limit=limit_param(request, 50))
+        if query
+        else memory.list_memory(rt.db.reader, limit_param(request, 200, 1000))
+    )
     if tag:
         wanted = " ".join(tag.lower().split())
         rows = [row for row in rows if wanted in row.tags]
@@ -78,15 +82,29 @@ async def list_memory(request: Request) -> Response:
 async def add_memory(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    body, label, tags, now = text(data, "text") or "", _label(data) or Label.PERSONAL, _tags(data), rt.clock()
-    row = await rt.db.write(lambda con: memory.add_memory(con, body, now, label=label, source="user", tags=tags or ()))
+    body = text(data, "text", required=False) or text(data, "fact", required=False) or ""
+    if not body.strip():
+        raise ValidationFailed("text is required")
+    tags = _tags(data)
+    if tags is None and "category" in data:
+        cat = str(data["category"]).strip()
+        tags = [cat] if cat else []
+    label, now = _label(data) or Label.PERSONAL, rt.clock()
+    row = await rt.db.write(
+        lambda con: memory.add_memory(con, body.strip(), now, label=label, source="user", tags=tags or ())
+    )
     return JSONResponse({"memory": memory_json(row)}, 201)
 
 
 async def update_memory(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    memory_id, body, label, tags = _memory_id(request), text(data, "text", required=False), _label(data), _tags(data)
+    body = text(data, "text", required=False) or text(data, "fact", required=False)
+    tags = _tags(data)
+    if tags is None and "category" in data:
+        cat = str(data["category"]).strip()
+        tags = [cat] if cat else []
+    memory_id, label = _memory_id(request), _label(data)
     row = await rt.db.write(lambda con: memory.update_memory(con, memory_id, text=body, label=label, tags=tags))
     return JSONResponse({"memory": memory_json(row)})
 
@@ -118,8 +136,12 @@ async def list_spaces(request: Request) -> Response:
 async def create_space(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    name, description, now, space_id = text(data, "name", max_len=80) or "", text(
-        data, "description", required=False, max_len=1000) or "", rt.clock(), new_id()
+    name, description, now, space_id = (
+        text(data, "name", max_len=80) or "",
+        text(data, "description", required=False, max_len=1000) or "",
+        rt.clock(),
+        new_id(),
+    )
     row = await rt.db.write(lambda con: spaces.create_space(con, space_id, name, description, now))
     return JSONResponse({"space": space_json(row)}, 201)
 
@@ -127,8 +149,11 @@ async def create_space(request: Request) -> Response:
 async def update_space(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    space_id, name, description = (request.path_params["space_id"], text(data, "name", required=False, max_len=80),
-                                   text(data, "description", required=False, max_len=1000))
+    space_id, name, description = (
+        request.path_params["space_id"],
+        text(data, "name", required=False, max_len=80),
+        text(data, "description", required=False, max_len=1000),
+    )
     row = await rt.db.write(lambda con: spaces.update_space(con, space_id, name=name, description=description))
     return JSONResponse({"space": space_json(row)})
 
@@ -146,8 +171,11 @@ async def list_pages(request: Request) -> Response:
     if spaces.get_space(rt.db.reader, space_id) is None:
         raise NotFound(space_id)
     query = request.query_params.get("q", "").strip()
-    rows = (spaces.search_pages(rt.db.reader, query, space_id=space_id) if query
-            else spaces.list_pages(rt.db.reader, space_id))
+    rows = (
+        spaces.search_pages(rt.db.reader, query, space_id=space_id)
+        if query
+        else spaces.list_pages(rt.db.reader, space_id)
+    )
     return JSONResponse({"pages": [page_json(p, with_content=False) for p in rows]})
 
 
@@ -160,8 +188,11 @@ async def search_all_pages(request: Request) -> Response:
 async def create_page(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    space_id, title, content = (request.path_params["space_id"], text(data, "title", max_len=200) or "",
-                                text(data, "content", required=False, max_len=spaces.MAX_CONTENT) or "")
+    space_id, title, content = (
+        request.path_params["space_id"],
+        text(data, "title", max_len=200) or "",
+        text(data, "content", required=False, max_len=spaces.MAX_CONTENT) or "",
+    )
     now, page_id = rt.clock(), new_id()
     row = await rt.db.write(lambda con: spaces.create_page(con, page_id, space_id, title, content, now))
     return JSONResponse({"page": page_json(row)}, 201)
@@ -181,10 +212,14 @@ async def update_page(request: Request) -> Response:
     revision = whole(data, "revision")
     if revision is None:
         raise ValidationFailed("revision is required, so a stale edit cannot overwrite a newer one")
-    title, content, now = (text(data, "title", required=False, max_len=200),
-                           text(data, "content", required=False, max_len=spaces.MAX_CONTENT), rt.clock())
-    row = await rt.db.write(lambda con: spaces.update_page(con, space_id, page_id, revision, now,
-                                                           title=title, content=content))
+    title, content, now = (
+        text(data, "title", required=False, max_len=200),
+        text(data, "content", required=False, max_len=spaces.MAX_CONTENT),
+        rt.clock(),
+    )
+    row = await rt.db.write(
+        lambda con: spaces.update_page(con, space_id, page_id, revision, now, title=title, content=content)
+    )
     return JSONResponse({"page": page_json(row)})
 
 
@@ -198,12 +233,24 @@ async def delete_page(request: Request) -> Response:
 # ---- agents ------------------------------------------------------------------------------------
 def _agent_json(a: agents.AgentRow) -> dict[str, Any]:
     return {
-        "id": a.id, "name": a.name, "instructions": a.instructions, "mode": a.mode,
-        "research_allowed": a.research_allowed, "memory_allowed": a.memory_allowed,
-        "files_allowed": a.files_allowed, "computer_allowed": a.computer_allowed, "pet": a.pet,
-        "chat_allowed": a.chat_allowed, "look": look_to_dict(a.look), "skills": a.skills, "model": a.model,
-        "space_id": a.space_id, "created_at": a.created_at,
-        "sheet": a.sheet, "sheet_json": a.sheet_json, "parent_template": a.parent_template,
+        "id": a.id,
+        "name": a.name,
+        "instructions": a.instructions,
+        "mode": a.mode,
+        "research_allowed": a.research_allowed,
+        "memory_allowed": a.memory_allowed,
+        "files_allowed": a.files_allowed,
+        "computer_allowed": a.computer_allowed,
+        "pet": a.pet,
+        "chat_allowed": a.chat_allowed,
+        "look": look_to_dict(a.look),
+        "skills": a.skills,
+        "model": a.model,
+        "space_id": a.space_id,
+        "created_at": a.created_at,
+        "sheet": a.sheet,
+        "sheet_json": a.sheet_json,
+        "parent_template": a.parent_template,
     }
 
 
@@ -228,20 +275,37 @@ async def list_agents(request: Request) -> Response:
 async def create_agent(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
-    name, instructions, mode = (text(data, "name", max_len=80) or "",
-                                text(data, "instructions", required=False) or "", whole(data, "mode"))
+    name, instructions, mode = (
+        text(data, "name", max_len=80) or "",
+        text(data, "instructions", required=False) or "",
+        whole(data, "mode"),
+    )
     research, mem, files = flag(data, "research_allowed"), flag(data, "memory_allowed"), flag(data, "files_allowed")
     skills, model, look = text(data, "skills", required=False, max_len=agents.MAX_SKILLS), _model(rt, data), _look(data)
     sheet = text(data, "sheet", required=False) or ""
     parent_template = text(data, "parent_template", required=False, max_len=40) or ""
     now, agent_id = rt.clock(), new_id()
-    row = await rt.db.write(lambda con: agents.create_agent(
-        con, agent_id, name, instructions, 1 if mode is None else mode, now,
-        research_allowed=True if research is None else research,
-        memory_allowed=True if mem is None else mem, files_allowed=bool(files),
-        computer_allowed=bool(flag(data, "computer_allowed")), chat_allowed=bool(flag(data, "chat_allowed")), pet=text(data, "pet", required=False, max_len=20) or "lily",
-        skills=skills or "", model=model or "", look=look or DEFAULT_LOOK,
-        sheet=sheet, parent_template=parent_template))
+    row = await rt.db.write(
+        lambda con: agents.create_agent(
+            con,
+            agent_id,
+            name,
+            instructions,
+            1 if mode is None else mode,
+            now,
+            research_allowed=True if research is None else research,
+            memory_allowed=True if mem is None else mem,
+            files_allowed=bool(files),
+            computer_allowed=bool(flag(data, "computer_allowed")),
+            chat_allowed=bool(flag(data, "chat_allowed")),
+            pet=text(data, "pet", required=False, max_len=20) or "lily",
+            skills=skills or "",
+            model=model or "",
+            look=look or DEFAULT_LOOK,
+            sheet=sheet,
+            parent_template=parent_template,
+        )
+    )
     return JSONResponse({"agent": _agent_json(row)}, 201)
 
 
@@ -249,8 +313,11 @@ async def update_agent(request: Request) -> Response:
     rt = runtime(request)
     data = await json_body(request)
     agent_id = request.path_params["agent_id"]
-    name, instructions, mode = (text(data, "name", required=False, max_len=80),
-                                text(data, "instructions", required=False), whole(data, "mode"))
+    name, instructions, mode = (
+        text(data, "name", required=False, max_len=80),
+        text(data, "instructions", required=False),
+        whole(data, "mode"),
+    )
     research, mem, files = flag(data, "research_allowed"), flag(data, "memory_allowed"), flag(data, "files_allowed")
     skills, model, look = text(data, "skills", required=False, max_len=agents.MAX_SKILLS), _model(rt, data), _look(data)
     sheet = text(data, "sheet", required=False)
@@ -259,14 +326,26 @@ async def update_agent(request: Request) -> Response:
     def change(con: Any) -> tuple[agents.AgentRow | None, agents.AgentRow]:
         before = agents.get_agent(con, agent_id)
         return before, agents.update_agent(
-            con, agent_id, name=name, instructions=instructions, mode=mode, research_allowed=research,
-            memory_allowed=mem, files_allowed=files, computer_allowed=flag(data, "computer_allowed"), chat_allowed=flag(data, "chat_allowed"),
+            con,
+            agent_id,
+            name=name,
+            instructions=instructions,
+            mode=mode,
+            research_allowed=research,
+            memory_allowed=mem,
+            files_allowed=files,
+            computer_allowed=flag(data, "computer_allowed"),
+            chat_allowed=flag(data, "chat_allowed"),
             pet=text(data, "pet", required=False, max_len=20),
-            skills=skills, model=model, look=look,
-            sheet=sheet, parent_template=parent_template)
+            skills=skills,
+            model=model,
+            look=look,
+            sheet=sheet,
+            parent_template=parent_template,
+        )
 
     before, row = await rt.db.write(change)
-    if before is not None and agents.narrows(before, row):   # what a running task was started with no longer holds
+    if before is not None and agents.narrows(before, row):  # what a running task was started with no longer holds
         await rt.orchestrator.cancel_agent_tasks(agent_id, AGENT_CHANGED)
     return JSONResponse({"agent": _agent_json(row)})
 
@@ -284,11 +363,13 @@ async def validate_sheet(request: Request) -> Response:
     sheet_text = text(data, "sheet", required=False) or ""
     parsed, diags = parse_sheet(sheet_text)
     is_ok = not any(d.severity == "error" for d in diags)
-    return JSONResponse({
-        "ok": is_ok,
-        "diagnostics": [d.to_dict() for d in diags],
-        "parsed": parsed.to_dict() if parsed else None,
-    })
+    return JSONResponse(
+        {
+            "ok": is_ok,
+            "diagnostics": [d.to_dict() for d in diags],
+            "parsed": parsed.to_dict() if parsed else None,
+        }
+    )
 
 
 async def prompt_preview(request: Request) -> Response:
@@ -297,13 +378,21 @@ async def prompt_preview(request: Request) -> Response:
     agent = agents.get_agent(rt.db.reader, agent_id)
     if agent is None:
         raise NotFound(f"agent {agent_id}")
-    return JSONResponse({
-        "persona": agents.owner_text_for(agent, role=None),
-        "plan": agents.owner_text_for(agent, role="plan"),
-        "act": agents.owner_text_for(agent, role="act"),
-        "write": agents.owner_text_for(agent, role="write"),
-        "check": agents.owner_text_for(agent, role="check"),
-    })
+    persona = agents.owner_text_for(agent, role=None)
+    plan = agents.owner_text_for(agent, role="plan")
+    act = agents.owner_text_for(agent, role="act")
+    write = agents.owner_text_for(agent, role="write")
+    check = agents.owner_text_for(agent, role="check")
+    return JSONResponse(
+        {
+            "prompt": persona or act or "",
+            "persona": persona,
+            "plan": plan,
+            "act": act,
+            "write": write,
+            "check": check,
+        }
+    )
 
 
 async def export_agent(request: Request) -> Response:
@@ -348,24 +437,26 @@ async def import_agent(request: Request) -> Response:
     assert parsed is not None
     now, agent_id = rt.clock(), new_id()
     # Import rule (CREW-13): create pet with EVERY permission off
-    row = await rt.db.write(lambda con: agents.create_agent(
-        con,
-        agent_id,
-        parsed.name,
-        "",
-        0,
-        now,
-        research_allowed=False,
-        memory_allowed=False,
-        files_allowed=False,
-        computer_allowed=False,
-        chat_allowed=False,
-        pet=parsed.pet,
-        skills="",
-        model="",
-        look=DEFAULT_LOOK,
-        sheet=sheet_text,
-    ))
+    row = await rt.db.write(
+        lambda con: agents.create_agent(
+            con,
+            agent_id,
+            parsed.name,
+            "",
+            0,
+            now,
+            research_allowed=False,
+            memory_allowed=False,
+            files_allowed=False,
+            computer_allowed=False,
+            chat_allowed=False,
+            pet=parsed.pet,
+            skills="",
+            model="",
+            look=DEFAULT_LOOK,
+            sheet=sheet_text,
+        )
+    )
     return JSONResponse({"agent": _agent_json(row)}, 201)
 
 
@@ -433,11 +524,13 @@ async def create_playbook(request: Request) -> Response:
     name = text(data, "name", max_len=120) or ""
     sig = text(data, "task_signature", max_len=200) or ""
     desc = text(data, "description", required=False, max_len=1000) or ""
-    target_raw = data.get("target", "host")
-    try:
-        target = ExecutionTarget(target_raw)
-    except ValueError:
-        target = ExecutionTarget.HOST
+    target_raw = data.get("target")
+    target = ExecutionTarget.HOST
+    if target_raw is not None:
+        try:
+            target = ExecutionTarget(target_raw.lower() if isinstance(target_raw, str) else target_raw)
+        except ValueError:
+            raise ValidationFailed(f"unknown execution target: {target_raw}") from None
     steps = data.get("steps")
     if steps is not None and not isinstance(steps, list):
         raise ValidationFailed("steps must be a list of step objects")
@@ -450,11 +543,21 @@ async def create_playbook(request: Request) -> Response:
     prov_task_id = text(data, "provenance_task_id", required=False, max_len=64)
     pid = new_id()
     now = rt.clock()
-    row = await rt.db.write(lambda con: playbooks.create_playbook(
-        con, id=pid, name=name, task_signature=sig, description=desc,
-        steps=steps or [], parameters=parameters or {}, preconditions=preconditions or {},
-        target=target, provenance_task_id=prov_task_id, now=now
-    ))
+    row = await rt.db.write(
+        lambda con: playbooks.create_playbook(
+            con,
+            id=pid,
+            name=name,
+            task_signature=sig,
+            description=desc,
+            steps=steps or [],
+            parameters=parameters or {},
+            preconditions=preconditions or {},
+            target=target,
+            provenance_task_id=prov_task_id,
+            now=now,
+        )
+    )
     return JSONResponse({"playbook": playbook_json(row)}, 201)
 
 
@@ -474,3 +577,38 @@ async def delete_playbook(request: Request) -> Response:
     return ok()
 
 
+async def upload_file(request: Request) -> Response:
+    rt = runtime(request)
+    data = await json_body(request)
+    filename = text(data, "name", max_len=255)
+    content_raw = data.get("content")
+    if not filename or content_raw is None:
+        raise ValidationFailed("missing required 'name' or 'content'")
+
+    safe_name = Path(filename).name
+    if rt.settings.file_roots:
+        upload_dir = Path(rt.settings.file_roots[0]).expanduser().resolve()
+    else:
+        upload_dir = (rt.paths.root / "uploads").resolve()
+
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target_path = upload_dir / safe_name
+
+    encoding = data.get("encoding", "utf-8")
+    if encoding == "base64":
+        import base64
+
+        file_bytes = base64.b64decode(content_raw)
+        target_path.write_bytes(file_bytes)
+    else:
+        target_path.write_text(str(content_raw), encoding="utf-8")
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "name": safe_name,
+            "path": str(target_path),
+            "size": target_path.stat().st_size,
+        },
+        201,
+    )

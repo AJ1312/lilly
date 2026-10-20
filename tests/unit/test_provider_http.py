@@ -1,4 +1,5 @@
 """Provider HTTP behaviour: short retries on transient errors, and plain-language failures."""
+
 from __future__ import annotations
 
 import httpx

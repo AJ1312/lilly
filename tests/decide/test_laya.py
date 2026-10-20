@@ -1,4 +1,5 @@
 """Master test suite for Phase 7 (LAYA-01..09)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -114,9 +115,11 @@ async def test_laya_02_stub_pick_over_descriptions(tmp_path: Path) -> None:
     laya = make_stub_decider()
     try:
         await warm(laya)
-        settings = DecisionSettings(kinds={
-            "pick": KindSettings(enabled=True, chain=(ChainStep("laya", 0.7, 5.0),)),
-        })
+        settings = DecisionSettings(
+            kinds={
+                "pick": KindSettings(enabled=True, chain=(ChainStep("laya", 0.7, 5.0),)),
+            }
+        )
         pipeline = make_pipeline(db, [laya], settings)
 
         mochi_sheet = """---
@@ -133,8 +136,16 @@ description: Coding specialist. Runs tests, debugs Python code, and edits files.
 ---
 Always fix the underlying issue.
 """
-        await db.write(lambda con: agents.create_agent(con, id="mochi-id", name="Mochi", pet="mochi", instructions="", sheet=mochi_sheet, mode=1, now=1.0))
-        await db.write(lambda con: agents.create_agent(con, id="otto-id", name="Otto", pet="otto", instructions="", sheet=otto_sheet, mode=1, now=1.0))
+        await db.write(
+            lambda con: agents.create_agent(
+                con, id="mochi-id", name="Mochi", pet="mochi", instructions="", sheet=mochi_sheet, mode=1, now=1.0
+            )
+        )
+        await db.write(
+            lambda con: agents.create_agent(
+                con, id="otto-id", name="Otto", pet="otto", instructions="", sheet=otto_sheet, mode=1, now=1.0
+            )
+        )
         all_pets = agents.list_agents(db.reader)
 
         res = await choose_pet("search the web and compare sources", all_pets, pipeline, min_confidence=0.6)
@@ -151,9 +162,11 @@ async def test_laya_03_watch_only_logs_never_acts(tmp_path: Path) -> None:
     try:
         await warm(laya)
         # ROUTE enabled as watch-only (shadow=True)
-        settings = DecisionSettings(kinds={
-            "route": KindSettings(enabled=True, shadow=True, chain=(ChainStep("laya", 0.5, 5.0),)),
-        })
+        settings = DecisionSettings(
+            kinds={
+                "route": KindSettings(enabled=True, shadow=True, chain=(ChainStep("laya", 0.5, 5.0),)),
+            }
+        )
         pipeline = make_pipeline(db, [laya], settings)
 
         ans = await pipeline.decide(
@@ -195,7 +208,16 @@ async def test_laya_05_loop_l2_across_children(tmp_path: Path) -> None:
     rec.ctx = TaskCtx(Label.PUBLIC, False, Mode.OPEN)
 
     pipeline = make_pipeline(db, [LoopRule()], DecisionSettings())
-    steps = StepExecutor(rec, MagicMock(), MagicMock(), lambda: MagicMock(), lambda: MagicMock(), None, decisions=pipeline, loop_mode=True)
+    steps = StepExecutor(
+        rec,
+        MagicMock(),
+        MagicMock(),
+        lambda: MagicMock(),
+        lambda: MagicMock(),
+        None,
+        decisions=pipeline,
+        loop_mode=True,
+    )
 
     # Add child steps: identical call repeated 3 times
     sig = step_sig("fs.read", {"path": "foo.txt"})
@@ -234,9 +256,11 @@ async def test_laya_07_acting_switch_disabled_until_marks_meet_thresholds(tmp_pa
     rt.db = db
     rt.laya.status.return_value = {"installed": True}
     # Configure min_samples=10, min_precision=0.8 for REPLY
-    settings = DecisionSettings(kinds={
-        "reply": KindSettings(enabled=True, shadow=True, min_samples=10, min_precision=0.8),
-    })
+    settings = DecisionSettings(
+        kinds={
+            "reply": KindSettings(enabled=True, shadow=True, min_samples=10, min_precision=0.8),
+        }
+    )
     rt.settings = Settings(decisions=settings)
 
     async def fake_json_body(req: Any) -> dict[str, Any]:
@@ -244,8 +268,10 @@ async def test_laya_07_acting_switch_disabled_until_marks_meet_thresholds(tmp_pa
 
     req = MagicMock(spec=StarletteRequest)
 
-    with patch("lilly.ui.api_laya.runtime", return_value=rt), \
-         patch("lilly.ui.api_laya.json_body", side_effect=fake_json_body):
+    with (
+        patch("lilly.ui.api_laya.runtime", return_value=rt),
+        patch("lilly.ui.api_laya.json_body", side_effect=fake_json_body),
+    ):
         # 1. No marks recorded -> raises ConflictError with exact text
         with pytest.raises(ConflictError) as exc_info:
             await api_laya.set_assist(req)
@@ -255,8 +281,17 @@ async def test_laya_07_acting_switch_disabled_until_marks_meet_thresholds(tmp_pa
         # 2. Record 10 accepted marks in decision_log
         for _ in range(10):
             record = DecisionRecord(
-                ts=1.0, kind=Kind.REPLY, task_id="t_test", decider="laya", choice="follows",
-                confidence=0.9, shadow=False, outcome="accepted", options=2, summary="test", reason="ok"
+                ts=1.0,
+                kind=Kind.REPLY,
+                task_id="t_test",
+                decider="laya",
+                choice="follows",
+                confidence=0.9,
+                shadow=False,
+                outcome="accepted",
+                options=2,
+                summary="test",
+                reason="ok",
             )
             await db.write(lambda con, r=record: dec_store.insert(con, r))
 
@@ -297,9 +332,7 @@ async def test_laya_09_dynamic_tool_shortlisting_in_agent_loop() -> None:
     rec.models = []
 
     # More than 12 tools (e.g. 18 tools)
-    specs_map: dict[str, ToolSpec] = {
-        name: DEFAULT_TOOLS[name] for name in list(DEFAULT_TOOLS.keys())[:18]
-    }
+    specs_map: dict[str, ToolSpec] = {name: DEFAULT_TOOLS[name] for name in list(DEFAULT_TOOLS.keys())[:18]}
     # Ensure control tools are present
     for ct in CONTROL_TOOLS:
         if ct in DEFAULT_TOOLS:

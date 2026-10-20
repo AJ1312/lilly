@@ -1,4 +1,5 @@
 """The decision log: what the cheap deciders were asked and what they answered."""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -19,8 +20,12 @@ async def list_decisions(request: Request) -> Response:
     except ValueError:
         raise ValidationFailed("kind must be one of " + ", ".join(k.value for k in Kind)) from None
     con = runtime(request).db.reader
-    return JSONResponse({"decisions": [asdict(r) for r in decisions.recent(con, limit_param(request), kind)],
-                         "summary": [asdict(s) for s in decisions.summary(con)]})
+    return JSONResponse(
+        {
+            "decisions": [asdict(r) for r in decisions.recent(con, limit_param(request), kind)],
+            "summary": [asdict(s) for s in decisions.summary(con)],
+        }
+    )
 
 
 async def mark_outcome(request: Request) -> Response:

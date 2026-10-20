@@ -2,6 +2,7 @@
 
 Lilly only ever reaches out (long polling); it opens no port. The bot token is part of the request address, so it
 is held as a Secret, never logged, and no error message here carries the address."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ import httpx
 from lilly.domain.ports import Secret
 
 API = "https://api.telegram.org"
-MAX_TEXT = 4000                 # Telegram refuses messages over 4096 characters
+MAX_TEXT = 4000  # Telegram refuses messages over 4096 characters
 MAX_RESPONSE_BYTES = 1_000_000
 
 
@@ -36,7 +37,7 @@ class Text:
     chat_id: int
     chat_type: str
     text: str
-    name: str                   # shown to the owner when pairing; never used to decide anything
+    name: str  # shown to the owner when pairing; never used to decide anything
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +70,19 @@ def parse_update(update: object) -> Text | Press | None:
     if isinstance(query := update.get("callback_query"), dict):
         sender, data, query_id = query.get("from"), query.get("data"), query.get("id")
         message = query.get("message")
-        if not (isinstance(sender, dict) and isinstance(data, str) and isinstance(query_id, str)
-                and isinstance(message, dict) and isinstance(message.get("chat"), dict)):
+        if not (
+            isinstance(sender, dict)
+            and isinstance(data, str)
+            and isinstance(query_id, str)
+            and isinstance(message, dict)
+            and isinstance(message.get("chat"), dict)
+        ):
             return None
-        user_id, chat_id, message_id = _int(sender.get("id")), _int(message["chat"].get("id")), _int(message.get("message_id"))
+        user_id, chat_id, message_id = (
+            _int(sender.get("id")),
+            _int(message["chat"].get("id")),
+            _int(message.get("message_id")),
+        )
         if user_id is None or chat_id is None or message_id is None:
             return None
         return Press(update_id, user_id, chat_id, message_id, query_id, data[:64])
@@ -88,7 +98,7 @@ class TelegramApi:
         try:
             resp = await self._client.post(url, json=payload, timeout=httpx.Timeout(wait_s, connect=10.0))
         except httpx.HTTPError:
-            raise TelegramError("Telegram could not be reached") from None      # the cause would carry the address
+            raise TelegramError("Telegram could not be reached") from None  # the cause would carry the address
         if len(resp.content) > MAX_RESPONSE_BYTES:
             raise TelegramError("Telegram sent too much data")
         try:
@@ -99,8 +109,11 @@ class TelegramApi:
             code = _int(data.get("error_code")) if isinstance(data, dict) else None
             params = data.get("parameters") if isinstance(data, dict) else None
             wait = params.get("retry_after") if isinstance(params, dict) else None
-            raise TelegramError(_explain(code or resp.status_code), code or resp.status_code,
-                                float(wait) if isinstance(wait, int | float) and not isinstance(wait, bool) else None)
+            raise TelegramError(
+                _explain(code or resp.status_code),
+                code or resp.status_code,
+                float(wait) if isinstance(wait, int | float) and not isinstance(wait, bool) else None,
+            )
         return data.get("result")
 
     async def me(self) -> str:
@@ -112,8 +125,11 @@ class TelegramApi:
         return name
 
     async def updates(self, after: int, wait_s: int) -> list[object]:
-        result = await self.call("getUpdates", {"offset": after + 1, "timeout": wait_s, "limit": 20,
-                                                "allowed_updates": ["message", "callback_query"]}, wait_s + 10.0)
+        result = await self.call(
+            "getUpdates",
+            {"offset": after + 1, "timeout": wait_s, "limit": 20, "allowed_updates": ["message", "callback_query"]},
+            wait_s + 10.0,
+        )
         return result if isinstance(result, list) else []
 
     async def send(self, chat_id: int, text: str, buttons: list[tuple[str, str]] | None = None) -> None:
@@ -131,6 +147,9 @@ class TelegramApi:
 
 
 def _explain(code: int | None) -> str:
-    return {401: "Telegram rejected the bot token", 404: "Telegram does not know that bot token",
-            409: "another program is already reading this bot's messages", 429: "Telegram asked Lilly to slow down",
-            }.get(code or 0, f"Telegram refused the request (error {code})" if code else "Telegram refused the request")
+    return {
+        401: "Telegram rejected the bot token",
+        404: "Telegram does not know that bot token",
+        409: "another program is already reading this bot's messages",
+        429: "Telegram asked Lilly to slow down",
+    }.get(code or 0, f"Telegram refused the request (error {code})" if code else "Telegram refused the request")

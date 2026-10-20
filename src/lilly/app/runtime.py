@@ -3,6 +3,7 @@
 The UI and the daemon talk to Lilly only through this object, so there is one place where the pieces are
 tied together and one place where they are shut down.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -69,11 +70,11 @@ def _engine_for(wanted: Engine) -> Engines | None:
     return CliEngine(*found) if found else None
 
 
-TICK_S = 10.0                  # while tasks are running
-IDLE_SLEEP_S = 60.0            # with nothing running: at most this long between looks, sooner when a routine is due
+TICK_S = 10.0  # while tasks are running
+IDLE_SLEEP_S = 60.0  # with nothing running: at most this long between looks, sooner when a routine is due
 PRUNE_EVERY_S = 3600.0
 BACKUP_EVERY_S = 86400.0
-BACKUP_RETRY_S = 3600.0        # after a failed backup
+BACKUP_RETRY_S = 3600.0  # after a failed backup
 
 
 @dataclass(slots=True)
@@ -88,9 +89,18 @@ class Maintenance:
 class Runtime:
     """Everything Lilly is made of, built once."""
 
-    def __init__(self, paths: LillyPaths, db: Database, keys: KeyStore, client: httpx.AsyncClient,
-                 local_client: httpx.AsyncClient, owns_clients: bool, clock: Clock, settings: Settings,
-                 problems: list[str]) -> None:
+    def __init__(
+        self,
+        paths: LillyPaths,
+        db: Database,
+        keys: KeyStore,
+        client: httpx.AsyncClient,
+        local_client: httpx.AsyncClient,
+        owns_clients: bool,
+        clock: Clock,
+        settings: Settings,
+        problems: list[str],
+    ) -> None:
         self.paths, self.db, self.keys, self.client, self.clock = paths, db, keys, client, clock
         self.local_client, self._owns_clients = local_client, owns_clients
         self.settings, self.settings_problems = settings, problems
@@ -98,7 +108,13 @@ class Runtime:
         self.bus = EventBus()
         self.grants = GrantStore()
         self.model_broker = ModelBroker(
-            settings, keys, client, db, self.grants, local_client, clock,
+            settings,
+            keys,
+            client,
+            db,
+            self.grants,
+            local_client,
+            clock,
             on_event=lambda kind, payload: self.bus.publish({"type": kind, **payload}),
         )
         # Compatibility name for older integrations. There is only one inference implementation.
@@ -108,21 +124,28 @@ class Runtime:
         self.scope = self._build_scope(settings)
         self.mcp = McpManager(self._secret)
         self.browser = BrowserManager(lambda: self.settings.browser)
-        self.devbox = DevboxManager(lambda: self.settings.devbox, lambda: self.scope,
-                                    lambda cfg: _engine_for(cfg.runtime), self.clock)
+        self.devbox = DevboxManager(
+            lambda: self.settings.devbox, lambda: self.scope, lambda cfg: _engine_for(cfg.runtime), self.clock
+        )
+
         async def ground(frame: Any, target: str, task_id: str) -> tuple[int, int] | None:
             if not frame.screenshot:
                 return None
             return await self.model_broker.ground_computer_target(
-                frame.screenshot, target, task_id=task_id,
+                frame.screenshot,
+                target,
+                task_id=task_id,
             )
 
         self.computer = ComputerRuntime(
-            paths.root / "computer", vision_grounder=ground, devbox=self.devbox,
-            dom_provider=self.browser.dom_snapshot, continuous=True,
+            paths.root / "computer",
+            vision_grounder=ground,
+            devbox=self.devbox,
+            dom_provider=self.browser.dom_snapshot,
+            continuous=True,
             on_frame=self._on_computer_frame,
         )
-        self._mcp_lock = asyncio.Lock()      # database read and configure happen together, one reload at a time
+        self._mcp_lock = asyncio.Lock()  # database read and configure happen together, one reload at a time
         self.tools: dict[str, Tool] = {**self._build_tools(settings), **self.mcp.tools()}
         self.laya = LayaService(paths.root / "addons" / "laya")
         self.system1_engine = System1Engine(
@@ -131,41 +154,60 @@ class Runtime:
             laya_enabled=lambda: bool(laya_kinds(settings.decisions)),
         )
         self.session_runtime = SessionRuntime(
-            db, self.model_broker, self.system1_engine, clock,
+            db,
+            self.model_broker,
+            self.system1_engine,
+            clock,
             on_event=lambda kind, payload: self.bus.publish({"type": kind, **payload}),
         )
-        
+
         # Quick Actions setup
         self.app_index = AppIndex(clock=clock, ttl_s=settings.engine.quick_index_ttl_s)
         intents = load_intents()
         self.quick_router = QuickRouter(intents, self.app_index, lambda: settings.engine)
-        self._static_deciders: dict[str, Decider] = {"search": SearchRanker(), "loop": LoopRule(),
-                                                     "rules": RulesDecider(), "match": MatchRule()}
+        self._static_deciders: dict[str, Decider] = {
+            "search": SearchRanker(),
+            "loop": LoopRule(),
+            "rules": RulesDecider(),
+            "match": MatchRule(),
+        }
         self._small: tuple[str, SmallModelDecider] | None = None
         self.read_cache = ReadCache()
         self.standing = StandingStore(db)
         self.decisions = DecisionPipeline(lambda: self.settings.decisions, self._deciders, DatabaseSink(db), clock)
-        
+
         # Set Laya decider for System1 engine when Laya is available
         if self.laya.decider:
             self.system1_engine.set_laya_decider(self.laya.decider)
-        
-        self.orchestrator = Orchestrator(EngineDeps(
-            db, self.router, lambda: self.tools, lambda: self.scope, lambda: self.settings.file_roots, self.bus,
-            self.approvals, self.grants, clock, lambda: self.settings.limits, self.decisions,
-            engine_settings=lambda: self.settings.engine,
-            grounding_settings=lambda: self.settings.grounding,
-            read_cache=self.read_cache,
-            quick=self.quick_router,
-            standing=self.standing,
-            system1=self.system1_engine,
-            approval_mode=lambda: self.settings.approval_mode,
-            session_runtime=self.session_runtime,
-            computer_runtime=self.computer))
+
+        self.orchestrator = Orchestrator(
+            EngineDeps(
+                db,
+                self.router,
+                lambda: self.tools,
+                lambda: self.scope,
+                lambda: self.settings.file_roots,
+                self.bus,
+                self.approvals,
+                self.grants,
+                clock,
+                lambda: self.settings.limits,
+                self.decisions,
+                engine_settings=lambda: self.settings.engine,
+                grounding_settings=lambda: self.settings.grounding,
+                read_cache=self.read_cache,
+                quick=self.quick_router,
+                standing=self.standing,
+                system1=self.system1_engine,
+                approval_mode=lambda: self.settings.approval_mode,
+                session_runtime=self.session_runtime,
+                computer_runtime=self.computer,
+            )
+        )
         self.scheduler = Scheduler(db, self.orchestrator, clock)
         self._wake = asyncio.Event()
         self.maintenance = Maintenance()
-        if (newest := snapshot.newest_backup(paths.backups)) is not None:     # a restart is not a reason to back up
+        if (newest := snapshot.newest_backup(paths.backups)) is not None:  # a restart is not a reason to back up
             self.maintenance.last_backup, self.maintenance.last_backup_file = newest.stat().st_mtime, newest.name
         self.power = Caffeinate()
         self._background: list[asyncio.Task[None]] = []
@@ -173,15 +215,23 @@ class Runtime:
 
     def _on_computer_frame(self, task_id: str, frame: Any) -> None:
         """Publish every frame for the workspace, and persist meaningful deltas canonically."""
-        signature = repr((frame.app, frame.window, tuple((e.role, e.name, e.description) for e in frame.elements), frame.dom))
+        signature = repr(
+            (frame.app, frame.window, tuple((e.role, e.name, e.description) for e in frame.elements), frame.dom)
+        )
         changed = self._computer_signatures.get(task_id) != signature
         self._computer_signatures[task_id] = signature
         self.bus.publish({"type": "computer", "task_id": task_id, "frame_id": frame.frame_id, "changed": changed})
         if changed and hasattr(self, "session_runtime"):
-            self.session_runtime.record_computer_frame(task_id, {
-                "frame_id": frame.frame_id, "app": frame.app, "window": frame.window,
-                "screenshot": frame.screenshot, "elements": len(frame.elements),
-            })
+            self.session_runtime.record_computer_frame(
+                task_id,
+                {
+                    "frame_id": frame.frame_id,
+                    "app": frame.app,
+                    "window": frame.window,
+                    "screenshot": frame.screenshot,
+                    "elements": len(frame.elements),
+                },
+            )
 
     def _deciders(self) -> dict[str, Decider]:
         """The deciders that exist right now, looked up for every question so that a local model switched on or
@@ -199,14 +249,28 @@ class Runtime:
         return found
 
     @classmethod
-    async def create(cls, paths: LillyPaths, *, client: httpx.AsyncClient | None = None,
-                     local_client: httpx.AsyncClient | None = None, keys: KeyStore | None = None,
-                     clock: Clock = time.time) -> Runtime:
+    async def create(
+        cls,
+        paths: LillyPaths,
+        *,
+        client: httpx.AsyncClient | None = None,
+        local_client: httpx.AsyncClient | None = None,
+        keys: KeyStore | None = None,
+        clock: Clock = time.time,
+    ) -> Runtime:
         settings, problems = load_settings(paths.settings)
         owns_clients = client is None
-        rt = cls(paths, Database(paths.db), keys or open_key_store(paths.config),
-                 client or create_http_client(), local_client or client or create_local_client(),
-                 owns_clients, clock, settings, problems)
+        rt = cls(
+            paths,
+            Database(paths.db),
+            keys or open_key_store(paths.config),
+            client or create_http_client(),
+            local_client or client or create_local_client(),
+            owns_clients,
+            clock,
+            settings,
+            problems,
+        )
         try:
             await rt.model_broker.start()
             await rt.session_runtime.start()
@@ -216,29 +280,42 @@ class Runtime:
         except BaseException:
             await rt.close()
             raise
-        rt._background = [asyncio.create_task(rt._housekeeping(), name="lilly-housekeeping"),
-                          asyncio.create_task(rt._wake_on_tasks(), name="lilly-wake-on-tasks")]
+        rt._background = [
+            asyncio.create_task(rt._housekeeping(), name="lilly-housekeeping"),
+            asyncio.create_task(rt._wake_on_tasks(), name="lilly-wake-on-tasks"),
+        ]
         return rt
 
     # ---- wiring ---------------------------------------------------------------------
     def _build_scope(self, settings: Settings) -> PathScope:
-        return PathScope(settings.file_roots, deny=(str(self.paths.root), *SENSITIVE_DIRS))
+        roots = settings.file_roots if settings.file_roots else (str(Path.home()),)
+        return PathScope(roots, deny=(str(self.paths.root), *SENSITIVE_DIRS))
 
     def _build_tools(self, settings: Settings) -> dict[str, Tool]:
-        return build_tools(settings, scope=self.scope, db=self.db, router=self.model_broker, keys=self.keys,
-                           client=self.client, clock=self.clock,
-                           browser=(self.browser, lambda: self.settings.browser), devbox=self.devbox,
-                           computer_runtime=self.computer,
-                           delegate_fn=self._delegate)
+        return build_tools(
+            settings,
+            scope=self.scope,
+            db=self.db,
+            router=self.model_broker,
+            keys=self.keys,
+            client=self.client,
+            clock=self.clock,
+            browser=(self.browser, lambda: self.settings.browser),
+            devbox=self.devbox,
+            computer_runtime=self.computer,
+            delegate_fn=self._delegate,
+        )
 
     async def _delegate(self, target_agent: str, task_instruction: str, ctx: ToolContext) -> ToolResult:
-        handler = DelegateHandler(DelegationContext(
-            db=self.db,
-            bus=self.bus,
-            orchestrator=self.orchestrator,
-            crew_settings=lambda: self.settings.crew,
-            limits=lambda: self.settings.limits,
-        ))
+        handler = DelegateHandler(
+            DelegationContext(
+                db=self.db,
+                bus=self.bus,
+                orchestrator=self.orchestrator,
+                crew_settings=lambda: self.settings.crew,
+                limits=lambda: self.settings.limits,
+            )
+        )
         return await handler.delegate(target_agent, task_instruction, ctx)
 
     def _secret(self, ref: str) -> str | None:
@@ -250,7 +327,8 @@ class Runtime:
         planner sees is rebuilt from what the owner approved."""
         async with self._mcp_lock:
             servers, approvals = await self.db.write(
-                lambda con: (mcp_store.list_servers(con), mcp_store.get_approvals(con)))
+                lambda con: (mcp_store.list_servers(con), mcp_store.get_approvals(con))
+            )
             await self.mcp.configure(servers, approvals)
             self.tools = {**self._build_tools(self.settings), **self.mcp.tools()}
 
@@ -261,11 +339,11 @@ class Runtime:
         self.settings, self.settings_problems = new, []
         self.scope = self._build_scope(new)
         self.tools = {**self._build_tools(new), **self.mcp.tools()}
-        
+
         # Update QuickRouter with new engine settings
         self.app_index = AppIndex(clock=self.clock, ttl_s=new.engine.quick_index_ttl_s)
         self.quick_router = QuickRouter(load_intents(), self.app_index, lambda: new.engine)
-        
+
         await self.model_broker.configure(new)
         self.system1_engine.set_engine_settings(lambda: new.engine)
         self.system1_engine.set_laya_enabled(lambda: bool(laya_kinds(new.decisions)))
@@ -334,7 +412,7 @@ class Runtime:
             try:
                 due = self.scheduler.next_due()
             except sqlite3.Error:
-                log.exception("could not read the next routine time")     # keep the short interval and try again
+                log.exception("could not read the next routine time")  # keep the short interval and try again
             else:
                 wait = IDLE_SLEEP_S if due is None else min(IDLE_SLEEP_S, max(1.0, due - self.clock()))
         self._wake.clear()
@@ -359,11 +437,14 @@ class Runtime:
         database is copied aside under its own name, so it never pushes good backups out.
 
         It reads through its own read-only connection on a worker thread, so writes carry on meanwhile."""
+
         def work() -> tuple[Path, bool]:
             con = open_reader(self.db.path)
             try:
                 ok = snapshot.integrity_ok(con)
-                return snapshot.backup_db(con, self.paths.backups, self.clock(), prefix="lilly" if ok else "damaged"), ok
+                return snapshot.backup_db(
+                    con, self.paths.backups, self.clock(), prefix="lilly" if ok else "damaged"
+                ), ok
             finally:
                 con.close()
 
@@ -377,22 +458,50 @@ class Runtime:
     def export_all(self) -> dict[str, Any]:
         """Everything the user created, as plain JSON they can keep. Secrets are never part of it."""
         con = self.db.reader
-        convs = [{"id": c.id, "title": c.title, "created_at": c.created_at,
-                  "messages": [{"role": m.role, "content": m.content, "at": m.created_at}
-                               for m in conversations.list_messages(con, c.id, limit=10_000)]}
-                 for c in conversations.list_conversations(con, include_archived=True, limit=10_000)]
+        convs = [
+            {
+                "id": c.id,
+                "title": c.title,
+                "created_at": c.created_at,
+                "messages": [
+                    {"role": m.role, "content": m.content, "at": m.created_at}
+                    for m in conversations.list_messages(con, c.id, limit=10_000)
+                ],
+            }
+            for c in conversations.list_conversations(con, include_archived=True, limit=10_000)
+        ]
         return {
-            "app": "lilly", "exported_at": self.clock(),
+            "app": "lilly",
+            "exported_at": self.clock(),
             "conversations": convs,
-            "memory": [{"text": m.text, "label": m.label.name, "source": m.source} for m in memory.list_memory(con, 10_000)],
-            "agents": [{"name": a.name, "instructions": a.instructions, "mode": a.mode, "skills": a.skills, "pet": a.pet,
-                        "look": look_to_dict(a.look), "model": a.model,
-                        "allowed": {p: getattr(a, p) for p in agents.PERMISSIONS}} for a in agents.list_agents(con)],
-            "routines": [{"name": x.name, "goal": x.goal, "enabled": x.enabled, "schedule": asdict(x.schedule)}
-                         for x in routines.list_routines(con)],
-            "spaces": [{"name": s.name, "description": s.description,
-                        "pages": [{"title": p.title, "content": p.content} for p in spaces.list_pages(con, s.id)]}
-                       for s in spaces.list_spaces(con)],
+            "memory": [
+                {"text": m.text, "label": m.label.name, "source": m.source} for m in memory.list_memory(con, 10_000)
+            ],
+            "agents": [
+                {
+                    "name": a.name,
+                    "instructions": a.instructions,
+                    "mode": a.mode,
+                    "skills": a.skills,
+                    "pet": a.pet,
+                    "look": look_to_dict(a.look),
+                    "model": a.model,
+                    "allowed": {p: getattr(a, p) for p in agents.PERMISSIONS},
+                }
+                for a in agents.list_agents(con)
+            ],
+            "routines": [
+                {"name": x.name, "goal": x.goal, "enabled": x.enabled, "schedule": asdict(x.schedule)}
+                for x in routines.list_routines(con)
+            ],
+            "spaces": [
+                {
+                    "name": s.name,
+                    "description": s.description,
+                    "pages": [{"title": p.title, "content": p.content} for p in spaces.list_pages(con, s.id)],
+                }
+                for s in spaces.list_spaces(con)
+            ],
         }
 
     # ---- shutdown ---------------------------------------------------------------------

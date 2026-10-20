@@ -1,4 +1,5 @@
 """The web app: a JSON API plus the single-page interface, behind the security layer."""
+
 from __future__ import annotations
 
 import functools
@@ -114,6 +115,7 @@ def api_routes() -> list[Route]:
         _route("/api/playbooks", data.create_playbook, ["POST"]),
         _route("/api/playbooks/{playbook_id}", data.get_playbook, ["GET"]),
         _route("/api/playbooks/{playbook_id}", data.delete_playbook, ["DELETE"]),
+        _route("/api/files/upload", data.upload_file, ["POST"]),
         # settings, models, keys, system, data
         _route("/api/routines", api_routines.list_routines, ["GET"]),
         _route("/api/routines", api_routines.create_routine, ["POST"]),
@@ -191,16 +193,20 @@ def _spa(web_dir: Path) -> Handler:
     return serve
 
 
-def create_app(runtime: Runtime, auth: Auth, web_dir: Path = WEB_DIR, bridges: BridgeControl | None = None) -> Starlette:
+def create_app(
+    runtime: Runtime, auth: Auth, web_dir: Path = WEB_DIR, bridges: BridgeControl | None = None
+) -> Starlette:
     routes: list[Route] = [
         *api_routes(),
-        Route("/api/{rest:path}", guarded(_no_such_api, public=True), methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),
+        Route(
+            "/api/{rest:path}", guarded(_no_such_api, public=True), methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
+        ),
         Route("/{path:path}", guarded(_spa(web_dir), public=True), methods=sorted(SAFE_METHODS - {"OPTIONS"})),
     ]
     app = Starlette(
-        routes=routes,
-        middleware=[Middleware(Shield, extra_hosts=lambda: runtime.settings.network.allowed_hosts)])
+        routes=routes, middleware=[Middleware(Shield, extra_hosts=lambda: runtime.settings.network.allowed_hosts)]
+    )
     app.state.runtime = runtime
     app.state.auth = auth
-    app.state.bridges = bridges           # the running chat bridge, handed in by the daemon (None: not running)
+    app.state.bridges = bridges  # the running chat bridge, handed in by the daemon (None: not running)
     return app

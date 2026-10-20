@@ -1,4 +1,5 @@
 """Adapter for OpenAI-style chat completion APIs (OpenAI, Mistral, OpenRouter)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -64,17 +65,28 @@ def _parse_tool_call(tc_raw: dict[str, Any]) -> ModelToolCall:
 
 
 class OpenAICompatProvider(Provider):
-    def __init__(self, name: str, client: httpx.AsyncClient, keys: KeyStore, key_ref: str, model_id: str,
-                 base_url: str, extra_headers: dict[str, str] | None = None, json_mode: bool = False,
-                 limit_field: str = "max_tokens", send_temperature: bool = True, limit_factor: int = 1,
-                 stream_usage: bool = False) -> None:
+    def __init__(
+        self,
+        name: str,
+        client: httpx.AsyncClient,
+        keys: KeyStore,
+        key_ref: str,
+        model_id: str,
+        base_url: str,
+        extra_headers: dict[str, str] | None = None,
+        json_mode: bool = False,
+        limit_field: str = "max_tokens",
+        send_temperature: bool = True,
+        limit_factor: int = 1,
+        stream_usage: bool = False,
+    ) -> None:
         self.name = name
         self._client, self._keys, self._key_ref = client, keys, key_ref
         self._model_id, self._base_url = model_id, base_url.rstrip("/")
         self._extra = extra_headers or {}
         self._supports_json = json_mode
         self._limit_field, self._send_temperature, self._limit_factor = limit_field, send_temperature, limit_factor
-        self._stream_usage = stream_usage      # the vendor accepts stream_options to report token use while streaming
+        self._stream_usage = stream_usage  # the vendor accepts stream_options to report token use while streaming
 
     async def complete(self, req: CompletionRequest) -> CompletionResult:
         secret = await asyncio.to_thread(self._keys.get, self._key_ref)
@@ -84,11 +96,13 @@ class OpenAICompatProvider(Provider):
         formatted_messages: list[dict[str, Any]] = []
         for m in req.messages:
             if m.role == "tool":
-                formatted_messages.append({
-                    "role": "tool",
-                    "content": m.content,
-                    "tool_call_id": m.tool_call_id or "",
-                })
+                formatted_messages.append(
+                    {
+                        "role": "tool",
+                        "content": m.content,
+                        "tool_call_id": m.tool_call_id or "",
+                    }
+                )
             elif m.role == "assistant" and m.tool_calls:
                 tc_list = [
                     {
@@ -114,8 +128,12 @@ class OpenAICompatProvider(Provider):
                     for image_path in req.image_paths:
                         raw = await asyncio.to_thread(_read_image, image_path)
                         mime = mimetypes.guess_type(image_path)[0] or "image/png"
-                        content.append({"type": "image_url", "image_url": {
-                            "url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"}})
+                        content.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"},
+                            }
+                        )
                 formatted_messages.append({"role": m.role, "content": content})
 
         body: dict[str, object] = {
@@ -159,8 +177,9 @@ class OpenAICompatProvider(Provider):
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             raise ProviderError(retryable=False) from exc
 
-    async def _stream(self, url: str, headers: dict[str, str], body: dict[str, object],
-                      req: CompletionRequest) -> CompletionResult:
+    async def _stream(
+        self, url: str, headers: dict[str, str], body: dict[str, object], req: CompletionRequest
+    ) -> CompletionResult:
         body = {**body, "stream": True, **({"stream_options": {"include_usage": True}} if self._stream_usage else {})}
         tokens, finish, text, on_text = [0, 0, 0], "stop", "", req.on_text
         accumulated_tc: dict[int, dict[str, Any]] = {}
@@ -205,11 +224,10 @@ class OpenAICompatProvider(Provider):
                 raise ProviderError(retryable=False) from exc
 
         await post_sse(self._client, url, headers=headers, body=body, deadline_s=req.deadline_s, on_event=take)
-        parsed_calls = [
-            _parse_tool_call(accumulated_tc[idx])
-            for idx in sorted(accumulated_tc)
-        ]
-        return CompletionResult(text, tokens[0], tokens[1], finish, tool_calls=tuple(parsed_calls), cached_tokens=tokens[2])
+        parsed_calls = [_parse_tool_call(accumulated_tc[idx]) for idx in sorted(accumulated_tc)]
+        return CompletionResult(
+            text, tokens[0], tokens[1], finish, tool_calls=tuple(parsed_calls), cached_tokens=tokens[2]
+        )
 
 
 def _read_image(path: str) -> bytes:

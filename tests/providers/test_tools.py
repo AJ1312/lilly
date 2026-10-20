@@ -1,4 +1,5 @@
 """Tests PROV-01 through PROV-10 and Phase 2 Gate for tool calling across providers."""
+
 from __future__ import annotations
 
 import json
@@ -38,6 +39,7 @@ async def http_client() -> AsyncIterator[httpx.AsyncClient]:
 # ============================================================================
 # PROV-01: Schema translation and subset conversion
 # ============================================================================
+
 
 def test_prov_01_gemini_schema_translation() -> None:
     raw_schema: dict[str, Any] = {
@@ -127,6 +129,7 @@ def test_prov_01_all_default_tools_have_convertible_schemas() -> None:
 # PROV-02: Wire names and tool registration
 # ============================================================================
 
+
 def test_prov_02_wire_name_mapping() -> None:
     assert wire_name("fs.read") == "fs__read"
     assert wire_name("data.table_query") == "data__table_query"
@@ -153,10 +156,13 @@ def test_prov_02_rejection_of_double_underscore_in_tool_names() -> None:
 # PROV-03: OpenAI dialect: parse arguments, tool_calls, and tool role
 # ============================================================================
 
+
 async def test_prov_03_openai_tool_calls_and_tool_role(http_client: httpx.AsyncClient) -> None:
-    server = FakeLLMServer([
-        ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": "/workspace/doc.txt"}}]),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": "/workspace/doc.txt"}}]),
+        ]
+    )
     server.start()
     try:
         keys = MemoryKeyStore({"test": "sk-secret"})
@@ -221,13 +227,16 @@ async def test_prov_03_openai_tool_calls_and_tool_role(http_client: httpx.AsyncC
 # PROV-04: OpenAI invalid JSON: error field preserved
 # ============================================================================
 
+
 async def test_prov_04_openai_invalid_json_arguments(http_client: httpx.AsyncClient) -> None:
     # 1. Broken JSON syntax
-    server = FakeLLMServer([
-        ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": '{"path": "/truncated'}]),
-        # 2. Valid JSON, but not an object
-        ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": "42"}]),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": '{"path": "/truncated'}]),
+            # 2. Valid JSON, but not an object
+            ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": "42"}]),
+        ]
+    )
     server.start()
     try:
         keys = MemoryKeyStore({"test": "sk-secret"})
@@ -270,15 +279,21 @@ async def test_prov_04_openai_invalid_json_arguments(http_client: httpx.AsyncCli
 # PROV-05: OpenAI streaming: delta accumulation across chunks
 # ============================================================================
 
+
 async def test_prov_05_openai_streaming_split_arguments(http_client: httpx.AsyncClient) -> None:
     # FakeLLMServer splits argument strings into two chunks during streaming
-    server = FakeLLMServer([
-        ScriptedReply(
-            tool_calls=[
-                {"name": "fs__read", "arguments": {"path": "/deep/nested/path/to/target/file.txt", "max_bytes": 1024}}
-            ]
-        ),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(
+                tool_calls=[
+                    {
+                        "name": "fs__read",
+                        "arguments": {"path": "/deep/nested/path/to/target/file.txt", "max_bytes": 1024},
+                    }
+                ]
+            ),
+        ]
+    )
     server.start()
     try:
         keys = MemoryKeyStore({"test": "sk-secret"})
@@ -313,10 +328,13 @@ async def test_prov_05_openai_streaming_split_arguments(http_client: httpx.Async
 # PROV-06: Gemini dialect: functionDeclarations, functionCall, functionResponse
 # ============================================================================
 
+
 async def test_prov_06_gemini_tool_calls_and_responses(http_client: httpx.AsyncClient) -> None:
-    server = FakeLLMServer([
-        ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": "/home/user/notes.md"}}]),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": "/home/user/notes.md"}}]),
+        ]
+    )
     server.start()
     try:
         keys = MemoryKeyStore({"test": "gemini-api-key"})
@@ -386,11 +404,14 @@ async def test_prov_06_gemini_tool_calls_and_responses(http_client: httpx.AsyncC
 # PROV-07: Gemini provider_state echoed cleanly
 # ============================================================================
 
+
 async def test_prov_07_gemini_provider_state_roundtrip(http_client: httpx.AsyncClient) -> None:
     state_payload = {"session_token": "gem_tok_987", "cache_id": "cache_456"}
-    server = FakeLLMServer([
-        ScriptedReply(content="First turn", provider_state=state_payload),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(content="First turn", provider_state=state_payload),
+        ]
+    )
     server.start()
     try:
         keys = MemoryKeyStore({"test": "gemini-api-key"})
@@ -426,10 +447,13 @@ async def test_prov_07_gemini_provider_state_roundtrip(http_client: httpx.AsyncC
 # PROV-08: Ollama dialect: tools sent to /api/chat, tool_calls parsed
 # ============================================================================
 
+
 async def test_prov_08_ollama_tool_calls_and_responses(http_client: httpx.AsyncClient) -> None:
-    server = FakeLLMServer([
-        ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": "/workspace/ollama_test.py"}}]),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": "/workspace/ollama_test.py"}}]),
+        ]
+    )
     server.start()
     try:
         provider = OllamaProvider(
@@ -489,6 +513,7 @@ async def test_prov_08_ollama_tool_calls_and_responses(http_client: httpx.AsyncC
 # PROV-09: Action protocol: fenced JSON, prose, final answer
 # ============================================================================
 
+
 def test_prov_09_action_protocol_parsing() -> None:
     # 1. Fenced JSON with prose
     fenced_text = """
@@ -537,6 +562,7 @@ Done.
 # PROV-10: Action protocol repair turn and session runtime detection
 # ============================================================================
 
+
 async def test_prov_10_action_protocol_repair_and_detection(http_client: httpx.AsyncClient) -> None:
     reset_detected_protocol()
     model_name = "test-protocol-model"
@@ -544,15 +570,19 @@ async def test_prov_10_action_protocol_repair_and_detection(http_client: httpx.A
 
     # First attempt: invalid prose, repair attempt: valid protocol JSON
     invalid_reply = "I cannot call tools directly, what should I do?"
-    valid_repair_reply = json.dumps({
-        "thought": "Now using protocol",
-        "calls": [{"tool": "fs.read", "args": {"path": "/file.txt"}}],
-    })
+    valid_repair_reply = json.dumps(
+        {
+            "thought": "Now using protocol",
+            "calls": [{"tool": "fs.read", "args": {"path": "/file.txt"}}],
+        }
+    )
 
-    server = FakeLLMServer([
-        ScriptedReply(content=invalid_reply),
-        ScriptedReply(content=valid_repair_reply),
-    ])
+    server = FakeLLMServer(
+        [
+            ScriptedReply(content=invalid_reply),
+            ScriptedReply(content=valid_repair_reply),
+        ]
+    )
     server.start()
     try:
         keys = MemoryKeyStore({"test": "sk-secret"})
@@ -579,8 +609,10 @@ async def test_prov_10_action_protocol_repair_and_detection(http_client: httpx.A
         # Second request was repair prompt
         repair_req_recorded = server.requests[1]
         assert repair_req_recorded.messages is not None
-        assert any("That reply was not a single valid JSON object" in m.get("content", "")
-                   for m in repair_req_recorded.messages)
+        assert any(
+            "That reply was not a single valid JSON object" in m.get("content", "")
+            for m in repair_req_recorded.messages
+        )
 
         # Result parsed from repair
         assert len(res.tool_calls) == 1
@@ -605,6 +637,7 @@ async def test_prov_10_action_protocol_repair_and_detection(http_client: httpx.A
 # ============================================================================
 # Phase 2 Gate: Identical scripted conversation across all 4 modes
 # ============================================================================
+
 
 async def test_phase_2_gate_identical_conversation_across_all_dialects(http_client: httpx.AsyncClient) -> None:
     """Gate: The same scripted conversation (tool call -> result -> final) passes against the fake server
@@ -643,14 +676,26 @@ async def test_phase_2_gate_identical_conversation_across_all_dialects(http_clie
             server.enqueue(ScriptedReply(tool_calls=[{"name": "fs__read", "arguments": {"path": target_path}}]))
             server.enqueue(ScriptedReply(content=final_answer))
         elif mode == "protocol":
-            server.enqueue(ScriptedReply(content=json.dumps({
-                "thought": "Need to read file",
-                "calls": [{"tool": tool_name, "args": {"path": target_path}}],
-            })))
-            server.enqueue(ScriptedReply(content=json.dumps({
-                "thought": "Done",
-                "final": final_answer,
-            })))
+            server.enqueue(
+                ScriptedReply(
+                    content=json.dumps(
+                        {
+                            "thought": "Need to read file",
+                            "calls": [{"tool": tool_name, "args": {"path": target_path}}],
+                        }
+                    )
+                )
+            )
+            server.enqueue(
+                ScriptedReply(
+                    content=json.dumps(
+                        {
+                            "thought": "Done",
+                            "final": final_answer,
+                        }
+                    )
+                )
+            )
 
         server.start()
         try:
@@ -658,22 +703,35 @@ async def test_phase_2_gate_identical_conversation_across_all_dialects(http_clie
             provider: Any
             if mode == "openai":
                 provider = OpenAICompatProvider(
-                    name="openai", client=http_client, keys=keys, key_ref="key",
-                    model_id="gpt-4o", base_url=server.openai_url,
+                    name="openai",
+                    client=http_client,
+                    keys=keys,
+                    key_ref="key",
+                    model_id="gpt-4o",
+                    base_url=server.openai_url,
                 )
             elif mode == "gemini":
                 provider = GeminiProvider(
-                    client=http_client, keys=keys, key_ref="key",
-                    model_id="gemini-1.5-pro", base_url=server.gemini_url,
+                    client=http_client,
+                    keys=keys,
+                    key_ref="key",
+                    model_id="gemini-1.5-pro",
+                    base_url=server.gemini_url,
                 )
             elif mode == "ollama":
                 provider = OllamaProvider(
-                    client=http_client, model_id="qwen2.5", base_url=server.ollama_url,
+                    client=http_client,
+                    model_id="qwen2.5",
+                    base_url=server.ollama_url,
                 )
             elif mode == "protocol":
                 inner = OpenAICompatProvider(
-                    name="protocol-inner", client=http_client, keys=keys, key_ref="key",
-                    model_id="base-model", base_url=server.openai_url,
+                    name="protocol-inner",
+                    client=http_client,
+                    keys=keys,
+                    key_ref="key",
+                    model_id="base-model",
+                    base_url=server.openai_url,
                 )
                 provider = ActionProtocolAdapter(inner, model_name="base-model")
 

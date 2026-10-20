@@ -1,4 +1,5 @@
 """Data labels, risk levels, verdicts, access modes and the per-task context."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,13 +27,15 @@ class Verdict(IntEnum):
 
 class Mode(IntEnum):
     """How much an agent may do with private data. Chosen per agent."""
+
     LOCKED = 0  # no private access: PERSONAL/SECRET data is off limits
-    ASK = 1     # asks before reading or sharing private data
-    OPEN = 2    # no prompts for private data or irreversible actions; the floor still applies
+    ASK = 1  # asks before reading or sharing private data
+    OPEN = 2  # no prompts for private data or irreversible actions; the floor still applies
 
 
 class ApprovalMode(StrEnum):
     """How approval-required actions are handled."""
+
     MANUAL = "MANUAL"
     AUTO = "AUTO"
     OFF = "OFF"
@@ -56,5 +59,5 @@ class ToolCall:
     risk: Risk
     egress: bool = False
     paths: tuple[str, ...] = ()
-    reads_label: Label = Label.PUBLIC   # sensitivity of the data this call reads
-    confirm: bool = False               # the user must approve every time, in every mode
+    reads_label: Label = Label.PUBLIC  # sensitivity of the data this call reads
+    confirm: bool = False  # the user must approve every time, in every mode

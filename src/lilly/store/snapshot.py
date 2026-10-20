@@ -1,4 +1,5 @@
 """Consistent copies of the database file, and a check that a database is sound."""
+
 from __future__ import annotations
 
 import contextlib
@@ -19,8 +20,15 @@ def newest_backup(backup_dir: Path, prefix: str = "lilly") -> Path | None:
     return max(backup_dir.glob(f"{prefix}-*.db"), key=lambda p: p.stat().st_mtime, default=None)
 
 
-def backup_db(source: sqlite3.Connection, backup_dir: Path, now: float, keep: int = MAX_BACKUPS, *,
-              prefix: str = "lilly", tag: str = "") -> Path:
+def backup_db(
+    source: sqlite3.Connection,
+    backup_dir: Path,
+    now: float,
+    keep: int = MAX_BACKUPS,
+    *,
+    prefix: str = "lilly",
+    tag: str = "",
+) -> Path:
     """Online backup (safe while the daemon is writing), all 0600. Keeps the newest `keep` files that share
     `prefix`, so the daily backups and the copies taken before a schema upgrade never prune each other."""
     backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)

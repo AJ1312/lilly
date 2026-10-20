@@ -1,4 +1,5 @@
 """Laya assist over the API: the switches, the verdict on a task, and the interface's types."""
+
 from __future__ import annotations
 
 import asyncio
@@ -47,8 +48,9 @@ async def installed(api: Api, tmp_path: Path) -> None:
 
 async def a_task(api: Api) -> str:
     task_id = new_id()
-    await api.runtime.db.write(lambda con: tasks.create_task(con, id=task_id, goal="g", mode=1, label=Label.PUBLIC,
-                                                              tainted=False, now=1.0))
+    await api.runtime.db.write(
+        lambda con: tasks.create_task(con, id=task_id, goal="g", mode=1, label=Label.PUBLIC, tainted=False, now=1.0)
+    )
     return task_id
 
 
@@ -63,11 +65,13 @@ async def test_a_task_shows_what_the_reply_check_found_and_nothing_when_it_did_n
     await note(api, task_id, {"choice": FOLLOWS, "confidence": 0.9, "decider": "laya"})
     assert (await api.get(f"/api/tasks/{task_id}")).json()["reply_check"] == "follows"
     await note(api, task_id, {"choice": DRIFTS, "confidence": 0.8, "decider": "laya"})
-    assert (await api.get(f"/api/tasks/{task_id}")).json()["reply_check"] == "drifts"      # the newest note counts
+    assert (await api.get(f"/api/tasks/{task_id}")).json()["reply_check"] == "drifts"  # the newest note counts
 
 
 @pytest.mark.parametrize("payload", [{"choice": "allow"}, {"choice": None}, {}, {"choice": 5}])
-async def test_a_note_that_is_not_one_of_the_two_verdicts_is_shown_as_nothing(api: Api, payload: dict[str, Any]) -> None:
+async def test_a_note_that_is_not_one_of_the_two_verdicts_is_shown_as_nothing(
+    api: Api, payload: dict[str, Any]
+) -> None:
     await api.sign_in()
     task_id = await a_task(api)
     await note(api, task_id, payload)
@@ -76,9 +80,10 @@ async def test_a_note_that_is_not_one_of_the_two_verdicts_is_shown_as_nothing(ap
 
 async def test_a_finished_task_gets_its_reply_check_through_the_whole_app(api: Api) -> None:
     await api.sign_in()
-    api.runtime._static_deciders["laya"] = Verdict(DRIFTS)          # type: ignore[assignment]
-    await api.runtime.apply_settings(replace(api.runtime.settings, decisions=with_assist(
-        api.runtime.settings.decisions, Kind.REPLY, True, act=True)))
+    api.runtime._static_deciders["laya"] = Verdict(DRIFTS)  # type: ignore[assignment]
+    await api.runtime.apply_settings(
+        replace(api.runtime.settings, decisions=with_assist(api.runtime.settings.decisions, Kind.REPLY, True, act=True))
+    )
     api.provider.replies = [plan(answer="Four.")]
     task = (await api.send("POST", "/api/tasks", {"goal": "What is 2+2? Answer in French."})).json()["task"]
     done = await api.finished(task["id"])
@@ -104,7 +109,9 @@ async def test_the_switches_need_a_session_and_laya_to_be_installed(api: Api, tm
     refused = await api.send("PUT", "/api/laya/assist", body)
     assert refused.status_code == 409 and "not installed" in refused.json()["error"]
     assert api.runtime.settings.decisions.for_kind(Kind.PLAN).chain == ()
-    assert (await api.send("PUT", "/api/laya/assist", {**body, "enabled": False})).status_code == 200   # off is always allowed
+    assert (
+        await api.send("PUT", "/api/laya/assist", {**body, "enabled": False})
+    ).status_code == 200  # off is always allowed
 
 
 async def test_switching_a_check_on_starts_watch_only_and_acting_is_a_separate_choice(api: Api, tmp_path: Path) -> None:
@@ -121,10 +128,20 @@ async def test_switching_a_check_on_starts_watch_only_and_acting_is_a_separate_c
     assert api.runtime.settings.decisions.for_kind(Kind.REPLY).chain == ()
 
 
-@pytest.mark.parametrize("body", [{"kind": "loop", "enabled": True}, {"kind": "nope", "enabled": True},
-                                  {"enabled": True}, {"kind": "plan"}, {"kind": "plan", "enabled": "yes"},
-                                  {"kind": "plan", "enabled": True, "act": "yes"}])
-async def test_a_switch_request_must_name_one_of_the_two_checks_and_use_real_booleans(api: Api, body: dict[str, Any]) -> None:
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"kind": "loop", "enabled": True},
+        {"kind": "nope", "enabled": True},
+        {"enabled": True},
+        {"kind": "plan"},
+        {"kind": "plan", "enabled": "yes"},
+        {"kind": "plan", "enabled": True, "act": "yes"},
+    ],
+)
+async def test_a_switch_request_must_name_one_of_the_two_checks_and_use_real_booleans(
+    api: Api, body: dict[str, Any]
+) -> None:
     await api.sign_in()
     assert (await api.send("PUT", "/api/laya/assist", body)).status_code == 400
 

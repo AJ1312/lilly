@@ -1,4 +1,5 @@
 """The decision layer inside a real task: what the planner is shown, loops, instructions in local data, lanes."""
+
 from __future__ import annotations
 
 import json
@@ -24,8 +25,11 @@ async def test_a_large_catalog_stays_available_to_the_planner(lab: Lab) -> None:
     for i in range(20):
         lab.add(f"probe.tool{i}", ToolSpec(READ.risk, path_args=(), doc=f"does thing number {i} with widgets{i}"))
     lab.engine.completer.replies = ["ok"]
-    row = await lab.submit(step("s1", "probe.tool3"), step("s2", "llm.work", task="x", input="$s1.output"),
-                           goal="please run thing number 3 with widgets3")
+    row = await lab.submit(
+        step("s1", "probe.tool3"),
+        step("s2", "llm.work", task="x", input="$s1.output"),
+        goal="please run thing number 3 with widgets3",
+    )
     assert (await lab.engine.wait(row.id)).state is TaskState.DONE
     listed = "\n".join(m.content for m in lab.engine.completer.calls[0].messages)
     assert sum(f"probe.tool{i}" in listed for i in range(20)) == 20
@@ -36,8 +40,10 @@ async def test_a_run_that_repeats_the_same_step_is_stopped_with_a_plain_message(
     lab.limits[0] = LimitSettings(lanes=1)
     lab.add("probe.same")
     lab.engine.completer.replies = ["never used"]
-    row = await lab.submit(*[step(f"s{i}", "probe.same", q="same") for i in range(1, 5)],
-                           step("s5", "llm.work", task="x", input="$s4.output"))
+    row = await lab.submit(
+        *[step(f"s{i}", "probe.same", q="same") for i in range(1, 5)],
+        step("s5", "llm.work", task="x", input="$s4.output"),
+    )
     done = await lab.engine.wait(row.id)
     assert done.state is TaskState.FAILED and "repeating the same steps" in (done.error or "")
 
@@ -47,8 +53,10 @@ async def test_with_decisions_off_the_same_plan_runs_to_the_end(lab: Lab) -> Non
     lab.limits[0] = LimitSettings(lanes=1)
     lab.add("probe.same")
     lab.engine.completer.replies = ["fine"]
-    row = await lab.submit(*[step(f"s{i}", "probe.same", q="same") for i in range(1, 5)],
-                           step("s5", "llm.work", task="x", input="$s4.output"))
+    row = await lab.submit(
+        *[step(f"s{i}", "probe.same", q="same") for i in range(1, 5)],
+        step("s5", "llm.work", task="x", input="$s4.output"),
+    )
     done = await lab.engine.wait(row.id)
     assert done.state is TaskState.DONE, done.error
 
@@ -75,14 +83,16 @@ async def _private_then_web(lab: Lab) -> int:
     lab.add("probe.private", ToolSpec(READ.risk, reads_label=Label.PERSONAL, path_args=()), delay=0.1)
     lab.add("probe.send", SEND, delay=0.1)
     lab.engine.completer.replies = ["ok"]
-    row = await lab.submit(step("s1", "probe.private"), step("s2", "probe.send"),
-                           step("s3", "llm.work", task="x", input="$s2.output"))
+    row = await lab.submit(
+        step("s1", "probe.private"), step("s2", "probe.send"), step("s3", "llm.work", task="x", input="$s2.output")
+    )
     assert (await lab.engine.wait(row.id)).state is TaskState.DONE
     return lab.trace.peak
 
 
 async def test_while_decisions_are_on_a_web_read_does_not_race_an_earlier_read_that_could_come_back_flagged(
-        lab: Lab) -> None:
+    lab: Lab,
+) -> None:
     """A result flagged as instructions taints the task, and taint changes what a web read may do, so the plan
     waits instead of assuming the earlier read stays clean."""
     assert await _private_then_web(lab) == 1
@@ -94,7 +104,8 @@ async def test_with_decisions_off_the_same_two_reads_run_side_by_side(lab: Lab) 
 
 
 async def test_laya_joins_the_deciders_only_when_installed_and_is_closed_with_lilly(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from lilly.app.paths import init_paths
     from lilly.app.runtime import Runtime
     from lilly.decide import laya_install
@@ -120,8 +131,11 @@ async def test_a_capability_hidden_by_old_shortlisting_needs_no_replan(lab: Lab)
     lab.add("probe.hidden", ToolSpec(READ.risk, path_args=(), doc="zzz"))
     needs_it = plan(step("s1", "probe.hidden"), step("s2", "llm.work", task="x", input="$s1.output"))
     lab.engine.completer.replies = [needs_it, "ok"]
-    row = await lab.submit(step("s1", "probe.hidden"), step("s2", "llm.work", task="x", input="$s1.output"),
-                           goal="please run thing number 3 with widgets3")
+    row = await lab.submit(
+        step("s1", "probe.hidden"),
+        step("s2", "llm.work", task="x", input="$s1.output"),
+        goal="please run thing number 3 with widgets3",
+    )
     done = await lab.engine.wait(row.id)
     assert done.state is TaskState.DONE, done.error
     first = lab.engine.completer.calls[0]

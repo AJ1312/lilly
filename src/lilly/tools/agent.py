@@ -1,4 +1,5 @@
 """agent.plan and agent.ask control tools."""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -105,8 +106,9 @@ class AgentDiscoverTool(Tool):
         names = discover(catalog, query, namespace=namespace or None, limit=limit)
         if not names:
             return ToolResult("No matching capabilities found.", Label.PUBLIC, False)
-        return ToolResult("Matching capabilities:\n" + "\n".join(f"{n}: {catalog[n].doc}" for n in names),
-                          Label.PUBLIC, False)
+        return ToolResult(
+            "Matching capabilities:\n" + "\n".join(f"{n}: {catalog[n].doc}" for n in names), Label.PUBLIC, False
+        )
 
 
 class AgentDelegateTool(Tool):

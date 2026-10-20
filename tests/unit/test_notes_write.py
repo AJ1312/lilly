@@ -1,5 +1,6 @@
 """notes.write: the one way an agent writes a note. It always needs the owner's approval, never overwrites by accident,
 and stores exactly the text it was given."""
+
 from __future__ import annotations
 
 import itertools
@@ -72,7 +73,7 @@ def test_the_most_permissive_mode_still_asks_and_says_so_plainly() -> None:
 
 # ---- creating ----------------------------------------------------------------------------------------------------
 async def test_a_note_is_created_in_the_named_space_exactly_as_given(db: Database, write: NotesWriteTool) -> None:
-    body = "  <b>bold</b> & <script>x()</script>\n\n  indented — \U0001F3B5  "
+    body = "  <b>bold</b> & <script>x()</script>\n\n  indented — \U0001f3b5  "
     res = await write.run({"space": "work", "title": "  Ideas ", "content": body}, CTX)
     assert res.label is Label.PUBLIC and not res.untrusted
     pages = [p for p in list_pages(db.reader, "sp1") if p.title == "Ideas"]
@@ -105,14 +106,21 @@ async def test_creating_twice_makes_two_notes_and_never_overwrites(db: Database,
         await write.run({"space": "Work", "title": "Plan", "content": "second"}, CTX)
     plans = [p for p in list_pages(db.reader, "sp1") if p.title == "Plan"]
     assert len(plans) == 3 and sorted(p.content for p in plans) == ["first draft", "second", "second"]
-    assert page(db, "n1").content == "first draft"       # type: ignore[union-attr]
+    assert page(db, "n1").content == "first draft"  # type: ignore[union-attr]
 
 
 # ---- editing -----------------------------------------------------------------------------------------------------
-async def test_an_edit_with_the_current_revision_replaces_the_note_and_bumps_it(db: Database, write: NotesWriteTool) -> None:
+async def test_an_edit_with_the_current_revision_replaces_the_note_and_bumps_it(
+    db: Database, write: NotesWriteTool
+) -> None:
     res = await write.run({"id": "n1", "base_revision": 1, "content": "second draft"}, CTX)
     row = page(db, "n1")
-    assert row is not None and (row.content, row.title, row.revision, row.updated_at) == ("second draft", "Plan", 2, 50.0)
+    assert row is not None and (row.content, row.title, row.revision, row.updated_at) == (
+        "second draft",
+        "Plan",
+        2,
+        50.0,
+    )
     assert "revision 2" in res.output
     await write.run({"id": "n1", "base_revision": "2", "title": "Plan B", "content": "third"}, CTX)
     assert (page(db, "n1").title, page(db, "n1").revision) == ("Plan B", 3)  # type: ignore[union-attr]
@@ -143,25 +151,30 @@ async def test_a_revision_without_an_id_is_not_a_create(db: Database, write: Not
 
 
 # ---- bounds, checked before anyone is asked ----------------------------------------------------------------------
-@pytest.mark.parametrize("args", [
-    {"title": "T", "content": "c"},                                  # no space
-    {"space": "Work", "content": "c"},                               # no title
-    {"space": "Work", "title": "T"},                                 # no content
-    {"space": "Work", "title": "T", "content": "  "},
-    {"space": "Work", "title": "T" * 161, "content": "c"},
-    {"space": "Work", "title": "T", "content": "c" * (MAX_WRITE_CHARS + 1)},
-    {"space": "Work", "title": 5, "content": "c"},
-    {"id": "n1", "base_revision": "one", "content": "c"},
-    {"id": "n1", "base_revision": True, "content": "c"},
-    {"id": "n1", "base_revision": 1},
-])
-def test_bad_arguments_are_refused_at_review_so_nobody_approves_them(write: NotesWriteTool, args: dict[str, object]) -> None:
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"title": "T", "content": "c"},  # no space
+        {"space": "Work", "content": "c"},  # no title
+        {"space": "Work", "title": "T"},  # no content
+        {"space": "Work", "title": "T", "content": "  "},
+        {"space": "Work", "title": "T" * 161, "content": "c"},
+        {"space": "Work", "title": "T", "content": "c" * (MAX_WRITE_CHARS + 1)},
+        {"space": "Work", "title": 5, "content": "c"},
+        {"id": "n1", "base_revision": "one", "content": "c"},
+        {"id": "n1", "base_revision": True, "content": "c"},
+        {"id": "n1", "base_revision": 1},
+    ],
+)
+def test_bad_arguments_are_refused_at_review_so_nobody_approves_them(
+    write: NotesWriteTool, args: dict[str, object]
+) -> None:
     assert write.review(args, "t")[0] is Verdict.DENY
 
 
 def test_a_note_up_to_the_cap_is_fine_and_the_cap_fits_the_approval_card() -> None:
     ok = {"space": "Work", "title": "T" * 160, "content": "c" * MAX_WRITE_CHARS}
-    assert NotesWriteTool(None, Clock()).review(ok, "t") == (Verdict.ALLOW, "ok")    # type: ignore[arg-type]
+    assert NotesWriteTool(None, Clock()).review(ok, "t") == (Verdict.ALLOW, "ok")  # type: ignore[arg-type]
     assert not is_clipped(clip(ok, APPROVAL_CHARS))
 
 
@@ -182,7 +195,12 @@ async def test_notes_read_shows_the_revision_and_search_shows_the_space(db: Data
 
 
 async def test_what_notes_read_shows_can_be_passed_straight_back(db: Database, write: NotesWriteTool) -> None:
-    revision = int(next(line for line in (await NotesReadTool(db).run({"id": "n1"}, CTX)).output.splitlines()
-                        if line.startswith("revision: ")).split(": ")[1])
+    revision = int(
+        next(
+            line
+            for line in (await NotesReadTool(db).run({"id": "n1"}, CTX)).output.splitlines()
+            if line.startswith("revision: ")
+        ).split(": ")[1]
+    )
     await write.run({"id": "n1", "base_revision": revision, "content": "updated"}, CTX)
-    assert page(db, "n1").content == "updated"           # type: ignore[union-attr]
+    assert page(db, "n1").content == "updated"  # type: ignore[union-attr]

@@ -22,6 +22,7 @@ CAP-01..20:
 - CAP-19: No replan on capacity failure
 - CAP-20: Capacity snapshot & API metrics
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,6 +52,7 @@ from tests.helpers import Clock, ControllableRand, FakeSleep
 def _make_pool(specs: tuple[ModelSpec, ...], clock: Clock) -> ProviderPool:
     from lilly.core.pool import build_pool
     from lilly.domain.settings import Settings
+
     return build_pool(Settings(models=specs), clock=clock)
 
 
@@ -133,6 +135,7 @@ async def test_cap_04_tpd_wait() -> None:
 def test_cap_05_retry_after_seconds() -> None:
     """CAP-05: 429 with Retry-After in seconds is parsed."""
     from lilly.providers.base import map_http_error
+
     fix_path = Path(__file__).resolve().parents[1] / "fixtures" / "429" / "synthetic_mistral.json"
     data = json.loads(fix_path.read_text(encoding="utf-8"))
     err = map_http_error(data["status"], data["headers"], data["body"])
@@ -144,6 +147,7 @@ def test_cap_05_retry_after_seconds() -> None:
 def test_cap_06_retry_after_http_date() -> None:
     """CAP-06: 429 with Retry-After HTTP-date is parsed."""
     from lilly.providers.base import map_http_error
+
     fix_path = Path(__file__).resolve().parents[1] / "fixtures" / "429" / "synthetic_cerebras.json"
     data = json.loads(fix_path.read_text(encoding="utf-8"))
     err = map_http_error(data["status"], data["headers"], data["body"], clock_wall=lambda: 1792567670.0)
@@ -155,6 +159,7 @@ def test_cap_06_retry_after_http_date() -> None:
 def test_cap_07_reset_header_ms_and_seconds() -> None:
     """CAP-07: 429 with X-RateLimit-Reset (seconds and epoch ms) is parsed."""
     from lilly.providers.base import map_http_error
+
     fix_path = Path(__file__).resolve().parents[1] / "fixtures" / "429" / "synthetic_groq.json"
     data = json.loads(fix_path.read_text(encoding="utf-8"))
     err = map_http_error(data["status"], data["headers"], data["body"])
@@ -172,6 +177,7 @@ def test_cap_07_reset_header_ms_and_seconds() -> None:
 def test_cap_08_google_retry_delay() -> None:
     """CAP-08: Google retryDelay ("34s") in error.details is parsed."""
     from lilly.providers.base import map_http_error
+
     fix_path = Path(__file__).resolve().parents[1] / "fixtures" / "429" / "synthetic_gemini.json"
     data = json.loads(fix_path.read_text(encoding="utf-8"))
     err = map_http_error(data["status"], data["headers"], data["body"])
@@ -285,9 +291,7 @@ async def test_cap_11_pins_never_switch() -> None:
 async def test_cap_12_label_access_never_bypassed_while_waiting() -> None:
     """CAP-12: Label access never bypassed while waiting."""
     clock = Clock(1_000_000.0)
-    specs = (
-        ModelSpec("cloud-model", "mistral", "m1", max_label=Label.PUBLIC, local=False),
-    )
+    specs = (ModelSpec("cloud-model", "mistral", "m1", max_label=Label.PUBLIC, local=False),)
     pool = _make_pool(specs, clock)
     mgr = CapacityManager(pool, CapacitySettings(), clock=clock)
     prof = CallProfile(est_in=10, est_out=10, role="act", need=Cap.NONE, priority=0)
@@ -340,7 +344,9 @@ async def test_cap_14_5xx_refunds_429_does_not() -> None:
     # Call 2 fails with 429 -> does NOT refund slot
     lease2 = await mgr.acquire(prof)
     assert entry.minute.used == 1
-    mgr.release(lease2, tokens_in=0, tokens_out=0, outcome="rate_limited", error=RateLimited(scope="minute", retry_after=2.0))
+    mgr.release(
+        lease2, tokens_in=0, tokens_out=0, outcome="rate_limited", error=RateLimited(scope="minute", retry_after=2.0)
+    )
     assert entry.minute.used == 1, "429 must NOT refund the request slot"
 
 
@@ -440,7 +446,10 @@ def test_cap_18_exact_messages_of_phase_1() -> None:
     assert "2 step(s) finished and are kept in this task." in too_long
 
     pinned = PINNED_BUSY.format(model="gemini", limit="per-minute limit", t="10 s")
-    assert pinned == "gemini is pinned for this agent and is at its per-minute limit. It frees up in 10 s. Lilly will not switch to another model because you pinned this one."
+    assert (
+        pinned
+        == "gemini is pinned for this agent and is at its per-minute limit. It frees up in 10 s. Lilly will not switch to another model because you pinned this one."
+    )
 
     err_text = describe_provider_error(RateLimited(scope="minute", retry_after=5.0, model="mistral"))
     assert err_text == "mistral is rate limited (minute). Lilly waited 5 s and tried the other models."
@@ -457,9 +466,7 @@ def test_cap_19_no_replan_on_capacity_failure() -> None:
 async def test_cap_20_capacity_snapshot_and_backoff() -> None:
     """CAP-20: Capacity snapshot includes queue length and live metrics; backoff works."""
     clock = Clock(1_000_000.0)
-    specs = (
-        ModelSpec("m1", "mistral", "mod1", rpm=5, rpd=100),
-    )
+    specs = (ModelSpec("m1", "mistral", "mod1", rpm=5, rpd=100),)
     pool = _make_pool(specs, clock)
     mgr = CapacityManager(pool, CapacitySettings(), clock=clock)
 

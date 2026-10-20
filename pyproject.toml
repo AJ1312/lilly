@@ -17,6 +17,9 @@ dependencies = [
     "psutil>=7",
     "pyautogui>=0.9.54",
     "pydantic>=2.13",
+    "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
     "starlette>=1.7",
     "uvicorn>=0.54",
     "websockets>=13",
@@ -104,7 +107,13 @@ ignore_names = ["handle_starttag", "handle_endtag", "handle_data", "model_config
 known_first_party = ["lilly"]
 extend_exclude = ["web", "tests"]
 
+[tool.deptry.package_module_name_map]
+pyobjc-framework-ApplicationServices = "ApplicationServices"
+pyobjc-framework-Cocoa = "AppKit"
+pyobjc-framework-Quartz = "Quartz"
+
 [tool.deptry.per_rule_ignores]
 # Development tools are run, not imported.
 DEP002 = ["bandit", "deptry", "hatchling", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "ruff",
           "types-openpyxl", "types-psutil", "vulture"]
+

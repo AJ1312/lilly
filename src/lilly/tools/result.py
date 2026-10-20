@@ -1,4 +1,5 @@
 """result.read tool for reading paginated output of earlier steps."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

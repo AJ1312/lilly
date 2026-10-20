@@ -1,4 +1,5 @@
 """The self-test: the real decider and worker, asked three questions whose answers are known."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +24,7 @@ async def laya() -> AsyncIterator[LayaDecider]:
 async def test_ready_loads_the_model_and_waits_for_it_without_sleeping_in_the_caller(laya: LayaDecider) -> None:
     assert laya.state == "off"
     assert await laya.ready() is True and laya.state == "ready"
-    assert await laya.ready() is True          # asking again costs nothing
+    assert await laya.ready() is True  # asking again costs nothing
 
 
 async def test_ready_says_false_for_a_worker_that_cannot_start() -> None:
@@ -46,13 +47,17 @@ async def test_three_known_questions_are_asked_and_each_result_is_reported(laya:
     assert [(r.name, r.expected, r.got, r.ok) for r in report.results] == [
         ("An instruction aimed at an agent", FLAGGED, FLAGGED, True),
         ("Ordinary prose", CLEAN, CLEAN, True),
-        ("A step list that repeats", LOOPING, LOOPING, True)]
+        ("A step list that repeats", LOOPING, LOOPING, True),
+    ]
     assert all(r.confidence is not None and r.confidence > 0 and r.ms >= 0 for r in report.results)
 
 
 async def test_a_wrong_answer_fails_the_test_and_says_which(laya: LayaDecider, monkeypatch: pytest.MonkeyPatch) -> None:
-    flipped = (st.CASES[0], st.Case(st.CASES[1].name, st.CASES[1].kind, st.CASES[1].options, st.CASES[1].context, FLAGGED),
-               st.CASES[2])
+    flipped = (
+        st.CASES[0],
+        st.Case(st.CASES[1].name, st.CASES[1].kind, st.CASES[1].options, st.CASES[1].context, FLAGGED),
+        st.CASES[2],
+    )
     monkeypatch.setattr(st, "CASES", flipped)
     report = await st.self_test(laya)
     assert not report.ok and report.loaded

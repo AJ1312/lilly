@@ -1,4 +1,5 @@
 """The manager: lazy start, approval checks, rug-pull defence, restarts, idle stop, configuration changes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -226,7 +227,9 @@ async def test_use_extends_the_idle_deadline() -> None:
         await m.aclose()
 
 
-async def test_configure_keeps_unchanged_servers_running_and_stops_changed_removed_or_disabled(manager: McpManager) -> None:
+async def test_configure_keeps_unchanged_servers_running_and_stops_changed_removed_or_disabled(
+    manager: McpManager,
+) -> None:
     a, b, c = cfg(name="a"), cfg(name="b"), cfg(name="c")
     approvals = {n: await approve(cfg(name=n)) for n in "abc"}
     await manager.configure([a, b, c], approvals)
@@ -273,7 +276,7 @@ async def test_a_server_that_crashes_now_and_then_is_not_marked_failed(manager: 
     await setup(manager)
     for _ in range(MAX_RESTARTS + 3):
         for _ in range(2):
-            await text(manager, "echo", text="hi")        # healthy calls between the crashes
+            await text(manager, "echo", text="hi")  # healthy calls between the crashes
         with pytest.raises(ToolError):
             await manager.call("fake", "crash", {}, None)
         assert manager.status()[0].state != "failed"
@@ -287,13 +290,13 @@ async def test_overlapping_configure_calls_end_in_the_state_of_the_last_one() ->
         approval = await approve(y)
         await m.configure([x, y], {"y": approval})
         slow_stop = m._servers["x"].lock
-        await slow_stop.acquire()                                  # stands in for a server that is slow to stop
+        await slow_stop.acquire()  # stands in for a server that is slow to stop
         first = asyncio.create_task(m.configure([y], {"y": approval}))
         await asyncio.sleep(0.05)
-        second = asyncio.create_task(m.configure([y], {}))         # the owner revoked y's approval meanwhile
+        second = asyncio.create_task(m.configure([y], {}))  # the owner revoked y's approval meanwhile
         await asyncio.sleep(0.05)
         slow_stop.release()
         await asyncio.gather(first, second)
-        assert m.tools() == {}                                      # the older change did not undo the newer one
+        assert m.tools() == {}  # the older change did not undo the newer one
     finally:
         await m.aclose()

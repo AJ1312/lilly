@@ -1,4 +1,5 @@
 """Fixtures: a complete engine wired against a temporary database and a scripted model."""
+
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,9 @@ class Engine:
     async def agent(self, mode: Mode = Mode.OPEN, **kw: Any) -> str:
         """Create an agent and return its id."""
         agent_id = new_id()
-        await self.db.write(lambda con: agent_store.create_agent(con, agent_id, "Tester", "", int(mode), self.clock(), **kw))
+        await self.db.write(
+            lambda con: agent_store.create_agent(con, agent_id, "Tester", "", int(mode), self.clock(), **kw)
+        )
         return agent_id
 
     async def wait(self, task_id: str, timeout: float = 10.0) -> tasks.TaskRow:
@@ -78,11 +81,22 @@ async def engine(tmp_path: Path) -> AsyncIterator[Engine]:
     settings = Settings(file_roots=(str(root),), modules=MODULES, engine=EngineSettings(mode="plan"))
     scope = PathScope(settings.file_roots, deny=(str(home),))
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-    tools = build_tools(settings, scope=scope, db=db, router=completer, keys=MemoryKeyStore(), client=client,
-                        clock=clock)
+    tools = build_tools(
+        settings, scope=scope, db=db, router=completer, keys=MemoryKeyStore(), client=client, clock=clock
+    )
     approvals = ApprovalService(db, bus, clock, ttl_s=30.0)
-    deps = EngineDeps(db, completer, lambda: tools, lambda: scope, lambda: settings.file_roots, bus, approvals,
-                      grants, clock, engine_settings=lambda: settings.engine)
+    deps = EngineDeps(
+        db,
+        completer,
+        lambda: tools,
+        lambda: scope,
+        lambda: settings.file_roots,
+        bus,
+        approvals,
+        grants,
+        clock,
+        engine_settings=lambda: settings.engine,
+    )
     orchestrator = Orchestrator(deps)
     orchestrator.configure(settings)
     await orchestrator.start()
@@ -90,4 +104,13 @@ async def engine(tmp_path: Path) -> AsyncIterator[Engine]:
     await orchestrator.aclose()
     await client.aclose()
     db.close()
+
+
 pytest_plugins = ["tests.integration.lab"]
+
+
+@pytest.fixture
+def mac_harness() -> Any:
+    from tests.mac_control import MacTestHarnessControl
+
+    return MacTestHarnessControl()

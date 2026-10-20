@@ -1,4 +1,5 @@
 """A small Chrome DevTools Protocol client: JSON messages over one WebSocket, matched by id, with events."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +16,7 @@ from lilly.domain.errors import ToolError
 
 log = logging.getLogger("lilly.browser")
 
-MAX_MESSAGE = 8 * 1024 * 1024     # one protocol message; a page snapshot is far smaller
+MAX_MESSAGE = 8 * 1024 * 1024  # one protocol message; a page snapshot is far smaller
 CALL_TIMEOUT_S = 20.0
 Handler = Callable[[dict[str, Any], str | None], Coroutine[Any, Any, None]]
 
@@ -34,8 +35,7 @@ class Cdp:
     @classmethod
     async def connect(cls, url: str) -> Cdp:
         try:
-            ws = await websockets.connect(url, max_size=MAX_MESSAGE, open_timeout=10, ping_interval=None,
-                                          proxy=None)
+            ws = await websockets.connect(url, max_size=MAX_MESSAGE, open_timeout=10, ping_interval=None, proxy=None)
         except (OSError, TimeoutError, websockets.WebSocketException) as exc:
             raise ToolError("could not connect to the browser") from exc
         return cls(ws)
@@ -47,8 +47,13 @@ class Cdp:
     def closed(self) -> bool:
         return self._reader.done()
 
-    async def call(self, method: str, params: dict[str, Any] | None = None, session: str | None = None,
-                   timeout: float = CALL_TIMEOUT_S) -> dict[str, Any]:
+    async def call(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        session: str | None = None,
+        timeout: float = CALL_TIMEOUT_S,
+    ) -> dict[str, Any]:
         if self.closed:
             raise ToolError("the browser is not running")
         self._next += 1
@@ -82,8 +87,9 @@ class Cdp:
                     future = self._pending.get(msg["id"])
                     if future is not None and not future.done():
                         if "error" in msg:
-                            future.set_exception(ToolError("the browser refused that: "
-                                                           + str(msg["error"].get("message", ""))[:200]))
+                            future.set_exception(
+                                ToolError("the browser refused that: " + str(msg["error"].get("message", ""))[:200])
+                            )
                         else:
                             future.set_result(msg.get("result", {}))
                 elif isinstance(msg.get("method"), str) and (handler := self._handlers.get(msg["method"])):

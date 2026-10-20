@@ -1,5 +1,6 @@
 """The browser.* tools. Each is a thin step over a Page; the rules about when an action asks live in
 domain/browser_policy.py and are applied through `review`, on the exact target the step will act on."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -31,7 +32,7 @@ class BrowserTool(Tool):
 
     @staticmethod
     def _out(text: str) -> ToolResult:
-        return ToolResult(text, Label.PUBLIC, True)   # whatever a page says is outside text
+        return ToolResult(text, Label.PUBLIC, True)  # whatever a page says is outside text
 
 
 class OpenTool(BrowserTool):
@@ -189,6 +190,17 @@ class CloseTool(BrowserTool):
 
 
 def browser_tools(manager: BrowserManager, settings: Callable[[], BrowserSettings]) -> list[Tool]:
-    kinds = (OpenTool, ReadTool, FindTool, ClickTool, TypeTool, SelectTool, PressTool, SubmitTool, ScrollTool,
-             BackTool, CloseTool)
+    kinds = (
+        OpenTool,
+        ReadTool,
+        FindTool,
+        ClickTool,
+        TypeTool,
+        SelectTool,
+        PressTool,
+        SubmitTool,
+        ScrollTool,
+        BackTool,
+        CloseTool,
+    )
     return [k(manager, settings) for k in kinds]

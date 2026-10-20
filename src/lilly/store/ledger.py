@@ -1,4 +1,5 @@
 """Daily model usage and call history, kept across restarts."""
+
 from __future__ import annotations
 
 import sqlite3

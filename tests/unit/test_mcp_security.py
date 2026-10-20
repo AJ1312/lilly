@@ -1,4 +1,5 @@
 """What a server process may and may not see or do: environment, shell, working directory, process group."""
+
 from __future__ import annotations
 
 import asyncio
@@ -128,5 +129,3 @@ async def test_stderr_is_drained_into_a_small_ring_buffer() -> None:
         assert len(proc.stderr_tail()) <= STDERR_KEEP
     finally:
         await proc.stop()
-
-

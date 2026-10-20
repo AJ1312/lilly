@@ -1,19 +1,20 @@
 """Choosing a confidence threshold from the decision log: pure arithmetic, no model calls, changes nothing."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-MIN_LABELLED = 20     # fewer known outcomes than this say too little to suggest anything
-MIN_KEPT = 10         # a threshold that keeps fewer answers than this is not trusted
+MIN_LABELLED = 20  # fewer known outcomes than this say too little to suggest anything
+MIN_KEPT = 10  # a threshold that keeps fewer answers than this is not trusted
 
 
 @dataclass(frozen=True, slots=True)
 class Calibration:
     labelled: int
-    threshold: float | None            # the smallest confidence that meets the target; None if none does
-    coverage_before: float             # share of answers kept at the current threshold
-    precision_before: float | None     # share of those kept that were right (None when none were kept)
+    threshold: float | None  # the smallest confidence that meets the target; None if none does
+    coverage_before: float  # share of answers kept at the current threshold
+    precision_before: float | None  # share of those kept that were right (None when none were kept)
     coverage_after: float
     precision_after: float | None
 
@@ -36,9 +37,9 @@ def calibrate(samples: Sequence[tuple[float, bool]], target: float, current: flo
     for i, (confidence, was_right) in enumerate(ordered):
         kept, right = kept + 1, right + was_right
         if i + 1 < len(ordered) and ordered[i + 1][0] == confidence:
-            continue                                  # take every answer at this confidence together
+            continue  # take every answer at this confidence together
         if kept >= MIN_KEPT and right / kept >= target:
-            best = confidence                         # lower thresholds keep more, so the last hit is the smallest
+            best = confidence  # lower thresholds keep more, so the last hit is the smallest
     before = _at(samples, current)
     after = _at(samples, best) if best is not None else before
     return Calibration(len(samples), best, *before, *after)

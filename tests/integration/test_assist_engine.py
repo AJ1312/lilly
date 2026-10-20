@@ -1,5 +1,6 @@
 """Laya assist inside real tasks: a doubted step asks first, a finished reply is checked in the background,
 and nothing a decider says can make anything easier."""
+
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +71,7 @@ class FakeLaya:
 
 
 def laya(lab: Lab, kind: Kind, says: str | None, *, act: bool = True, **kw: object) -> FakeLaya:
-    fake = FakeLaya({kind: says}, **kw)       # type: ignore[arg-type]
+    fake = FakeLaya({kind: says}, **kw)  # type: ignore[arg-type]
     lab.deciders["laya"] = fake
     lab.decisions[0] = with_assist(lab.decisions[0], kind, True, act)
     return fake
@@ -85,18 +86,25 @@ def quick(lab: Lab, kind: Kind, seconds: float = 0.1) -> None:
 
 async def new_agent(lab: Lab, mode: Mode, instructions: str) -> str:
     agent_id = new_id()
-    await lab.engine.db.write(lambda con: agent_store.create_agent(
-        con, agent_id, "Tester", instructions, int(mode), lab.engine.clock(), files_allowed=True))
+    await lab.engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, agent_id, "Tester", instructions, int(mode), lab.engine.clock(), files_allowed=True
+        )
+    )
     return agent_id
 
 
 async def change_task(lab: Lab, mode: Mode = Mode.OPEN, instructions: str = "") -> tasks.TaskRow:
     """A task whose plan is one step that changes something, then the writing of the reply."""
-    tools = lab.decisions[0].for_kind(Kind.TOOLS)    # with a real goal the planner would be shown only some tools
-    lab.decisions[0] = replace(lab.decisions[0], kinds={**lab.decisions[0].kinds, "tools": replace(tools, enabled=False)})
+    tools = lab.decisions[0].for_kind(Kind.TOOLS)  # with a real goal the planner would be shown only some tools
+    lab.decisions[0] = replace(
+        lab.decisions[0], kinds={**lab.decisions[0].kinds, "tools": replace(tools, enabled=False)}
+    )
     lab.add("probe.change", WRITE)
-    lab.engine.completer.replies = [plan(step("s1", "probe.change", path="/x"),
-                                         step("s2", "llm.work", task="x", input="$s1.output")), "done"]
+    lab.engine.completer.replies = [
+        plan(step("s1", "probe.change", path="/x"), step("s2", "llm.work", task="x", input="$s1.output")),
+        "done",
+    ]
     agent = await new_agent(lab, mode, instructions)
     return await lab.engine.orchestrator.submit(SubmitRequest(GOAL, agent_id=agent))
 
@@ -107,7 +115,7 @@ async def test_a_change_that_laya_doubts_asks_first_even_though_policy_alone_wou
     row = await change_task(lab, instructions=RULES)
     pending = await lab.engine.wait_for_approval()
     assert "Laya doubts this step matches your request" in pending.summary
-    assert tasks.get_task(lab.engine.db.reader, row.id).state is TaskState.WAITING_APPROVAL   # type: ignore[union-attr]
+    assert tasks.get_task(lab.engine.db.reader, row.id).state is TaskState.WAITING_APPROVAL  # type: ignore[union-attr]
     assert ("start", "s1") not in lab.trace.log
     asked = [r for r in fake.requests if r.kind is Kind.PLAN]
     assert len(asked) == 1
@@ -227,18 +235,18 @@ async def test_the_reply_is_checked_after_the_task_is_done_without_holding_it_ba
     await asyncio.sleep(0)
     row = await reply_task(lab)
     done = await lab.engine.wait(row.id)
-    assert done.state is TaskState.DONE and done.answer == "Here is your tidy folder."   # finished first
+    assert done.state is TaskState.DONE and done.answer == "Here is your tidy folder."  # finished first
     async with asyncio.timeout(5):
         while not fake.requests:
             await asyncio.sleep(0.01)
-    assert latest(lab.engine.db.reader, row.id, "reply_check") is None                   # Laya is still thinking
+    assert latest(lab.engine.db.reader, row.id, "reply_check") is None  # Laya is still thinking
     gate.set()
     event = await recorded(lab, row.id)
     assert event.payload == {"choice": DRIFTS, "confidence": 0.95, "decider": "laya"} and event.prov == "system"
     text = fake.requests[0].context.text
     assert GOAL in text and RULES in text and "Here is your tidy folder." in text
     async with asyncio.timeout(5):
-        while not any(m.get("kind") == "reply_check" for m in seen):                      # the screen is told
+        while not any(m.get("kind") == "reply_check" for m in seen):  # the screen is told
             await asyncio.sleep(0.01)
     listener.cancel()
     assert not any(r.kind is Kind.REPLY and r.task_id != row.id for r in fake.requests)
@@ -256,9 +264,15 @@ async def test_watch_mode_logs_the_reply_check_but_records_nothing_on_the_task(l
 
 @pytest.mark.parametrize("failure", ["crash", "slow", "silent"])
 async def test_a_reply_check_that_fails_times_out_or_has_no_answer_leaves_the_task_untouched(
-        lab: Lab, failure: str, caplog: pytest.LogCaptureFixture) -> None:
-    fake = laya(lab, Kind.REPLY, None if failure == "silent" else DRIFTS, crash=failure == "crash",
-                delay=5.0 if failure == "slow" else 0.0)
+    lab: Lab, failure: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake = laya(
+        lab,
+        Kind.REPLY,
+        None if failure == "silent" else DRIFTS,
+        crash=failure == "crash",
+        delay=5.0 if failure == "slow" else 0.0,
+    )
     quick(lab, Kind.REPLY)
     with caplog.at_level(logging.ERROR):
         row = await reply_task(lab)
@@ -271,7 +285,7 @@ async def test_a_reply_check_that_fails_times_out_or_has_no_answer_leaves_the_ta
 
 
 async def test_closing_while_a_check_is_pending_cancels_it_cleanly(lab: Lab, caplog: pytest.LogCaptureFixture) -> None:
-    fake = laya(lab, Kind.REPLY, DRIFTS, gate=asyncio.Event())    # never released
+    fake = laya(lab, Kind.REPLY, DRIFTS, gate=asyncio.Event())  # never released
     row = await reply_task(lab)
     await lab.engine.wait(row.id)
     async with asyncio.timeout(5):
@@ -287,7 +301,9 @@ async def test_closing_while_a_check_is_pending_cancels_it_cleanly(lab: Lab, cap
 async def test_a_task_that_did_not_finish_has_no_reply_to_check(lab: Lab) -> None:
     fake = laya(lab, Kind.REPLY, DRIFTS)
     lab.add("probe.bad", READ, fail="it broke")
-    lab.engine.completer.replies = [plan(step("s1", "probe.bad"), step("s2", "llm.work", task="x", input="$s1.output"))] * 2
+    lab.engine.completer.replies = [
+        plan(step("s1", "probe.bad"), step("s2", "llm.work", task="x", input="$s1.output"))
+    ] * 2
     row = await lab.engine.orchestrator.submit(SubmitRequest(GOAL, agent_id=await new_agent(lab, Mode.OPEN, "")))
     assert (await lab.engine.wait(row.id)).state is TaskState.FAILED
     await asyncio.sleep(0.05)
@@ -310,7 +326,7 @@ async def test_a_direct_question_is_answered_by_a_quick_call_that_never_sees_the
     lab.engine.completer.replies = [plan(answer="Paris.")]
     task_id = await ask(lab)
     row = tasks.get_task(lab.engine.db.reader, task_id)
-    assert row.state is TaskState.DONE and row.answer == "Paris."          # type: ignore[union-attr]
+    assert row.state is TaskState.DONE and row.answer == "Paris."  # type: ignore[union-attr]
     (call,) = lab.engine.completer.calls
     assert call.quick and "probe.read" not in call.messages[1].content
     assert len([r for r in fake.requests if r.kind is Kind.ROUTE]) == 1 and outcomes(lab) == ["accepted"]
@@ -319,9 +335,13 @@ async def test_a_direct_question_is_answered_by_a_quick_call_that_never_sees_the
 async def test_when_the_quick_model_asks_for_tools_the_normal_planner_runs_and_laya_is_marked_wrong(lab: Lab) -> None:
     lab.add("probe.read")
     laya(lab, Kind.ROUTE, DIRECT)
-    lab.engine.completer.replies = [plan(), plan(step("s1", "probe.read"), step("s2", "llm.work", task="x", input="$s1.output")), "done"]
+    lab.engine.completer.replies = [
+        plan(),
+        plan(step("s1", "probe.read"), step("s2", "llm.work", task="x", input="$s1.output")),
+        "done",
+    ]
     task_id = await ask(lab, "probe read my notes")
-    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE        # type: ignore[union-attr]
+    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE  # type: ignore[union-attr]
     first, second = lab.engine.completer.calls[:2]
     assert first.quick and not second.quick and "probe.read" in second.messages[1].content
     assert outcomes(lab) == ["corrected"]
@@ -333,7 +353,7 @@ async def test_needs_tools_or_no_answer_plans_as_before(lab: Lab, says: str | No
     laya(lab, Kind.ROUTE, says)
     lab.engine.completer.replies = [plan(answer="Paris.")]
     task_id = await ask(lab)
-    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE         # type: ignore[union-attr]
+    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE  # type: ignore[union-attr]
     (call,) = lab.engine.completer.calls
     assert not call.quick and "probe.read" in call.messages[1].content
 
@@ -343,17 +363,17 @@ async def test_watching_only_changes_nothing_and_still_labels_laya_by_what_happe
     laya(lab, Kind.ROUTE, DIRECT, act=False)
     lab.engine.completer.replies = [plan(answer="Paris.")]
     task_id = await ask(lab)
-    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE         # type: ignore[union-attr]
+    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE  # type: ignore[union-attr]
     (call,) = lab.engine.completer.calls
     assert not call.quick and "probe.read" in call.messages[1].content
-    assert outcomes(lab) == ["accepted"]            # the planner answered without tools too, as Laya said
+    assert outcomes(lab) == ["accepted"]  # the planner answered without tools too, as Laya said
 
 
 async def test_a_laya_that_fails_leaves_the_task_unaffected(lab: Lab) -> None:
     laya(lab, Kind.ROUTE, DIRECT, crash=True)
     lab.engine.completer.replies = [plan(answer="Paris.")]
     task_id = await ask(lab)
-    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE         # type: ignore[union-attr]
+    assert tasks.get_task(lab.engine.db.reader, task_id).state is TaskState.DONE  # type: ignore[union-attr]
 
 
 async def test_laya_is_warmed_for_the_route_question_when_a_task_starts(lab: Lab) -> None:

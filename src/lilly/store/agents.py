@@ -1,4 +1,5 @@
 """Agents: named instructions plus the permissions and mode a task runs under."""
+
 from __future__ import annotations
 
 import json
@@ -10,8 +11,10 @@ from lilly.domain.errors import NotFound, ValidationFailed
 from lilly.domain.pets import DEFAULT_LOOK, PETS, Look, agent_prompt, look_to_dict, parse_look
 from lilly.domain.sheet import STARTER_SHEETS, PetSheet, parse_sheet
 
-_COLS = ("id, name, instructions, mode, research_allowed, memory_allowed, files_allowed, space_id, created_at, "
-         "computer_allowed, pet, chat_allowed, skills, model, look, sheet, sheet_json, parent_template")
+_COLS = (
+    "id, name, instructions, mode, research_allowed, memory_allowed, files_allowed, space_id, created_at, "
+    "computer_allowed, pet, chat_allowed, skills, model, look, sheet, sheet_json, parent_template"
+)
 MAX_SKILLS = 6000
 MAX_MODEL = 80
 
@@ -29,9 +32,9 @@ class AgentRow:
     created_at: float
     computer_allowed: bool
     pet: str
-    chat_allowed: bool       # may be reached from a chat app (Telegram); off until the owner says so
-    skills: str              # markdown the owner wrote for this pet: trusted like instructions
-    model: str               # the one configured model this pet always uses; "" lets routing choose
+    chat_allowed: bool  # may be reached from a chat app (Telegram); off until the owner says so
+    skills: str  # markdown the owner wrote for this pet: trusted like instructions
+    model: str  # the one configured model this pet always uses; "" lets routing choose
     look: Look
     sheet: str = ""
     sheet_json: str = "{}"
@@ -51,14 +54,26 @@ def _stored_look(raw: str) -> Look:
     """A look that cannot be read back is shown as the default one: a damaged value must not break a listing."""
     try:
         return parse_look(json.loads(raw))
-    except ValueError:      # bad JSON, or ValidationFailed (also a ValueError)
+    except ValueError:  # bad JSON, or ValidationFailed (also a ValueError)
         return DEFAULT_LOOK
 
 
 def _row(r: tuple[Any, ...]) -> AgentRow:
     return AgentRow(
-        str(r[0]), str(r[1]), str(r[2]), int(r[3]), bool(r[4]), bool(r[5]), bool(r[6]),
-        r[7], float(r[8]), bool(r[9]), str(r[10]), bool(r[11]), str(r[12]), str(r[13]),
+        str(r[0]),
+        str(r[1]),
+        str(r[2]),
+        int(r[3]),
+        bool(r[4]),
+        bool(r[5]),
+        bool(r[6]),
+        r[7],
+        float(r[8]),
+        bool(r[9]),
+        str(r[10]),
+        bool(r[11]),
+        str(r[12]),
+        str(r[13]),
         _stored_look(str(r[14])),
         str(r[15]) if len(r) > 15 and r[15] is not None else "",
         str(r[16]) if len(r) > 16 and r[16] is not None else "{}",
@@ -79,12 +94,27 @@ def _check(name: str, instructions: str, mode: int, pet: str, skills: str, model
     return name
 
 
-def create_agent(con: sqlite3.Connection, id: str, name: str, instructions: str, mode: int, now: float, *,
-                 research_allowed: bool = True, memory_allowed: bool = True, files_allowed: bool = False,
-                 space_id: str | None = None, computer_allowed: bool = False, pet: str = "lily",
-                 chat_allowed: bool = False, skills: str = "", model: str = "",
-                 look: Look = DEFAULT_LOOK, sheet: str | None = None,
-                 parent_template: str = "") -> AgentRow:
+def create_agent(
+    con: sqlite3.Connection,
+    id: str,
+    name: str,
+    instructions: str,
+    mode: int,
+    now: float,
+    *,
+    research_allowed: bool = True,
+    memory_allowed: bool = True,
+    files_allowed: bool = False,
+    space_id: str | None = None,
+    computer_allowed: bool = False,
+    pet: str = "lily",
+    chat_allowed: bool = False,
+    skills: str = "",
+    model: str = "",
+    look: Look = DEFAULT_LOOK,
+    sheet: str | None = None,
+    parent_template: str = "",
+) -> AgentRow:
     if (sheet is None or not sheet.strip()) and parent_template:
         starter = STARTER_SHEETS.get(parent_template.lower())
         if starter:
@@ -108,10 +138,29 @@ def create_agent(con: sqlite3.Connection, id: str, name: str, instructions: str,
         sheet_json = json.dumps(parsed.to_dict() if parsed else {})
 
     name = _check(name, instructions, mode, pet, skills, model)
-    con.execute(f"INSERT INTO agents({_COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (id, name, instructions, mode, int(research_allowed), int(memory_allowed), int(files_allowed),
-                 space_id, now, int(computer_allowed), pet, int(chat_allowed), skills, model,
-                 json.dumps(look_to_dict(look)), sheet, sheet_json, parent_template))
+    con.execute(
+        f"INSERT INTO agents({_COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            id,
+            name,
+            instructions,
+            mode,
+            int(research_allowed),
+            int(memory_allowed),
+            int(files_allowed),
+            space_id,
+            now,
+            int(computer_allowed),
+            pet,
+            int(chat_allowed),
+            skills,
+            model,
+            json.dumps(look_to_dict(look)),
+            sheet,
+            sheet_json,
+            parent_template,
+        ),
+    )
     row = get_agent(con, id)
     assert row is not None
     return row
@@ -126,13 +175,25 @@ def list_agents(con: sqlite3.Connection) -> list[AgentRow]:
     return [_row(r) for r in con.execute(f"SELECT {_COLS} FROM agents ORDER BY created_at")]
 
 
-def update_agent(con: sqlite3.Connection, agent_id: str, *, name: str | None = None,
-                 instructions: str | None = None, mode: int | None = None, research_allowed: bool | None = None,
-                 memory_allowed: bool | None = None, files_allowed: bool | None = None,
-                 computer_allowed: bool | None = None, pet: str | None = None,
-                 chat_allowed: bool | None = None, skills: str | None = None, model: str | None = None,
-                 look: Look | None = None, sheet: str | None = None,
-                 parent_template: str | None = None) -> AgentRow:
+def update_agent(
+    con: sqlite3.Connection,
+    agent_id: str,
+    *,
+    name: str | None = None,
+    instructions: str | None = None,
+    mode: int | None = None,
+    research_allowed: bool | None = None,
+    memory_allowed: bool | None = None,
+    files_allowed: bool | None = None,
+    computer_allowed: bool | None = None,
+    pet: str | None = None,
+    chat_allowed: bool | None = None,
+    skills: str | None = None,
+    model: str | None = None,
+    look: Look | None = None,
+    sheet: str | None = None,
+    parent_template: str | None = None,
+) -> AgentRow:
     cur = get_agent(con, agent_id)
     if cur is None:
         raise NotFound(agent_id)
@@ -159,7 +220,8 @@ def update_agent(con: sqlite3.Connection, agent_id: str, *, name: str | None = N
         eff_sheet = sheet
 
     merged = replace(
-        cur, name=eff_name,
+        cur,
+        name=eff_name,
         instructions=cur.instructions if instructions is None else instructions,
         mode=cur.mode if mode is None else mode,
         research_allowed=cur.research_allowed if research_allowed is None else research_allowed,
@@ -168,20 +230,37 @@ def update_agent(con: sqlite3.Connection, agent_id: str, *, name: str | None = N
         computer_allowed=cur.computer_allowed if computer_allowed is None else computer_allowed,
         pet=eff_pet,
         chat_allowed=cur.chat_allowed if chat_allowed is None else chat_allowed,
-        skills=cur.skills if skills is None else skills, model=cur.model if model is None else model,
+        skills=cur.skills if skills is None else skills,
+        model=cur.model if model is None else model,
         look=cur.look if look is None else look,
         sheet=eff_sheet,
         sheet_json=eff_sheet_json,
-        parent_template=eff_parent_template)
+        parent_template=eff_parent_template,
+    )
     clean = _check(merged.name, merged.instructions, merged.mode, merged.pet, merged.skills, merged.model)
-    con.execute("UPDATE agents SET name=?, instructions=?, mode=?, research_allowed=?, memory_allowed=?, "
-                "files_allowed=?, computer_allowed=?, pet=?, chat_allowed=?, skills=?, model=?, look=?, "
-                "sheet=?, sheet_json=?, parent_template=? WHERE id=?",
-                (clean, merged.instructions, merged.mode, int(merged.research_allowed),
-                 int(merged.memory_allowed), int(merged.files_allowed), int(merged.computer_allowed), merged.pet,
-                 int(merged.chat_allowed), merged.skills, merged.model, json.dumps(look_to_dict(merged.look)),
-                 merged.sheet, merged.sheet_json, merged.parent_template,
-                 agent_id))
+    con.execute(
+        "UPDATE agents SET name=?, instructions=?, mode=?, research_allowed=?, memory_allowed=?, "
+        "files_allowed=?, computer_allowed=?, pet=?, chat_allowed=?, skills=?, model=?, look=?, "
+        "sheet=?, sheet_json=?, parent_template=? WHERE id=?",
+        (
+            clean,
+            merged.instructions,
+            merged.mode,
+            int(merged.research_allowed),
+            int(merged.memory_allowed),
+            int(merged.files_allowed),
+            int(merged.computer_allowed),
+            merged.pet,
+            int(merged.chat_allowed),
+            merged.skills,
+            merged.model,
+            json.dumps(look_to_dict(merged.look)),
+            merged.sheet,
+            merged.sheet_json,
+            merged.parent_template,
+            agent_id,
+        ),
+    )
     row = get_agent(con, agent_id)
     assert row is not None
     return row
@@ -206,4 +285,3 @@ def owner_text_for(agent: AgentRow, role: str | None = None) -> str:
 def delete_agent(con: sqlite3.Connection, agent_id: str) -> None:
     if con.execute("DELETE FROM agents WHERE id=?", (agent_id,)).rowcount == 0:
         raise NotFound(agent_id)
-

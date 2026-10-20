@@ -4,6 +4,7 @@ An answer is used only when it names an option the caller offered, with enough c
 else (no answer, an error, a timeout, a stranger id) moves on to the next decider; when none is left the
 outcome is "no decision" and the caller applies its own safe fallback. Nothing here touches policy.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,8 +49,11 @@ def _problem(answer: object, ids: frozenset[str], minimum: float) -> str | None:
     """Why an answer cannot be used, or None when it can."""
     if not isinstance(answer, Answer):
         return "gave a malformed answer"
-    if not isinstance(answer.choice, str) or answer.choice not in ids \
-            or not all(isinstance(i, str) and i in ids for i in answer.ranking):
+    if (
+        not isinstance(answer.choice, str)
+        or answer.choice not in ids
+        or not all(isinstance(i, str) and i in ids for i in answer.ranking)
+    ):
         return "answered outside the offered options"
     if not valid_confidence(answer.confidence):
         return "gave an invalid confidence"
@@ -59,8 +63,13 @@ def _problem(answer: object, ids: frozenset[str], minimum: float) -> str | None:
 
 
 class DecisionPipeline:
-    def __init__(self, config: Callable[[], DecisionSettings], deciders: Callable[[], Mapping[str, Decider]],
-                 sink: DecisionSink, clock: Clock) -> None:
+    def __init__(
+        self,
+        config: Callable[[], DecisionSettings],
+        deciders: Callable[[], Mapping[str, Decider]],
+        sink: DecisionSink,
+        clock: Clock,
+    ) -> None:
         self._config, self._deciders, self._sink, self._clock = config, deciders, sink, clock
         self._spent: OrderedDict[str, _Spent] = OrderedDict()
 
@@ -92,8 +101,7 @@ class DecisionPipeline:
                 except Exception as exc:
                     log.warning("decider %s could not get ready: %s", step.decider, type(exc).__name__)
 
-    async def decide(self, kind: Kind, task_id: str | None, options: tuple[Option, ...],
-                     context: Context) -> Outcome:
+    async def decide(self, kind: Kind, task_id: str | None, options: tuple[Option, ...], context: Context) -> Outcome:
         """Never raises. `choice` is None for "no decision", and also in shadow mode, where the answer is
         only logged."""
         cfg = self._config()
@@ -110,19 +118,28 @@ class DecisionPipeline:
             found = await self._ask(kind, task_id, options, context, mine.chain, cfg, spent, notes)
         return await self._finish(kind, task_id, options, context, mine.shadow, found, notes)
 
-    async def _ask(self, kind: Kind, task_id: str | None, options: tuple[Option, ...], context: Context,
-                   chain: tuple[ChainStep, ...], cfg: DecisionSettings, spent: _Spent,
-                   notes: list[str]) -> tuple[str, Answer] | None:
+    async def _ask(
+        self,
+        kind: Kind,
+        task_id: str | None,
+        options: tuple[Option, ...],
+        context: Context,
+        chain: tuple[ChainStep, ...],
+        cfg: DecisionSettings,
+        spent: _Spent,
+        notes: list[str],
+    ) -> tuple[str, Answer] | None:
         ids = frozenset(o.id for o in options)
-        available = self._deciders()      # looked up now, so a model or add-on enabled a moment ago counts
+        available = self._deciders()  # looked up now, so a model or add-on enabled a moment ago counts
         for step in chain:
             decider = available.get(step.decider)
             if decider is None:
                 log.info("decider %s is not installed; skipped", step.decider)
                 notes.append(f"{step.decider} is not installed")
                 continue
-            request = Request(kind, task_id, options, context,
-                              max(0, cfg.max_model_tokens_per_task - spent.tokens), step.timeout_s)
+            request = Request(
+                kind, task_id, options, context, max(0, cfg.max_model_tokens_per_task - spent.tokens), step.timeout_s
+            )
             try:
                 async with asyncio.timeout(step.timeout_s):
                     answer = await decider.decide(request)
@@ -144,13 +161,31 @@ class DecisionPipeline:
             return step.decider, answer
         return None
 
-    async def _finish(self, kind: Kind, task_id: str | None, options: tuple[Option, ...], context: Context,
-                      shadow: bool, found: tuple[str, Answer] | None, notes: list[str]) -> Outcome:
+    async def _finish(
+        self,
+        kind: Kind,
+        task_id: str | None,
+        options: tuple[Option, ...],
+        context: Context,
+        shadow: bool,
+        found: tuple[str, Answer] | None,
+        notes: list[str],
+    ) -> Outcome:
         name, answer = found if found else (None, None)
         choice = answer.choice if answer else None
         reason = "; ".join(([f"{name} answered"] if name else []) + notes)[:MAX_REASON] or "no decider was configured"
-        record = DecisionRecord(self._clock(), kind, task_id, name, choice, answer.confidence if answer else None,
-                                shadow, len(options), summarise(context.text), reason)
+        record = DecisionRecord(
+            self._clock(),
+            kind,
+            task_id,
+            name,
+            choice,
+            answer.confidence if answer else None,
+            shadow,
+            len(options),
+            summarise(context.text),
+            reason,
+        )
         try:
             log_id = await self._sink.record(record)
         except Exception as exc:
@@ -158,10 +193,11 @@ class DecisionPipeline:
             log_id = None
         if answer is None or choice is None:
             return Outcome(kind, reason=reason, log_id=log_id)
-        if shadow:   # the caller must not act on it; the log keeps what it would have said
+        if shadow:  # the caller must not act on it; the log keeps what it would have said
             return Outcome(kind, reason=f"shadow, would have chosen {choice}; {reason}", log_id=log_id, would=choice)
-        return Outcome(kind, choice, tuple(dict.fromkeys((choice, *answer.ranking))), name, answer.confidence,
-                       reason, log_id)
+        return Outcome(
+            kind, choice, tuple(dict.fromkeys((choice, *answer.ranking))), name, answer.confidence, reason, log_id
+        )
 
 
 class DatabaseSink:

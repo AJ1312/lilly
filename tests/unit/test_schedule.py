@@ -1,4 +1,5 @@
 """Schedule maths: parsing, the next run time, and plain-language descriptions."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -13,14 +14,26 @@ def stamp(text: str) -> float:
     return datetime.fromisoformat(text).replace(tzinfo=UTC).timestamp()
 
 
-@pytest.mark.parametrize("raw", [
-    None, "daily", {}, {"kind": "cron"},
-    {"kind": "every"}, {"kind": "every", "every_minutes": 4}, {"kind": "every", "every_minutes": True},
-    {"kind": "every", "every_minutes": 10_081}, {"kind": "every", "every_minutes": "30"},
-    {"kind": "at", "at": "8:30", "days": [0]}, {"kind": "at", "at": "24:00", "days": [0]},
-    {"kind": "at", "at": "08:30", "days": []}, {"kind": "at", "at": "08:30", "days": [7]},
-    {"kind": "at", "at": "08:30", "days": [1, 1]}, {"kind": "at", "at": "08:30"},
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "daily",
+        {},
+        {"kind": "cron"},
+        {"kind": "every"},
+        {"kind": "every", "every_minutes": 4},
+        {"kind": "every", "every_minutes": True},
+        {"kind": "every", "every_minutes": 10_081},
+        {"kind": "every", "every_minutes": "30"},
+        {"kind": "at", "at": "8:30", "days": [0]},
+        {"kind": "at", "at": "24:00", "days": [0]},
+        {"kind": "at", "at": "08:30", "days": []},
+        {"kind": "at", "at": "08:30", "days": [7]},
+        {"kind": "at", "at": "08:30", "days": [1, 1]},
+        {"kind": "at", "at": "08:30"},
+    ],
+)
 def test_bad_schedules_are_refused(raw: object) -> None:
     with pytest.raises(ValidationFailed):
         parse_schedule(raw)

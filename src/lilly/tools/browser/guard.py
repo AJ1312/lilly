@@ -1,5 +1,6 @@
 """What the browser may fetch. Every request the page makes passes through here before it leaves the computer:
 only http(s) (and inline data for images and the like), only public addresses, never downloads."""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,5 @@
 """Fixtures for the API tests: a real Runtime and web app, with the model provider faked at the HTTP layer."""
+
 from __future__ import annotations
 
 import asyncio
@@ -33,14 +34,27 @@ class FakeProvider:
         if not self.replies:
             return httpx.Response(500, json={"error": "no scripted reply"})
         content = self.replies.pop(0)
-        if body.get("stream"):          # the writing step streams: answer as server-sent events, in two pieces
+        if body.get("stream"):  # the writing step streams: answer as server-sent events, in two pieces
             half = len(content) // 2
-            events = [{"choices": [{"delta": {"content": part}, "finish_reason": None}]} for part in (content[:half], content[half:])]
-            events.append({"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 5, "completion_tokens": 5}})
+            events = [
+                {"choices": [{"delta": {"content": part}, "finish_reason": None}]}
+                for part in (content[:half], content[half:])
+            ]
+            events.append(
+                {
+                    "choices": [{"delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 5},
+                }
+            )
             sse = "".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n"
             return httpx.Response(200, content=sse.encode())
-        return httpx.Response(200, json={"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
-                                         "usage": {"prompt_tokens": 5, "completion_tokens": 5}})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 5},
+            },
+        )
 
 
 @dataclass
@@ -88,6 +102,7 @@ async def api(tmp_path: Path) -> AsyncIterator[Api]:
     paths = init_paths(tmp_path / "lilly-home")
     runtime = await Runtime.create(paths, client=client, keys=MemoryKeyStore({"mistral": "test-key"}))
     from dataclasses import replace
+
     runtime.settings = replace(runtime.settings, engine=replace(runtime.settings.engine, mode="plan"))
     runtime.orchestrator.configure(runtime.settings)
     auth = Auth(paths.token, paths.secret)

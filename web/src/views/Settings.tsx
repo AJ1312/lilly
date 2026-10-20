@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { api, errorText } from '../api'
 import { useLoad } from '../hooks'
 import { useAppStore } from '../store'
-import { APPROVAL_MODES, type DevboxStatus, type McpServer, type Settings, type ThemePref, type LayaCheck } from '../types'
+import { APPROVAL_MODES, FREEDOM_MODES, type DevboxSettings, type DevboxStatus, type McpServer, type Settings, type ThemePref, type LayaCheck } from '../types'
 import { Icon } from '../ui/Icon'
 import { Modal } from '../ui/Modal'
 
@@ -16,9 +16,100 @@ export const SettingsView: React.FC = () => {
     'general' | 'engine' | 'limits' | 'grounding' | 'network' | 'laya' | 'devbox' | 'mcp' | 'data'
   >('general')
 
+  const defaultFallbackSettings: Settings = {
+    modules: [],
+    default_mode: 'ASK',
+    approval_mode: 'MANUAL',
+    file_roots: [],
+    retention_days: 30,
+    network: { allowed_hosts: [], local_only: false },
+    search: { engine: 'duckduckgo', searxng_url: null },
+    stay_awake: false,
+    limits: {
+      max_running: 3,
+      lanes: 2,
+      step_timeout_s: 180,
+      task_minutes: 60,
+      local_unload_s: 300,
+      max_agent_steps: 20,
+      max_model_calls: 30,
+      max_task_tokens: 100000,
+    },
+    decisions: {
+      enabled: true,
+      max_model_tokens_per_task: 50000,
+      max_per_task: 20,
+      min_free_mb: 512,
+      instructions: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+      loop: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+      pick: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+      plan: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+      reply: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+      route: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+      tools: { chain: [], enabled: true, min_confidence: {}, min_precision: {}, min_samples: {}, shadow: false, timeout_s: {} },
+    },
+    bridges: {
+      enabled: false,
+      agent_id: null,
+      private_replies: true,
+      per_minute: 10,
+      max_chars: 2000,
+    },
+    devbox: {
+      runtime: 'docker',
+      image: 'python:3.11-slim',
+      shared_folder: '',
+      cpus: 2,
+      memory_mb: 2048,
+      pids: 100,
+      idle_stop_s: 600,
+      destroy_after_s: 3600,
+      command_timeout_s: 60,
+    },
+    browser: {
+      mode: 'ask_risky',
+      allow_hosts: [],
+      max_actions: 50,
+      idle_quit_s: 300,
+      headless: true,
+      chrome_path: '',
+    },
+    capacity: {
+      max_wait_interactive_s: 15,
+      max_wait_background_s: 60,
+      inline_retry_max_s: 10,
+      max_inflight_per_model: 4,
+      learn_limits: true,
+      spread: 'round_robin',
+      chars_per_token: 4,
+    },
+    engine: {
+      mode: 'fast',
+      observation_chars: 4000,
+      soft_context_tokens: 32000,
+      read_cache_ttl_s: 300,
+      self_check: true,
+    },
+    grounding: {
+      enabled: true,
+      protected_globs: [],
+    },
+    crew: {
+      max_depth: 2,
+      max_children: 4,
+      child_budget_share: 0.5,
+      min_confidence: 0.7,
+    },
+    learning: {
+      mode: 'auto',
+      auto_playbooks: true,
+    },
+    models: [],
+  }
+
   // Settings
   const { data: settingsData, reload: reloadSettings } = useLoad<{ settings: Settings }>('/api/settings')
-  const settings = settingsData?.settings
+  const settings = settingsData?.settings ?? defaultFallbackSettings
 
   // Presets
   const { data: presetsData } = useLoad<{ presets: { name: string; summary: string }[] }>('/api/presets')
@@ -47,6 +138,9 @@ export const SettingsView: React.FC = () => {
 
   // Allowed Hosts input state
   const [newHost, setNewHost] = useState('')
+
+  // File roots input state
+  const [newFileRoot, setNewFileRoot] = useState('')
 
   const handleUpdate = async (updates: Partial<Settings>) => {
     if (!settings) return
@@ -185,6 +279,26 @@ export const SettingsView: React.FC = () => {
     }
   }
 
+  const handleRotateSessionToken = async () => {
+    if (!confirm('Rotate UI access token? A new authentication token will be created.')) return
+    try {
+      const res = await api.post<{ token: string }>('/api/session/token')
+      toast(`New access token generated: ${res.token ? res.token.slice(0, 8) + '...' : 'Success'}`, 'good')
+    } catch (err) {
+      toast(`Token rotation failed: ${errorText(err)}`, 'bad')
+    }
+  }
+
+  const handleRevokeAllSessions = async () => {
+    if (!confirm('Revoke all other active sessions? All other connected clients will be signed out.')) return
+    try {
+      await api.post('/api/session/revoke-all')
+      toast('All other active sessions revoked successfully', 'warn')
+    } catch (err) {
+      toast(`Failed to revoke sessions: ${errorText(err)}`, 'bad')
+    }
+  }
+
   const handleBackupNow = async () => {
     try {
       await api.post('/api/data/backup')
@@ -244,7 +358,7 @@ export const SettingsView: React.FC = () => {
       </div>
 
       {/* Tab: General & Safety */}
-      {activeTab === 'general' && settings && (
+      {activeTab === 'general' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '780px' }}>
           {/* Appearance */}
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -365,6 +479,90 @@ export const SettingsView: React.FC = () => {
                   </label>
                 )
               })}
+            </div>
+          </div>
+
+          {/* Default Freedom Mode */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Default Freedom Mode</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Controls the default agent capability tier: Locked (no private files/memories), Ask (prompts for private data), Open (operates freely inside shared folders).
+            </p>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              {FREEDOM_MODES.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => handleUpdate({ default_mode: m.value })}
+                  className={`btn ${settings.default_mode === m.value ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                  title={m.blurb}
+                >
+                  <span>{m.name}: {m.blurb}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* File Roots & Retention */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 600 }}>File Access Roots & Retention</h3>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
+                Allowed Host File Roots
+              </label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {(settings.file_roots || []).map((root) => (
+                  <span key={root} className="badge badge-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <code style={{ fontFamily: 'var(--font-mono)' }}>{root}</code>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleUpdate({
+                          file_roots: settings.file_roots.filter((r) => r !== root),
+                        })
+                      }
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      title="Remove folder root"
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  className="input"
+                  style={{ flex: 1, fontSize: '12px' }}
+                  placeholder="/Users/username/Projects or C:\Projects"
+                  value={newFileRoot}
+                  onChange={(e) => setNewFileRoot(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newFileRoot.trim()) return
+                    handleUpdate({ file_roots: [...(settings.file_roots || []), newFileRoot.trim()] })
+                    setNewFileRoot('')
+                  }}
+                  className="btn btn-secondary btn-sm"
+                >
+                  Add Root
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '8px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                Activity & Log Retention (Days)
+              </label>
+              <input
+                type="number"
+                min="1"
+                className="input"
+                style={{ maxWidth: '160px', fontSize: '12px' }}
+                value={settings.retention_days ?? 30}
+                onChange={(e) => handleUpdate({ retention_days: Number(e.target.value) })}
+              />
             </div>
           </div>
         </div>
@@ -782,6 +980,168 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Browser Automation Settings */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Browser Automation & Navigation</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Configure Playwright browser interaction, security permissions, and executable location.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Browser Security Mode
+                </label>
+                <select
+                  className="select"
+                  value={settings.browser?.mode || 'ask_risky'}
+                  onChange={(e) =>
+                    handleUpdate({
+                      browser: { ...settings.browser, mode: e.target.value as any },
+                    })
+                  }
+                >
+                  <option value="ask_every">Ask Every Action</option>
+                  <option value="ask_risky">Ask Risky Actions (Default)</option>
+                  <option value="allowlist">Allowlist Only</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Max Actions Per Navigation
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  className="input"
+                  value={settings.browser?.max_actions ?? 25}
+                  onChange={(e) =>
+                    handleUpdate({
+                      browser: { ...settings.browser, max_actions: Number(e.target.value) },
+                    })
+                  }
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Idle Quit Seconds
+                </label>
+                <input
+                  type="number"
+                  min="5"
+                  className="input"
+                  value={settings.browser?.idle_quit_s ?? 60}
+                  onChange={(e) =>
+                    handleUpdate({
+                      browser: { ...settings.browser, idle_quit_s: Number(e.target.value) },
+                    })
+                  }
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Custom Chrome Binary (Optional)
+                </label>
+                <input
+                  className="input"
+                  placeholder="System default Chromium"
+                  value={settings.browser?.chrome_path || ''}
+                  onChange={(e) =>
+                    handleUpdate({
+                      browser: { ...settings.browser, chrome_path: e.target.value },
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', marginTop: '4px' }}>
+              <input
+                type="checkbox"
+                checked={settings.browser?.headless ?? true}
+                onChange={(e) =>
+                  handleUpdate({
+                    browser: { ...settings.browser, headless: e.target.checked },
+                  })
+                }
+              />
+              <span>Headless execution (run browser invisibly in background)</span>
+            </label>
+          </div>
+
+          {/* Telegram & Chat Bridges */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 600 }}>External Chat & Telegram Bridges</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Interact with Lilly and your specialist agents via Telegram bots or chat webhook bridges.
+            </p>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={settings.bridges?.enabled ?? false}
+                onChange={(e) =>
+                  handleUpdate({
+                    bridges: { ...settings.bridges, enabled: e.target.checked },
+                  })
+                }
+              />
+              <span style={{ fontWeight: 600 }}>Enable Telegram / External Bridge</span>
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Rate Limit (Replies / Minute)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  className="input"
+                  value={settings.bridges?.per_minute ?? 30}
+                  onChange={(e) =>
+                    handleUpdate({
+                      bridges: { ...settings.bridges, per_minute: Number(e.target.value) },
+                    })
+                  }
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Max Characters Per Message
+                </label>
+                <input
+                  type="number"
+                  min="100"
+                  className="input"
+                  value={settings.bridges?.max_chars ?? 4000}
+                  onChange={(e) =>
+                    handleUpdate({
+                      bridges: { ...settings.bridges, max_chars: Number(e.target.value) },
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={settings.bridges?.private_replies ?? true}
+                onChange={(e) =>
+                  handleUpdate({
+                    bridges: { ...settings.bridges, private_replies: e.target.checked },
+                  })
+                }
+              />
+              <span>Private direct message replies only (disallow group leak)</span>
+            </label>
+          </div>
         </div>
       )}
 
@@ -869,6 +1229,128 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* DevBox Container Resource & Timeout Tuning */}
+          {(() => {
+            const currentDevbox: DevboxSettings = settings?.devbox ?? {
+              runtime: 'auto',
+              image: 'ghcr.io/astral-sh/uv:debian-slim',
+              shared_folder: '',
+              cpus: 2,
+              memory_mb: 2048,
+              pids: 256,
+              idle_stop_s: 600,
+              destroy_after_s: 86400,
+              command_timeout_s: 60,
+            }
+            return (
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Container Resource & Timeout Tuning</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                      Container Runtime
+                    </label>
+                    <select
+                      className="select"
+                      value={currentDevbox.runtime}
+                      onChange={(e) =>
+                        handleUpdate({
+                          devbox: { ...currentDevbox, runtime: e.target.value as any },
+                        })
+                      }
+                    >
+                      <option value="auto">Auto (Detect Docker / Podman)</option>
+                      <option value="docker">Docker</option>
+                      <option value="podman">Podman</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                      Custom Container Image
+                    </label>
+                    <input
+                      className="input"
+                      value={currentDevbox.image}
+                      onChange={(e) =>
+                        handleUpdate({
+                          devbox: { ...currentDevbox, image: e.target.value },
+                        })
+                      }
+                      placeholder="ghcr.io/astral-sh/uv:debian-slim"
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                      CPU Allocation (Cores)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      className="input"
+                      value={currentDevbox.cpus}
+                      onChange={(e) =>
+                        handleUpdate({
+                          devbox: { ...currentDevbox, cpus: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                      Memory Cap (MB)
+                    </label>
+                    <input
+                      type="number"
+                      step="128"
+                      className="input"
+                      value={currentDevbox.memory_mb}
+                      onChange={(e) =>
+                        handleUpdate({
+                          devbox: { ...currentDevbox, memory_mb: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                      Command Timeout (Seconds)
+                    </label>
+                    <input
+                      type="number"
+                      className="input"
+                      value={currentDevbox.command_timeout_s}
+                      onChange={(e) =>
+                        handleUpdate({
+                          devbox: { ...currentDevbox, command_timeout_s: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                      Idle Stop Delay (Seconds)
+                    </label>
+                    <input
+                      type="number"
+                      className="input"
+                      value={currentDevbox.idle_stop_s}
+                      onChange={(e) =>
+                        handleUpdate({
+                          devbox: { ...currentDevbox, idle_stop_s: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -967,6 +1449,24 @@ export const SettingsView: React.FC = () => {
               <button type="button" onClick={handleExportData} className="btn btn-primary">
                 <Icon name="copy" size={13} />
                 <span>Export All Workspace JSON</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Session Token & Access Security */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Session & Access Token Security</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Manage UI authentication access tokens and revoke active browser sessions across all devices.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={handleRotateSessionToken} className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <Icon name="key" size={13} />
+                <span>Rotate UI Access Token</span>
+              </button>
+              <button type="button" onClick={handleRevokeAllSessions} className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--warning-text)' }}>
+                <Icon name="shield" size={13} />
+                <span>Revoke All Other Sessions</span>
               </button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 """An agent writes a note only after the owner has seen the exact text, and what is saved is what was shown."""
+
 from __future__ import annotations
 
 import json
@@ -36,14 +37,14 @@ async def test_a_new_note_waits_for_approval_even_in_open_mode_and_is_saved_as_a
     engine.completer.replies = [_plan(**args), "Saved it."]
     row = await engine.orchestrator.submit(SubmitRequest("save my ideas", agent_id=await engine.agent(Mode.OPEN)))
     pending = await engine.wait_for_approval()
-    assert [p.title for p in list_pages(engine.db.reader, "sp1")] == ["Plan"]          # nothing saved yet
+    assert [p.title for p in list_pages(engine.db.reader, "sp1")] == ["Plan"]  # nothing saved yet
     shown = json.loads(pending.payload_json)
-    assert shown["tool"] == ASK_FIRST and shown["args"] == args                        # the card has the whole text, uncut
+    assert shown["tool"] == ASK_FIRST and shown["args"] == args  # the card has the whole text, uncut
     assert pending.payload_hash == payload_hash(row.id, "s1", "step", {"tool": ASK_FIRST, "args": args})
     await engine.approvals.decide(pending.id, approve=True, payload_hash=pending.payload_hash)
     assert (await engine.wait(row.id)).state is TaskState.DONE
     saved = [p for p in list_pages(engine.db.reader, "sp1") if p.title == "Ideas"]
-    assert len(saved) == 1 and saved[0].content == content                             # exactly what was shown and hashed
+    assert len(saved) == 1 and saved[0].content == content  # exactly what was shown and hashed
 
 
 async def test_declining_saves_nothing(engine: Engine) -> None:
@@ -62,7 +63,9 @@ async def test_an_edit_made_from_an_old_read_is_refused_after_approval_and_chang
     engine.completer.replies = [_plan(id="n1", base_revision=1, content="agent's rewrite")]
     row = await engine.orchestrator.submit(SubmitRequest("edit", agent_id=await engine.agent(Mode.OPEN)))
     pending = await engine.wait_for_approval()
-    await engine.db.write(lambda con: con.execute("UPDATE pages SET content='the owner typed this', revision=2 WHERE id='n1'"))
+    await engine.db.write(
+        lambda con: con.execute("UPDATE pages SET content='the owner typed this', revision=2 WHERE id='n1'")
+    )
     await engine.approvals.decide(pending.id, approve=True, payload_hash=pending.payload_hash)
     done = await engine.wait(row.id)
     assert done.state is TaskState.FAILED
@@ -94,8 +97,12 @@ async def test_a_note_too_long_to_show_in_full_is_refused_before_anyone_is_asked
 
 async def test_an_agent_without_memory_permission_cannot_even_plan_a_note_write(engine: Engine) -> None:
     await _seed(engine)
-    engine.completer.replies = [_plan(space="Work", title="T", content="c")] * 3     # the planner repairs a bad plan twice before it gives up
-    row = await engine.orchestrator.submit(SubmitRequest("save", agent_id=await engine.agent(Mode.OPEN, memory_allowed=False)))
+    engine.completer.replies = [
+        _plan(space="Work", title="T", content="c")
+    ] * 3  # the planner repairs a bad plan twice before it gives up
+    row = await engine.orchestrator.submit(
+        SubmitRequest("save", agent_id=await engine.agent(Mode.OPEN, memory_allowed=False))
+    )
     done = await engine.wait(row.id)
     assert done.state is TaskState.FAILED and "notes.write' is not an available tool" in (done.error or "")
     assert engine.approvals.pending() == []

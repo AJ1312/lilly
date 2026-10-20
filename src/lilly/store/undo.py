@@ -1,4 +1,5 @@
 """Store and retrieve file undo snapshots for fs.edit, fs.write, and fs.apply_moves."""
+
 from __future__ import annotations
 
 import hashlib

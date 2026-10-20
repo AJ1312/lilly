@@ -1,4 +1,5 @@
 """Built-in tools and the factory that assembles the set a given configuration enables."""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -46,39 +47,74 @@ from lilly.tools.web import WebFetchTool, WebResearchTool, WebSearchTool
 __all__ = ["Tool", "build_tools"]
 
 
-def build_tools(settings: Settings, *, scope: PathScope, db: Database, router: Completer, keys: KeyStore,
-                client: httpx.AsyncClient, clock: Clock,
-                browser: tuple[BrowserManager, Callable[[], BrowserSettings]] | None = None,
-                devbox: DevboxManager | None = None,
-                computer_runtime: object | None = None,
-                delegate_fn: Callable[[str, str, ToolContext], Awaitable[ToolResult]] | None = None) -> dict[str, Tool]:
+def build_tools(
+    settings: Settings,
+    *,
+    scope: PathScope,
+    db: Database,
+    router: Completer,
+    keys: KeyStore,
+    client: httpx.AsyncClient,
+    clock: Clock,
+    browser: tuple[BrowserManager, Callable[[], BrowserSettings]] | None = None,
+    devbox: DevboxManager | None = None,
+    computer_runtime: object | None = None,
+    delegate_fn: Callable[[str, str, ToolContext], Awaitable[ToolResult]] | None = None,
+) -> dict[str, Tool]:
     """Every tool the enabled modules provide, keyed by name. Nothing is registered that does not exist,
     and every tool's name must be in DEFAULT_TOOLS, where its risk is pinned."""
     globs = settings.grounding.protected_globs
     web_search = WebSearchTool(client, keys, settings.search)
     web_fetch = WebFetchTool()
     every: list[Tool] = [
-        FsListTool(scope), FsReadTool(scope), FsSearchTool(scope),
-        FsWriteTool(scope, globs), FsEditTool(scope, db, globs), FsApplyMovesTool(scope, globs), FsTrashTool(scope, globs),
+        FsListTool(scope),
+        FsReadTool(scope),
+        FsSearchTool(scope),
+        FsWriteTool(scope, globs),
+        FsEditTool(scope, db, globs),
+        FsApplyMovesTool(scope, globs),
+        FsTrashTool(scope, globs),
         DataProfileTool(scope),
-        web_search, web_fetch, WebResearchTool(web_search, web_fetch),
-        MemorySearchTool(db), MemoryWriteTool(db, clock),
-        NotesSearchTool(db), NotesReadTool(db), NotesWriteTool(db, clock),
-        OpenUrlTool(), OpenAppTool(), ProcessesTool(), StopProcessTool(), NotifyTool(), RunCommandTool(scope),
-        SystemStatsTool(), LlmWorkTool(router),
-        ResultReadTool(db), AgentPlanTool(db, clock), AgentAskTool(), AgentDelegateTool(delegate_fn),
+        web_search,
+        web_fetch,
+        WebResearchTool(web_search, web_fetch),
+        MemorySearchTool(db),
+        MemoryWriteTool(db, clock),
+        NotesSearchTool(db),
+        NotesReadTool(db),
+        NotesWriteTool(db, clock),
+        OpenUrlTool(),
+        OpenAppTool(),
+        ProcessesTool(),
+        StopProcessTool(),
+        NotifyTool(),
+        RunCommandTool(scope),
+        SystemStatsTool(),
+        LlmWorkTool(router),
+        ResultReadTool(db),
+        AgentPlanTool(db, clock),
+        AgentAskTool(),
+        AgentDelegateTool(delegate_fn),
         SkillLoadTool(db),
         *(browser_tools(*browser) if browser else []),
         *([DevboxRunTool(devbox)] if devbox else []),
     ]
     if computer_runtime is not None:
         from lilly.tools.computer_runtime import ComputerRuntime
+
         if not isinstance(computer_runtime, ComputerRuntime):
             raise ConfigurationError("computer_runtime must be a ComputerRuntime")
-        every.extend([ComputerObserveTool(computer_runtime), ComputerClickTool(computer_runtime),
-                      ComputerTypeTool(computer_runtime), ComputerPressTool(computer_runtime),
-                      ComputerMoveTool(computer_runtime), ComputerScrollTool(computer_runtime),
-                      ComputerDragTool(computer_runtime)])
+        every.extend(
+            [
+                ComputerObserveTool(computer_runtime),
+                ComputerClickTool(computer_runtime),
+                ComputerTypeTool(computer_runtime),
+                ComputerPressTool(computer_runtime),
+                ComputerMoveTool(computer_runtime),
+                ComputerScrollTool(computer_runtime),
+                ComputerDragTool(computer_runtime),
+            ]
+        )
     tools: dict[str, Tool] = {}
     for tool in every:
         spec = DEFAULT_TOOLS.get(tool.name)

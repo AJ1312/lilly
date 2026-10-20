@@ -1,4 +1,5 @@
 """The policy kernel: pure rules, no I/O except the path scope's realpath."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,8 +40,14 @@ def test_approval_modes_are_separate_from_private_data_mode() -> None:
 
 
 def test_off_keeps_hard_security_gates() -> None:
-    assert verdict(ToolCall("fs.write", Risk.R1), mode=Mode.ASK, approval_mode=ApprovalMode.OFF, tainted=True) is Verdict.DENY
-    assert verdict(ToolCall("notes.write", Risk.R1, confirm=True), mode=Mode.ASK, approval_mode=ApprovalMode.OFF) is Verdict.DENY
+    assert (
+        verdict(ToolCall("fs.write", Risk.R1), mode=Mode.ASK, approval_mode=ApprovalMode.OFF, tainted=True)
+        is Verdict.DENY
+    )
+    assert (
+        verdict(ToolCall("notes.write", Risk.R1, confirm=True), mode=Mode.ASK, approval_mode=ApprovalMode.OFF)
+        is Verdict.DENY
+    )
 
 
 def test_untrusted_content_forces_approval_even_in_open_mode() -> None:
@@ -101,7 +108,7 @@ def test_a_denied_folder_stays_denied_under_another_spelling(tmp_path: Path) -> 
         assert not scope.allows(str(home / spelled / "config" / "access-token"))
         assert not scope.allows(str(home / spelled))
     assert scope.allows(str(home / ".lillys" / "notes.txt")) and scope.allows(str(home / "notes.txt"))
-    assert scope.shields(home) and scope.shields(home.parent / "HOME")      # a folder holding it, however spelled
+    assert scope.shields(home) and scope.shields(home.parent / "HOME")  # a folder holding it, however spelled
     assert not scope.shields(home / "other")
     assert scope.denies(home / ".LILLY" / "x") and not scope.denies(home / "x")
 

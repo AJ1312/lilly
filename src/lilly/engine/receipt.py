@@ -1,4 +1,5 @@
 """Receipt builder: produces verifiable proof of actions and costs from SQLite records only."""
+
 from __future__ import annotations
 
 import contextlib
@@ -13,24 +14,55 @@ from lilly.engine.messages import RECEIPT_TEMPLATE
 from lilly.store.db import Database
 from lilly.store.tasks import list_steps
 
-READ_TOOLS = frozenset({
-    "fs.read", "fs.list", "fs.search", "data.profile",
-    "web.fetch", "web.search", "web.research",
-    "notes.read", "notes.search", "memory.search", "result.read",
-})
+READ_TOOLS = frozenset(
+    {
+        "fs.read",
+        "fs.list",
+        "fs.search",
+        "data.profile",
+        "web.fetch",
+        "web.search",
+        "web.research",
+        "notes.read",
+        "notes.search",
+        "memory.search",
+        "result.read",
+    }
+)
 
-WRITE_TOOLS = frozenset({
-    "fs.write", "fs.edit", "fs.apply_moves", "fs.trash",
-    "notes.write", "memory.write",
-})
+WRITE_TOOLS = frozenset(
+    {
+        "fs.write",
+        "fs.edit",
+        "fs.apply_moves",
+        "fs.trash",
+        "notes.write",
+        "memory.write",
+    }
+)
 
-RUN_TOOLS = frozenset({
-    "computer.run", "devbox.run", "computer.open_app", "computer.open_url",
-    "computer.stop_process", "computer.notify", "computer.processes",
-    "browser.open", "browser.read", "browser.find", "browser.click",
-    "browser.type", "browser.select", "browser.press", "browser.submit",
-    "browser.scroll", "browser.back", "browser.close",
-})
+RUN_TOOLS = frozenset(
+    {
+        "computer.run",
+        "devbox.run",
+        "computer.open_app",
+        "computer.open_url",
+        "computer.stop_process",
+        "computer.notify",
+        "computer.processes",
+        "browser.open",
+        "browser.read",
+        "browser.find",
+        "browser.click",
+        "browser.type",
+        "browser.select",
+        "browser.press",
+        "browser.submit",
+        "browser.scroll",
+        "browser.back",
+        "browser.close",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,8 +133,11 @@ class ReceiptBuilder:
     """Builds a receipt strictly from database records without any model invocation."""
 
     @staticmethod
-    def build_from_con(con: sqlite3.Connection, task_id: str,
-                       protected_globs: tuple[str, ...] = ("*test*", "*tests*", "test_*", "*_test.*")) -> Receipt:
+    def build_from_con(
+        con: sqlite3.Connection,
+        task_id: str,
+        protected_globs: tuple[str, ...] = ("*test*", "*tests*", "test_*", "*_test.*"),
+    ) -> Receipt:
         # 1. Task record duration
         task_row = con.execute("SELECT created_at, finished_at FROM tasks WHERE id=?", (task_id,)).fetchone()
         if task_row:
@@ -180,6 +215,7 @@ class ReceiptBuilder:
         )
 
     @classmethod
-    def build(cls, db: Database, task_id: str,
-              protected_globs: tuple[str, ...] = ("*test*", "*tests*", "test_*", "*_test.*")) -> Receipt:
+    def build(
+        cls, db: Database, task_id: str, protected_globs: tuple[str, ...] = ("*test*", "*tests*", "test_*", "*_test.*")
+    ) -> Receipt:
         return cls.build_from_con(db.reader, task_id, protected_globs)

@@ -1,4 +1,5 @@
 """Start Lilly at login on macOS, as a launchd LaunchAgent. Nothing here runs on other systems."""
+
 from __future__ import annotations
 
 import os
@@ -19,16 +20,21 @@ def plist_path() -> Path:
 
 def build_plist(paths: LillyPaths, port: int, python: str = sys.executable) -> bytes:
     """The LaunchAgent definition: run at login, restart if it exits, log to Lilly's own log folder."""
-    return plistlib.dumps({
-        "Label": LABEL,
-        "ProgramArguments": [python, "-m", "lilly", "run", "--port", str(port)],
-        "EnvironmentVariables": {"LILLY_HOME": str(paths.root), "PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"},
-        "RunAtLoad": True,
-        "KeepAlive": True,
-        "ProcessType": "Background",
-        "StandardOutPath": str(paths.log / "service.out.log"),
-        "StandardErrorPath": str(paths.log / "service.err.log"),
-    })
+    return plistlib.dumps(
+        {
+            "Label": LABEL,
+            "ProgramArguments": [python, "-m", "lilly", "run", "--port", str(port)],
+            "EnvironmentVariables": {
+                "LILLY_HOME": str(paths.root),
+                "PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+            },
+            "RunAtLoad": True,
+            "KeepAlive": True,
+            "ProcessType": "Background",
+            "StandardOutPath": str(paths.log / "service.out.log"),
+            "StandardErrorPath": str(paths.log / "service.err.log"),
+        }
+    )
 
 
 def _launchctl(*args: str) -> subprocess.CompletedProcess[str]:

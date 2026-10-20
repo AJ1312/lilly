@@ -1,4 +1,5 @@
 """A stand-in for Telegram's Bot API, served through httpx's mock transport. It keeps every call it was given."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +20,7 @@ class FakeTelegram:
     answers: list[dict[str, Any]] = field(default_factory=list)
     edits: list[dict[str, Any]] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
-    fail: list[httpx.Response] = field(default_factory=list)        # served, in order, instead of the real answer
+    fail: list[httpx.Response] = field(default_factory=list)  # served, in order, instead of the real answer
     next_id: int = 100
     username: str = "lilly_test_bot"
 
@@ -29,16 +30,32 @@ class FakeTelegram:
     # ---- what a person does in the chat app ---------------------------------------------------------
     def say(self, user: int, text: str, chat_type: str = "private", chat: int | None = None) -> int:
         self.next_id += 1
-        self.updates.append({"update_id": self.next_id, "message": {
-            "message_id": self.next_id, "from": {"id": user, "is_bot": False, "first_name": f"User{user}"},
-            "chat": {"id": chat if chat is not None else user, "type": chat_type}, "text": text}})
+        self.updates.append(
+            {
+                "update_id": self.next_id,
+                "message": {
+                    "message_id": self.next_id,
+                    "from": {"id": user, "is_bot": False, "first_name": f"User{user}"},
+                    "chat": {"id": chat if chat is not None else user, "type": chat_type},
+                    "text": text,
+                },
+            }
+        )
         return self.next_id
 
     def press(self, user: int, data: str, message_id: int = 1) -> None:
         self.next_id += 1
-        self.updates.append({"update_id": self.next_id, "callback_query": {
-            "id": f"q{self.next_id}", "from": {"id": user, "is_bot": False, "first_name": "x"}, "data": data,
-            "message": {"message_id": message_id, "chat": {"id": user, "type": "private"}}}})
+        self.updates.append(
+            {
+                "update_id": self.next_id,
+                "callback_query": {
+                    "id": f"q{self.next_id}",
+                    "from": {"id": user, "is_bot": False, "first_name": "x"},
+                    "data": data,
+                    "message": {"message_id": message_id, "chat": {"id": user, "type": "private"}},
+                },
+            }
+        )
 
     def texts(self, chat: int) -> list[str]:
         return [str(m["text"]) for m in self.sent if m["chat_id"] == chat]
@@ -48,7 +65,7 @@ class FakeTelegram:
         prefix = f"/bot{TOKEN}/"
         if not request.url.path.startswith(prefix):
             return httpx.Response(401, json={"ok": False, "error_code": 401, "description": "Unauthorized"})
-        method = request.url.path[len(prefix):]
+        method = request.url.path[len(prefix) :]
         body: dict[str, Any] = json.loads(request.content or b"{}")
         self.calls.append(method)
         if self.fail:
@@ -59,7 +76,7 @@ class FakeTelegram:
             wanted = body.get("offset", 0)
             ready = [u for u in self.updates if u["update_id"] >= wanted]
             if not ready:
-                await asyncio.sleep(0.01)         # a long poll with nothing to say
+                await asyncio.sleep(0.01)  # a long poll with nothing to say
             return self._ok(ready)
         if method == "sendMessage":
             self.sent.append(body)

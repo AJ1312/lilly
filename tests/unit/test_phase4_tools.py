@@ -1,4 +1,5 @@
 """Unit tests for Phase 4 control tools: result.read, agent.plan, agent.ask."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,7 +43,9 @@ async def test_result_read_tool(tmp_path: Path) -> None:
     def populate(con: Any) -> None:
         create_task(con, id=task_id, goal="test", mode=1, label=Label.PUBLIC, tainted=False, now=100.0)
         create_steps(con, task_id, [("step_1", "fs.read", "{}")])
-        update_step(con, task_id, "step_1", "done", 101.0, output="0123456789ABCDEF", label=Label.PERSONAL, untrusted=True)
+        update_step(
+            con, task_id, "step_1", "done", 101.0, output="0123456789ABCDEF", label=Label.PERSONAL, untrusted=True
+        )
 
     await db.write(populate)
     try:

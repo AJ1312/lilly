@@ -1,4 +1,5 @@
 """The devbox manager and tool, against a fake engine: lifecycle, limits, idle clean-up, warm start, safety."""
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +29,9 @@ class Box:
         self.engine: FakeEngine | None = FakeEngine()
         self.clock = Clock(1000.0)
         self.scope = PathScope([str(tmp_path / "share")])
-        self.manager = DevboxManager(lambda: self.cfg, lambda: self.scope, lambda c: self.engine, self.clock, ids=(501, 20))
+        self.manager = DevboxManager(
+            lambda: self.cfg, lambda: self.scope, lambda c: self.engine, self.clock, ids=(501, 20)
+        )
 
 
 @pytest.fixture
@@ -57,14 +60,18 @@ async def test_it_will_not_start_without_a_downloaded_image(box: Box) -> None:
     box.engine.image_ready = False
     with pytest.raises(ToolError, match="Prepare"):
         await box.manager.run("", "x")
-    assert box.engine.calls == []              # nothing was created, and nothing was downloaded behind the owner's back
+    assert box.engine.calls == []  # nothing was created, and nothing was downloaded behind the owner's back
     await box.manager.prepare()
     assert box.engine.calls == ["pull"]
 
 
-@pytest.mark.parametrize("folder,message", [("", "choose a shared folder"), ("/etc", "inside a folder you have shared"),
-                                            ("MISSING", "does not exist")])
-async def test_a_bad_shared_folder_stops_it_before_anything_starts(box: Box, tmp_path: Path, folder: str, message: str) -> None:
+@pytest.mark.parametrize(
+    "folder,message",
+    [("", "choose a shared folder"), ("/etc", "inside a folder you have shared"), ("MISSING", "does not exist")],
+)
+async def test_a_bad_shared_folder_stops_it_before_anything_starts(
+    box: Box, tmp_path: Path, folder: str, message: str
+) -> None:
     box.cfg = replace(box.cfg, shared_folder=str(tmp_path / "share" / "nope") if folder == "MISSING" else folder)
     with pytest.raises(ToolError, match=message):
         await box.manager.run("", "x")
@@ -86,7 +93,7 @@ async def test_a_link_to_a_folder_whose_real_name_has_a_comma_is_refused(box: Bo
     real.mkdir()
     link = tmp_path / "share" / "link"
     link.symlink_to(real)
-    box.cfg = replace(box.cfg, shared_folder=str(link))                      # the text is clean, where it points is not
+    box.cfg = replace(box.cfg, shared_folder=str(link))  # the text is clean, where it points is not
     with pytest.raises(ToolError, match="not allowed"):
         await box.manager.run("", "x")
     assert box.engine.calls == []
@@ -99,8 +106,9 @@ async def test_without_docker_or_podman_it_says_so(box: Box) -> None:
     assert (await box.manager.status())["state"] == "unavailable"
 
 
-@pytest.mark.parametrize("rel,command", [("../etc", "ls"), ("/etc", "ls"), ("a;b", "ls"), ("", ""), ("", "  "),
-                                         ("", "x" * 9000)])
+@pytest.mark.parametrize(
+    "rel,command", [("../etc", "ls"), ("/etc", "ls"), ("a;b", "ls"), ("", ""), ("", "  "), ("", "x" * 9000)]
+)
 async def test_bad_folders_and_commands_are_refused_up_front(box: Box, rel: str, command: str) -> None:
     with pytest.raises(ValidationFailed):
         await box.manager.run(rel, command)
@@ -141,11 +149,11 @@ async def test_a_quiet_box_is_stopped_then_destroyed_and_wakes_quickly_when_stop
     await box.manager.run("", "x")
     box.clock.advance(300)
     await box.manager.reap_once()
-    assert box.engine.box == "running"                       # not idle long enough yet
+    assert box.engine.box == "running"  # not idle long enough yet
     box.clock.advance(400)
     await box.manager.reap_once()
     assert box.engine.box == "stopped"
-    await box.manager.run("", "again")                       # restarted, not rebuilt: its state is intact
+    await box.manager.run("", "again")  # restarted, not rebuilt: its state is intact
     assert box.engine.calls.count("create") == 1 and box.engine.box == "running"
     box.clock.advance(box.cfg.destroy_after_s + 1)
     await box.manager.reap_once()
@@ -175,7 +183,7 @@ async def test_stop_all_and_shutdown_remove_the_box(box: Box) -> None:
 
 async def test_warming_starts_the_box_before_the_first_command(box: Box) -> None:
     box.manager.warm()
-    box.manager.warm()                                       # a second hint while starting changes nothing
+    box.manager.warm()  # a second hint while starting changes nothing
     await asyncio.sleep(0.05)
     assert box.engine.box == "running" and box.engine.calls == ["create", "start"]
     await box.manager.run("", "x")
@@ -189,13 +197,21 @@ async def test_warming_never_downloads_and_never_fails_loudly(box: Box) -> None:
     assert box.engine.calls == []
     box.engine.image_ready, box.engine.fail_start = True, True
     box.manager.warm()
-    await asyncio.sleep(0.05)                                # a failed start is logged, not raised
+    await asyncio.sleep(0.05)  # a failed start is logged, not raised
 
 
 async def test_status_tells_the_settings_screen_what_is_ready(box: Box) -> None:
     status = await box.manager.status()
-    assert status == {"engine": "fake", "image": box.cfg.image, "image_ready": True, "state": "missing",
-                           "folder_ok": True, "folder_problem": None, "preparing": False, "prepare_error": None}
+    assert status == {
+        "engine": "fake",
+        "image": box.cfg.image,
+        "image_ready": True,
+        "state": "missing",
+        "folder_ok": True,
+        "folder_problem": None,
+        "preparing": False,
+        "prepare_error": None,
+    }
 
 
 async def test_the_tool_streams_output_labels_it_private_and_outside_and_forwards_warming(box: Box) -> None:
@@ -216,10 +232,10 @@ async def test_a_folder_that_contains_something_private_cannot_be_shared(box: Bo
     secret = tmp_path / "share" / "keys"
     secret.mkdir()
     box.scope = PathScope([str(tmp_path / "share")], deny=[str(secret)])
-    box.cfg = replace(box.cfg, shared_folder=str(tmp_path / "share"))       # the parent would expose the keys
+    box.cfg = replace(box.cfg, shared_folder=str(tmp_path / "share"))  # the parent would expose the keys
     with pytest.raises(ToolError, match="keeps private"):
         await box.manager.run("", "x")
-    box.cfg = replace(box.cfg, shared_folder=str(box.folder))               # a sibling folder is fine
+    box.cfg = replace(box.cfg, shared_folder=str(box.folder))  # a sibling folder is fine
     assert (await box.manager.run("", "x")).exit_code == 0
 
 

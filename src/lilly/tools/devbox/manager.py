@@ -3,6 +3,7 @@
 The box is created from `create_args` and nothing else. A box left over from an earlier run of Lilly, or built with
 older settings, is destroyed and rebuilt instead of trusted. A command that runs out of time destroys the box, because
 something it started may still be running; the shared folder keeps its files."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,12 +36,18 @@ EngineFinder = Callable[[DevboxSettings], Engines | None]
 
 
 class DevboxManager:
-    def __init__(self, settings: Callable[[], DevboxSettings], scope: Callable[[], PathScope], find: EngineFinder,
-                 clock: Clock, ids: tuple[int, int] | None = None) -> None:
+    def __init__(
+        self,
+        settings: Callable[[], DevboxSettings],
+        scope: Callable[[], PathScope],
+        find: EngineFinder,
+        clock: Clock,
+        ids: tuple[int, int] | None = None,
+    ) -> None:
         self._settings, self._scope, self._find, self._clock = settings, scope, find, clock
         self._ids = ids or (os.getuid(), os.getgid())
         self._lock = asyncio.Lock()
-        self._built_with: list[str] | None = None      # the create arguments of the box THIS run of Lilly made
+        self._built_with: list[str] | None = None  # the create arguments of the box THIS run of Lilly made
         self._last_used: float | None = None
         self._reaper: asyncio.Task[None] | None = None
         self._warming: asyncio.Task[None] | None = None
@@ -51,11 +58,16 @@ class DevboxManager:
     async def status(self) -> dict[str, Any]:
         cfg = self._settings()
         engine = self._find(cfg)
-        out: dict[str, Any] = {"engine": engine.name if engine else None, "image": cfg.image, "image_ready": False,
-                               "state": "unavailable", "folder_ok": self._folder_problem(cfg) is None,
-                               "folder_problem": self._folder_problem(cfg),
-                               "preparing": self._preparing is not None and not self._preparing.done(),
-                               "prepare_error": self._prepare_error}
+        out: dict[str, Any] = {
+            "engine": engine.name if engine else None,
+            "image": cfg.image,
+            "image_ready": False,
+            "state": "unavailable",
+            "folder_ok": self._folder_problem(cfg) is None,
+            "folder_problem": self._folder_problem(cfg),
+            "preparing": self._preparing is not None and not self._preparing.done(),
+            "prepare_error": self._prepare_error,
+        }
         if engine is not None:
             try:
                 out["image_ready"] = await engine.image_present(cfg.image)
@@ -71,7 +83,7 @@ class DevboxManager:
             return bad
         if not self._scope().allows(cfg.shared_folder):
             return "the shared folder must be inside a folder you have shared with Lilly"
-        real = Path(os.path.realpath(cfg.shared_folder))     # this is what gets mounted, so it is judged too
+        real = Path(os.path.realpath(cfg.shared_folder))  # this is what gets mounted, so it is judged too
         if (bad := folder_problem(str(real))) is not None:
             return f"the shared folder points to {real}, which cannot be shared: {bad}"
         if not real.is_dir():
@@ -162,7 +174,7 @@ class DevboxManager:
         args = create_args(cfg, os.path.realpath(cfg.shared_folder), *self._ids)
         state = await engine.state()
         if state != "missing" and self._built_with != args:
-            await self._destroy(engine)             # left over from before, or built with other settings
+            await self._destroy(engine)  # left over from before, or built with other settings
             state = "missing"
         if state == "missing":
             await engine.create(args)
@@ -217,7 +229,7 @@ class DevboxManager:
                 return
             now = self._clock()
             if self._last_used is None:
-                self._last_used = now                  # a box from before this run: start its clock now
+                self._last_used = now  # a box from before this run: start its clock now
             idle = now - self._last_used
             if idle >= cfg.destroy_after_s:
                 await self._destroy(engine)

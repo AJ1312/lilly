@@ -1,4 +1,5 @@
 """The layering is enforced, not just documented: a layer may import only from layers below it."""
+
 from __future__ import annotations
 
 import ast
@@ -7,8 +8,20 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "lilly"
-RANK = {"domain": 0, "obs": 0, "core": 1, "store": 2, "providers": 3, "tools": 3, "decide": 3, "engine": 4, "app": 5,
-        "ui": 6, "bridges": 6, "daemon": 7}
+RANK = {
+    "domain": 0,
+    "obs": 0,
+    "core": 1,
+    "store": 2,
+    "providers": 3,
+    "tools": 3,
+    "decide": 3,
+    "engine": 4,
+    "app": 5,
+    "ui": 6,
+    "bridges": 6,
+    "daemon": 7,
+}
 SIBLING_GROUPS = ({"providers", "tools", "decide"}, {"ui", "bridges"})  # same rank, must stay independent of each other
 
 
@@ -37,4 +50,6 @@ def test_layer_only_imports_downward(path: Path) -> None:
         if target not in RANK:
             continue  # lilly.__version__ and similar
         assert RANK[target] <= RANK[layer], f"{layer} must not import {target}"
-        assert not any(layer in g and target in g for g in SIBLING_GROUPS), f"{layer} must not import its sibling {target}"
+        assert not any(layer in g and target in g for g in SIBLING_GROUPS), (
+            f"{layer} must not import its sibling {target}"
+        )

@@ -1,4 +1,5 @@
 """When a routine runs. Pure functions: time and time zone are passed in, nothing reads the clock."""
+
 from __future__ import annotations
 
 import re
@@ -18,6 +19,7 @@ _AT = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 @dataclass(frozen=True, slots=True)
 class Schedule:
     """`every`: every N minutes. `at`: at HH:MM local time on the listed weekdays (0 = Monday); all seven for daily."""
+
     kind: str
     every_minutes: int = 0
     at: str = ""
@@ -37,8 +39,12 @@ def parse_schedule(raw: object) -> Schedule:
         at, days = raw.get("at"), raw.get("days")
         if not isinstance(at, str) or not _AT.fullmatch(at):
             raise ValidationFailed("time must look like 08:30")
-        if (not isinstance(days, list) or not days or len(set(days)) != len(days)
-                or any(isinstance(d, bool) or not isinstance(d, int) or not 0 <= d <= 6 for d in days)):
+        if (
+            not isinstance(days, list)
+            or not days
+            or len(set(days)) != len(days)
+            or any(isinstance(d, bool) or not isinstance(d, int) or not 0 <= d <= 6 for d in days)
+        ):
             raise ValidationFailed("choose at least one weekday")
         return Schedule("at", at=at, days=tuple(sorted(days)))
     raise ValidationFailed("schedule kind must be 'every' or 'at'")

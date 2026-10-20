@@ -1,4 +1,5 @@
 """Provider catalog loader and validator."""
+
 from __future__ import annotations
 
 import json

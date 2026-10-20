@@ -1,4 +1,5 @@
 """The `lilly` command."""
+
 from __future__ import annotations
 
 import argparse
@@ -65,8 +66,12 @@ def _start_in_background(paths: LillyPaths, port: int) -> None:
     log_file = paths.log / "lilly.out.log"
     with open(log_file, "ab") as out:
         proc = subprocess.Popen(  # nosec B603 - fixed argument list, our own interpreter, no shell
-            [sys.executable, "-m", "lilly", "run", "--port", str(port)], stdout=out, stderr=out,
-            stdin=subprocess.DEVNULL, start_new_session=True)
+            [sys.executable, "-m", "lilly", "run", "--port", str(port)],
+            stdout=out,
+            stderr=out,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if _is_up(port):
@@ -104,6 +109,7 @@ def cmd_open(args: argparse.Namespace) -> int:
 def cmd_share(args: argparse.Namespace) -> int:
     """Start Lilly if needed and establish a public HTTPS tunnel accessible from outside the network."""
     import shutil
+
     paths, port = init_paths(), _port(args)
     if not _is_up(port):
         print("Starting Lilly...")
@@ -169,7 +175,7 @@ STOP_WAIT_S = 15.0
 def _is_lilly(pid: int) -> bool:
     """Whether `pid` is a Lilly server, so a stale pid file can never make us signal an unrelated process."""
     try:
-        return any("lilly" in part.lower() for part in psutil.Process(pid).cmdline()[1:])   # not the interpreter path
+        return any("lilly" in part.lower() for part in psutil.Process(pid).cmdline()[1:])  # not the interpreter path
     except psutil.Error:
         return False
 
@@ -218,6 +224,28 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if bad else 0
 
 
+def cmd_computer_doctor(args: argparse.Namespace) -> int:
+    from lilly.tools.computer_doctor import check_computer_environment
+
+    checks = check_computer_environment()
+    for c in checks:
+        print(f"{'ok  ' if c.ok else 'FAIL'}  {c.name}: {c.detail}")
+    bad = sum(not c.ok for c in checks)
+    print("Desktop control is ready." if not bad else f"{bad} issue{'s' if bad > 1 else ''} found.")
+    return 1 if bad else 0
+
+
+def cmd_computer_smoke_test(args: argparse.Namespace) -> int:
+    from lilly.tools.computer_doctor import run_computer_smoke_test
+
+    print("Running end-to-end real Mac desktop control smoke test...", flush=True)
+    ok, summary, steps = asyncio.run(run_computer_smoke_test())
+    for name, step_ok, detail in steps:
+        print(f"{'ok  ' if step_ok else 'FAIL'}  {name}: {detail}")
+    print(f"\nResult: {'PASSED' if ok else 'FAILED'} - {summary}")
+    return 0 if ok else 1
+
+
 def _percent(share: float | None) -> str:
     return "n/a" if share is None else f"{share:.0%}"
 
@@ -242,11 +270,15 @@ def cmd_decisions_report(args: argparse.Namespace) -> int:
     if not rows:
         print("No decisions have been logged yet.")
         return 0
-    print(f"{'question':<14}{'decider':<13}{'decisions':>9}{'answered':>10}{'shadow':>8}{'right':>8}   (right: accepted, of those known)")
+    print(
+        f"{'question':<14}{'decider':<13}{'decisions':>9}{'answered':>10}{'shadow':>8}{'right':>8}   (right: accepted, of those known)"
+    )
     for r in rows:
         known = r.accepted + r.corrected
-        print(f"{r.kind:<14}{r.decider or '(none)':<13}{r.decisions:>9}{_percent(r.answered / r.decisions):>10}"
-              f"{r.shadow:>8}{_percent(r.accepted / known if known else None):>8}   {known} known")
+        print(
+            f"{r.kind:<14}{r.decider or '(none)':<13}{r.decisions:>9}{_percent(r.answered / r.decisions):>10}"
+            f"{r.shadow:>8}{_percent(r.accepted / known if known else None):>8}   {known} known"
+        )
     return 0
 
 
@@ -256,7 +288,7 @@ def cmd_decisions_calibrate(args: argparse.Namespace) -> int:
         raise ConfigurationError("--target must be above 0 and at most 1")
     paths = init_paths()
     samples: dict[tuple[str, str], list[tuple[float, bool]]] = {}
-    for kind, decider, confidence, right in (_from_log(paths, decisions.labelled) or []):
+    for kind, decider, confidence, right in _from_log(paths, decisions.labelled) or []:
         samples.setdefault((kind, decider), []).append((confidence, right))
     if not samples:
         print("No answers with a known outcome yet, so there is nothing to calibrate.")
@@ -268,12 +300,18 @@ def cmd_decisions_calibrate(args: argparse.Namespace) -> int:
         c = calibrate(rows, args.target, now)
         head = f"{kind} / {decider}: {c.labelled} answers with a known outcome, min_confidence now {now:.2f}"
         if c.threshold is None:
-            why = "too few outcomes yet." if c.labelled < MIN_LABELLED else f"no threshold reaches {args.target:.0%} precision."
+            why = (
+                "too few outcomes yet."
+                if c.labelled < MIN_LABELLED
+                else f"no threshold reaches {args.target:.0%} precision."
+            )
             print(f"{head}\n  no suggestion: {why}")
             continue
-        print(f"{head}\n  suggested {c.threshold:.2f}: keeps {_percent(c.coverage_after)} of answers "
-              f"(now {_percent(c.coverage_before)}), right {_percent(c.precision_after)} of the time "
-              f"(now {_percent(c.precision_before)})")
+        print(
+            f"{head}\n  suggested {c.threshold:.2f}: keeps {_percent(c.coverage_after)} of answers "
+            f"(now {_percent(c.coverage_before)}), right {_percent(c.precision_after)} of the time "
+            f"(now {_percent(c.precision_before)})"
+        )
     print("Nothing was changed. Edit decisions.<question>.min_confidence in Settings to apply a suggestion.")
     return 0
 
@@ -287,8 +325,10 @@ def cmd_laya_install(args: argparse.Namespace) -> int:
     try:
         laya_install.install(addon, lambda line: print(line, flush=True))
     except laya_install.LayaInstallError as exc:
-        print(f"Laya was not installed: {exc}\nLilly works the same without it. Run 'lilly laya install' to try again.",
-              file=sys.stderr)
+        print(
+            f"Laya was not installed: {exc}\nLilly works the same without it. Run 'lilly laya install' to try again.",
+            file=sys.stderr,
+        )
         return 1
     print("Laya is installed. Turn it on with 'lilly laya enable'.")
     return 0
@@ -296,16 +336,21 @@ def cmd_laya_install(args: argparse.Namespace) -> int:
 
 def _set_laya(on: bool, port: int = DEFAULT_PORT) -> int:
     paths = init_paths()
-    if _is_up(port):    # a running Lilly keeps its own copy of the settings and would write this change away
-        raise ConfigurationError("Lilly is running: change this in Settings → Quick decisions, or run 'lilly stop' first")
+    if _is_up(port):  # a running Lilly keeps its own copy of the settings and would write this change away
+        raise ConfigurationError(
+            "Lilly is running: change this in Settings → Quick decisions, or run 'lilly stop' first"
+        )
     if on and not laya_install.is_installed(_laya_dir(paths)):
         raise ConfigurationError("Laya is not installed; run 'lilly laya install' first")
     settings, problems = load_settings(paths.settings)
     if problems:
         raise ConfigurationError("your settings file has problems, so it was not changed: " + "; ".join(problems))
     save_settings(paths.settings, replace(settings, decisions=with_laya(settings.decisions, on)))
-    scope = ("loop, instruction and pick-one questions, and watches whether simple questions need tools"
-             if on else "every question, the assist checks included")
+    scope = (
+        "loop, instruction and pick-one questions, and watches whether simple questions need tools"
+        if on
+        else "every question, the assist checks included"
+    )
     print(f"Laya is {'on' if on else 'off'} for {scope}.")
     return 0
 
@@ -325,11 +370,16 @@ def cmd_laya_test(args: argparse.Namespace) -> int:
     decider = LayaDecider.from_install(_laya_dir(init_paths()))
     if decider is None:
         raise ConfigurationError("Laya is not installed; run 'lilly laya install' first")
-    print("Loading Laya and asking three questions with known answers (the first load can take a minute)...", flush=True)
+    print(
+        "Loading Laya and asking three questions with known answers (the first load can take a minute)...", flush=True
+    )
     report = asyncio.run(_run_self_test(decider))
     for r in report.results:
-        print(f"{'ok  ' if r.ok else 'FAIL'}  {r.name}: expected {r.expected}, got {r.got or 'no answer'}"
-              + (f" ({r.confidence:.0%} sure)" if r.confidence is not None else "") + f", {r.ms} ms")
+        print(
+            f"{'ok  ' if r.ok else 'FAIL'}  {r.name}: expected {r.expected}, got {r.got or 'no answer'}"
+            + (f" ({r.confidence:.0%} sure)" if r.confidence is not None else "")
+            + f", {r.ms} ms"
+        )
     if report.loaded:
         print(f"Laya loaded in {report.load_ms / 1000:.1f} s.")
     if report.ok:
@@ -364,7 +414,9 @@ def cmd_laya_remove(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="lilly", description="Lilly: a private AI assistant that runs on your computer.")
+    parser = argparse.ArgumentParser(
+        prog="lilly", description="Lilly: a private AI assistant that runs on your computer."
+    )
     parser.add_argument("--version", action="version", version=f"lilly {__version__}")
     parser.add_argument("--port", type=int, help=f"port for the interface (default {DEFAULT_PORT}, or $LILLY_PORT)")
     commands = parser.add_subparsers(dest="command")
@@ -384,21 +436,37 @@ def build_parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=fn)
     decide = commands.add_parser("decisions", help="how the quick deciders have been doing")
     actions = decide.add_subparsers(dest="action", required=True)
-    actions.add_parser("report", help="what was asked, answered and right, per question and decider"
-                       ).set_defaults(handler=cmd_decisions_report)
+    actions.add_parser("report", help="what was asked, answered and right, per question and decider").set_defaults(
+        handler=cmd_decisions_report
+    )
     calibrate_cmd = actions.add_parser("calibrate", help="suggest confidence thresholds from the log (changes nothing)")
     calibrate_cmd.add_argument("--target", type=float, default=0.95, help="precision to aim for (default 0.95)")
     calibrate_cmd.set_defaults(handler=cmd_decisions_calibrate)
     laya = commands.add_parser("laya", help="the Laya helper model that saves tokens on small decisions")
     laya_actions = laya.add_subparsers(dest="action", required=True)
-    for name, fn, help_ in (("check", cmd_laya_check, "see whether this computer can run Laya (downloads nothing)"),
-                            ("test", cmd_laya_test, "load Laya and prove it answers three known questions"),
-                            ("install", cmd_laya_install, "download the pinned model into its own environment"),
-                            ("enable", lambda a: _set_laya(True, _port(a)), "use Laya for quick decisions (the token-saving shortcut starts watch-only)"),
-                            ("disable", lambda a: _set_laya(False, _port(a)), "stop using Laya (keeps the files)"),
-                            ("status", cmd_laya_status, "say whether Laya is installed and turned on"),
-                            ("remove", cmd_laya_remove, "turn Laya off and delete its files")):
+    for name, fn, help_ in (
+        ("check", cmd_laya_check, "see whether this computer can run Laya (downloads nothing)"),
+        ("test", cmd_laya_test, "load Laya and prove it answers three known questions"),
+        ("install", cmd_laya_install, "download the pinned model into its own environment"),
+        (
+            "enable",
+            lambda a: _set_laya(True, _port(a)),
+            "use Laya for quick decisions (the token-saving shortcut starts watch-only)",
+        ),
+        ("disable", lambda a: _set_laya(False, _port(a)), "stop using Laya (keeps the files)"),
+        ("status", cmd_laya_status, "say whether Laya is installed and turned on"),
+        ("remove", cmd_laya_remove, "turn Laya off and delete its files"),
+    ):
         laya_actions.add_parser(name, help=help_).set_defaults(handler=fn)
+    comp = commands.add_parser("computer", help="desktop control diagnostics and real-device verification")
+    comp_actions = comp.add_subparsers(dest="action", required=True)
+    comp_actions.add_parser(
+        "doctor", help="diagnose Screen Recording, Accessibility, and desktop backends"
+    ).set_defaults(handler=cmd_computer_doctor)
+    comp_actions.add_parser("smoke-test", help="run end-to-end real Mac desktop control smoke test").set_defaults(
+        handler=cmd_computer_smoke_test
+    )
+    comp_actions.add_parser("test", help="alias for smoke-test").set_defaults(handler=cmd_computer_smoke_test)
     return parser
 
 

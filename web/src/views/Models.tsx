@@ -88,7 +88,6 @@ export const ModelsView: React.FC = () => {
   const [customModelId, setCustomModelId] = useState('')
   const [customBaseUrl, setCustomBaseUrl] = useState('')
   const [customKeyRef, setCustomKeyRef] = useState('')
-  const [customLocal, setCustomLocal] = useState(false)
   const [customLane, setCustomLane] = useState(1)
   const [addingModel, setAddingModel] = useState(false)
 
@@ -98,16 +97,16 @@ export const ModelsView: React.FC = () => {
   const handleTestModel = async (modelName: string) => {
     setTestingModelName(modelName)
     try {
-      const res = await api.post<{ ok: boolean; latency_ms?: number; reply?: string }>(
+      const res = await api.post<{ ok: boolean; latency_ms?: number; reply?: string; error?: string }>(
         `/api/models/${encodeURIComponent(modelName)}/test`
       )
       setTestResult({
         model: modelName,
         ok: res.ok,
         latency_ms: res.latency_ms,
-        text: res.reply || (res.ok ? 'Model responded successfully' : 'Model test failed'),
+        text: res.ok ? (res.reply || 'Model responded successfully') : (res.error || res.reply || 'Model test failed'),
       })
-      toast(`Tested ${modelName}: ${res.ok ? 'Online' : 'Failed'}`, res.ok ? 'good' : 'bad')
+      toast(`Tested ${modelName}: ${res.ok ? 'Online' : (res.error || 'Failed')}`, res.ok ? 'good' : 'bad')
       await reloadModels()
     } catch (err) {
       toast(`Test error: ${errorText(err)}`, 'bad')
@@ -205,14 +204,15 @@ export const ModelsView: React.FC = () => {
       const currentSettings = currentRes.settings
       const existing = (currentSettings.models || []).filter((m) => m.name !== customName.trim())
 
+      const isLocal = customProvider === 'ollama'
       const newSpec: ModelSpec = {
         name: customName.trim(),
         provider: customProvider,
         model_id: customModelId.trim(),
-        local: customLocal,
+        local: isLocal,
         enabled: true,
         caps: [],
-        max_label: customLocal ? 'PERSONAL' : 'PUBLIC',
+        max_label: isLocal ? 'PERSONAL' : 'PUBLIC',
         key_ref: customKeyRef.trim() || undefined,
         base_url: customBaseUrl.trim() || undefined,
         lane: customLane,
@@ -337,9 +337,25 @@ export const ModelsView: React.FC = () => {
                         <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-main)' }}>
                           {m.name}
                         </span>
-                        <span className={`badge ${m.breaker === 'closed' && !m.last_error ? 'badge-good' : 'badge-warn'}`}>
-                          {m.breaker === 'closed' && !m.last_error ? 'Online' : 'Check Status'}
-                        </span>
+                        {(() => {
+                          if (!m.enabled) {
+                            return <span className="badge badge-neutral">Disabled</span>
+                          }
+                          if (m.key_ref && !m.has_key && !m.local) {
+                            return <span className="badge badge-warn">Missing Key</span>
+                          }
+                          if (m.breaker === 'open' || m.last_error) {
+                            return (
+                              <span className="badge badge-warn" title={m.last_error || 'Circuit breaker open'}>
+                                Degraded
+                              </span>
+                            )
+                          }
+                          if (m.calls > 0) {
+                            return <span className="badge badge-good">Healthy</span>
+                          }
+                          return <span className="badge badge-good">Configured / Ready</span>
+                        })()}
                         {m.local && <span className="badge badge-accent">Host Local</span>}
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
@@ -366,13 +382,14 @@ export const ModelsView: React.FC = () => {
                         disabled={testingModelName === m.name}
                         className="btn btn-secondary btn-sm"
                         style={{ fontSize: '11px', padding: '3px 8px' }}
+                        title="Runs a 100-token test completion using model credits"
                       >
                         {testingModelName === m.name ? (
                           <span>Testing...</span>
                         ) : (
                           <>
                             <Icon name="activity" size={11} />
-                            <span>Test Ping</span>
+                            <span>Run test completion</span>
                           </>
                         )}
                       </button>
@@ -796,20 +813,26 @@ export const ModelsView: React.FC = () => {
                 value={customLane}
                 onChange={(e) => setCustomLane(Number(e.target.value))}
               >
-                <option value={1}>Lane 1 (Priority / Fast)</option>
-                <option value={2}>Lane 2 (Heavy / Complex)</option>
+                <option value={1}>Lane 1 (Priority / Interactive)</option>
+                <option value={2}>Lane 2 (Standard / Workload)</option>
+                <option value={3}>Lane 3 (Background / Batch)</option>
+                <option value={4}>Lane 4 (Specialized / Heavy)</option>
+                <option value={5}>Lane 5 (Custom High-Capacity)</option>
               </select>
             </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', marginTop: '4px' }}>
-            <input
-              type="checkbox"
-              checked={customLocal}
-              onChange={(e) => setCustomLocal(e.target.checked)}
-            />
-            <span>Runs locally on this computer (Zero data sent out)</span>
-          </label>
+          <div style={{ fontSize: '12px', padding: '10px 12px', background: 'var(--bg-card-subtle)', borderRadius: '6px', border: '1px solid var(--border-subtle)', marginTop: '4px' }}>
+            {customProvider === 'ollama' ? (
+              <span style={{ color: 'var(--success)' }}>
+                ✓ Local engine: Ollama runs directly on this Mac; zero data leaves your machine (PERSONAL data permitted).
+              </span>
+            ) : (
+              <span style={{ color: 'var(--text-muted)' }}>
+                ℹ Cloud/Gateway provider: requests are sent over HTTPS under PUBLIC data policy. To use an entirely local offline LLM, select Ollama Local.
+              </span>
+            )}
+          </div>
         </form>
       </Modal>
     </div>

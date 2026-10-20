@@ -3,6 +3,7 @@
 A target names a snapshot (`s3`) and an element (`e7`) and repeats the element's role, name and site. An action is
 refused when the snapshot is out of date (the page changed, or something else was done since) or when the element is
 no longer what the target says, so an old plan can never click something the person did not see."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,13 +28,24 @@ MAX_TEXT = 8000
 MAX_ELEMENTS = 150
 LOAD_TIMEOUT_S = 25.0
 SETTLE_S = 0.35
-SHOT_QUALITY = 55          # small on purpose: this is for watching, not for reading
+SHOT_QUALITY = 55  # small on purpose: this is for watching, not for reading
 SHOT_MAX_BYTES = 1_500_000
-WORLD = "lilly"        # an isolated JavaScript world: the page's own scripts cannot see or change our helpers
-_KEY_CODES = {"Enter": (13, "Enter"), "Tab": (9, "Tab"), "Escape": (27, "Escape"), "ArrowDown": (40, "ArrowDown"),
-              "ArrowUp": (38, "ArrowUp"), "ArrowLeft": (37, "ArrowLeft"), "ArrowRight": (39, "ArrowRight"),
-              "PageDown": (34, "PageDown"), "PageUp": (33, "PageUp"), "Home": (36, "Home"), "End": (35, "End"),
-              "Backspace": (8, "Backspace"), "Space": (32, "Space")}
+WORLD = "lilly"  # an isolated JavaScript world: the page's own scripts cannot see or change our helpers
+_KEY_CODES = {
+    "Enter": (13, "Enter"),
+    "Tab": (9, "Tab"),
+    "Escape": (27, "Escape"),
+    "ArrowDown": (40, "ArrowDown"),
+    "ArrowUp": (38, "ArrowUp"),
+    "ArrowLeft": (37, "ArrowLeft"),
+    "ArrowRight": (39, "ArrowRight"),
+    "PageDown": (34, "PageDown"),
+    "PageUp": (33, "PageUp"),
+    "Home": (36, "Home"),
+    "End": (35, "End"),
+    "Backspace": (8, "Backspace"),
+    "Space": (32, "Space"),
+}
 
 _SNAPSHOT_JS = r"""(() => {
   const clean = t => (t || '').replace(/\s+/g, ' ').replace(/"/g, "'").trim().slice(0, 80);
@@ -95,7 +107,7 @@ class Snapshot:
     host: str
     title: str
     text: str
-    elements: tuple[tuple[str, str], ...]     # (role, name) by element number
+    elements: tuple[tuple[str, str], ...]  # (role, name) by element number
 
     def token(self, ref: int) -> str:
         role, name = self.elements[ref]
@@ -110,7 +122,9 @@ class Snapshot:
 class Page:
     """A tab. All access is through one lock-free sequence of awaits driven by a single tool call at a time."""
 
-    def __init__(self, cdp: Cdp, session: str, target_id: str, guard: NetworkGuard, on_navigated: Callable[[], None]) -> None:
+    def __init__(
+        self, cdp: Cdp, session: str, target_id: str, guard: NetworkGuard, on_navigated: Callable[[], None]
+    ) -> None:
         self._cdp, self._session, self.target_id, self._guard = cdp, session, target_id, guard
         self._on_navigated = on_navigated
         self._world: int | None = None
@@ -118,7 +132,7 @@ class Page:
         self._counter = 0
         self._loading = False
         self.dialogs: list[str] = []
-        self.host = ""                   # the site of the page last read, for the policy
+        self.host = ""  # the site of the page last read, for the policy
 
     async def prepare(self) -> None:
         await self._send("Page.enable")
@@ -139,7 +153,7 @@ class Page:
     # ---- events (routed here by the manager) -----------------------------------------------------
     def navigated(self) -> None:
         self._world = None
-        self._current = None      # a new page: every earlier target is out of date
+        self._current = None  # a new page: every earlier target is out of date
         self._on_navigated()
 
     def loading(self, on: bool) -> None:
@@ -172,14 +186,22 @@ class Page:
     async def _context(self) -> int:
         if self._world is None:
             tree = await self._send("Page.getFrameTree")
-            made = await self._send("Page.createIsolatedWorld", {"frameId": tree["frameTree"]["frame"]["id"],
-                                                                 "worldName": WORLD})
+            made = await self._send(
+                "Page.createIsolatedWorld", {"frameId": tree["frameTree"]["frame"]["id"], "worldName": WORLD}
+            )
             self._world = int(made["executionContextId"])
         return self._world
 
     async def _eval(self, expression: str) -> Any:
-        out = await self._send("Runtime.evaluate", {"expression": expression, "contextId": await self._context(),
-                                                    "returnByValue": True, "awaitPromise": False})
+        out = await self._send(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "contextId": await self._context(),
+                "returnByValue": True,
+                "awaitPromise": False,
+            },
+        )
         if out.get("exceptionDetails"):
             raise ToolError("the page could not be read")
         return out.get("result", {}).get("value")
@@ -248,10 +270,11 @@ class Page:
 
     async def _press_at(self, where: dict[str, Any]) -> None:
         x, y = float(where["x"]), float(where["y"])
-        self._current = None      # whatever happens next, every earlier target is out of date
+        self._current = None  # whatever happens next, every earlier target is out of date
         for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
-            await self._send("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left",
-                                                          "clickCount": 1})
+            await self._send(
+                "Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}
+            )
         await self._settle()
 
     async def type(self, text: object, value: str, clear: bool) -> str:
@@ -260,7 +283,7 @@ class Page:
             raise ValidationFailed("only text boxes can be typed into, with 1 to 2000 characters")
         if not await self._eval(_FOCUS_JS % (target.ref, "true" if clear else "false")):
             raise ToolError("that element could not be focused")
-        self._current = None      # whatever happens next, every earlier target is out of date
+        self._current = None  # whatever happens next, every earlier target is out of date
         await self._send("Input.insertText", {"text": value})
         await self._settle()
         return f'Typed {len(value)} characters into "{target.name}".'
@@ -271,7 +294,7 @@ class Page:
             raise ValidationFailed("that is not a drop-down, or the option is missing")
         if not await self._eval(_SELECT_JS % (target.ref, json.dumps(value))):
             raise ToolError("that option is not in the drop-down")
-        self._current = None      # whatever happens next, every earlier target is out of date
+        self._current = None  # whatever happens next, every earlier target is out of date
         await self._settle()
         return f'Chose "{value}" in "{target.name}".'
 
@@ -279,11 +302,19 @@ class Page:
         if key not in KEYS:
             raise ValidationFailed("key must be one of " + ", ".join(sorted(KEYS)))
         code, name = _KEY_CODES[key]
-        self._current = None      # whatever happens next, every earlier target is out of date
+        self._current = None  # whatever happens next, every earlier target is out of date
         extra = {"text": "\r"} if key == "Enter" else {}
         for kind in ("keyDown", "keyUp"):
-            await self._send("Input.dispatchKeyEvent", {"type": kind, "key": key if key != "Space" else " ",
-                                                        "code": name, "windowsVirtualKeyCode": code, **extra})
+            await self._send(
+                "Input.dispatchKeyEvent",
+                {
+                    "type": kind,
+                    "key": key if key != "Space" else " ",
+                    "code": name,
+                    "windowsVirtualKeyCode": code,
+                    **extra,
+                },
+            )
         await self._settle()
         return f"Pressed {key}."
 
@@ -291,7 +322,7 @@ class Page:
         if direction not in ("down", "up"):
             raise ValidationFailed("direction must be down or up")
         await self._eval(f"window.scrollBy(0, {'' if direction == 'down' else '-'}Math.round(innerHeight * 0.8))")
-        self._current = None      # whatever happens next, every earlier target is out of date
+        self._current = None  # whatever happens next, every earlier target is out of date
         return f"Scrolled {direction}."
 
     async def _settle(self, initial: bool = False) -> None:

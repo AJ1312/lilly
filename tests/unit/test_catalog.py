@@ -6,6 +6,7 @@ CAT-01..04:
 - CAT-03: Starter entries generate settings
 - CAT-04: Loader rejects entries without a source
 """
+
 from __future__ import annotations
 
 import json

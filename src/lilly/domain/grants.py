@@ -1,4 +1,5 @@
 """Permission grants and the label-access rule for models. Grants live in memory only."""
+
 from __future__ import annotations
 
 import time
@@ -13,11 +14,12 @@ from lilly.domain.labels import Label, Mode
 class Grant:
     """The user's permission for one model to see data up to `label`.
     Held in memory only, so a restart revokes everything."""
+
     model: str
     label: Label
-    expires: float                      # on the GrantStore clock
-    task_id: str | None = None          # None = any task
-    payload_hash: str | None = None     # set = valid only for this exact payload
+    expires: float  # on the GrantStore clock
+    task_id: str | None = None  # None = any task
+    payload_hash: str | None = None  # set = valid only for this exact payload
     once: bool = False
 
 
@@ -37,21 +39,33 @@ class GrantStore:
     def add(self, g: Grant) -> None:
         self._purge()
         self._grants.append(g)
-        del self._grants[:-self._max]   # bounded: oldest grants drop first
+        del self._grants[: -self._max]  # bounded: oldest grants drop first
 
-    def grant(self, model: str, label: Label, ttl_s: float, *, task_id: str | None = None,
-              payload_hash: str | None = None, once: bool = False) -> Grant:
+    def grant(
+        self,
+        model: str,
+        label: Label,
+        ttl_s: float,
+        *,
+        task_id: str | None = None,
+        payload_hash: str | None = None,
+        once: bool = False,
+    ) -> Grant:
         g = Grant(model, label, self._clock() + ttl_s, task_id, payload_hash, once)
         self.add(g)
         return g
 
-    def find(self, model: str, label: Label, task_id: str | None = None,
-             payload_hash: str | None = None) -> Grant | None:
+    def find(
+        self, model: str, label: Label, task_id: str | None = None, payload_hash: str | None = None
+    ) -> Grant | None:
         self._purge()
         for g in self._grants:
-            if (g.model == model and g.label >= label
-                    and (g.task_id is None or g.task_id == task_id)
-                    and (g.payload_hash is None or g.payload_hash == payload_hash)):
+            if (
+                g.model == model
+                and g.label >= label
+                and (g.task_id is None or g.task_id == task_id)
+                and (g.payload_hash is None or g.payload_hash == payload_hash)
+            ):
                 return g
         return None
 
@@ -81,9 +95,14 @@ class ModelAccess(Protocol):
     def trains(self) -> bool: ...
 
 
-def label_access(e: ModelAccess, label: Label, grants: GrantStore | None,
-                 task_id: str | None, payload_hash: str | None,
-                 mode: Mode = Mode.ASK) -> tuple[bool, Grant | None]:
+def label_access(
+    e: ModelAccess,
+    label: Label,
+    grants: GrantStore | None,
+    task_id: str | None,
+    payload_hash: str | None,
+    mode: Mode = Mode.ASK,
+) -> tuple[bool, Grant | None]:
     """May this model see data at `label`? Standing ceiling first, then the agent's mode:
     LOCKED never goes beyond the ceiling, OPEN skips the permission step, ASK needs a
     grant. Remote models never receive SECRET, and "never" models never get more.

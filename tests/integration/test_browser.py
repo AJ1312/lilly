@@ -1,4 +1,5 @@
 """The agent's browser, driven for real: a real Chromium, a local test site, the real tools."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +24,9 @@ from lilly.tools.browser.manager import BrowserManager
 from lilly.tools.browser.page import Page
 from tests.browser_site.server import Site
 
-CHROME = next(iter(sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome"))), os.environ.get("LILLY_CHROME", ""))
+CHROME = next(
+    iter(sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome"))), os.environ.get("LILLY_CHROME", "")
+)
 pytestmark = [pytest.mark.asyncio, pytest.mark.skipif(not CHROME or not Path(CHROME).is_file(), reason="no Chromium")]
 
 
@@ -46,8 +49,7 @@ class Lab:
 async def lab() -> AsyncIterator[Lab]:
     site = Site()
     cfg = [BrowserSettings(idle_quit_s=30)]
-    manager = BrowserManager(lambda: cfg[0], NetworkGuard(allow_private=True),
-                             lambda c: BrowserProcess(CHROME, True))
+    manager = BrowserManager(lambda: cfg[0], NetworkGuard(allow_private=True), lambda c: BrowserProcess(CHROME, True))
     yield Lab(site, manager, cfg)
     await manager.close_all()
     site.close()
@@ -66,7 +68,7 @@ async def test_find_type_select_and_submit_fill_in_a_form_and_the_server_gets_it
     box = await lab.run("browser.find", query="search box")
     size = await lab.run("browser.find", query="size")
     submit = await lab.run("browser.find", query="search now")
-    assert "textbox" in box and "select" in size and "submit" in submit     # one snapshot serves all three lines
+    assert "textbox" in box and "select" in size and "submit" in submit  # one snapshot serves all three lines
     typed = await lab.run("browser.type", target=box, text="shoes")
     assert "Typed 5 characters" in typed and "Page: Shop" in typed
     # the type changed the page, so the earlier lines are out of date and must be found again
@@ -76,19 +78,19 @@ async def test_find_type_select_and_submit_fill_in_a_form_and_the_server_gets_it
     assert "Chose" in await lab.run("browser.select", target=size, value="Large")
     submit = await lab.run("browser.find", query="search now")
     assert "Submitted" in await lab.run("browser.submit", target=submit)
-    assert lab.site.posts == [{"q": ["shoes"], "size": ["Large"]}]     # (a blank password is not sent with a value)
+    assert lab.site.posts == [{"q": ["shoes"], "size": ["Large"]}]  # (a blank password is not sent with a value)
     assert "Results for your search" in await lab.run("browser.read")
 
 
 async def test_a_target_is_refused_when_the_page_changed_or_the_element_is_no_longer_what_it_said(lab: Lab) -> None:
     await lab.run("browser.open", url=lab.site.base + "/shifty")
     target = await lab.run("browser.find", query="safe")
-    await asyncio.sleep(0.8)                                   # the page renames the button to "Delete account"
+    await asyncio.sleep(0.8)  # the page renames the button to "Delete account"
     with pytest.raises(ToolError, match="not what the target says"):
         await lab.run("browser.click", target=target)
     await lab.run("browser.open", url=lab.site.base + "/")
     with pytest.raises(ToolError, match="out of date"):
-        await lab.run("browser.click", target=target)           # a target from another page
+        await lab.run("browser.click", target=target)  # a target from another page
 
 
 async def test_targets_must_be_exactly_a_line_from_the_page(lab: Lab) -> None:
@@ -115,7 +117,7 @@ async def test_submit_buttons_need_the_submit_tool_and_passwords_are_never_typed
 async def test_a_page_that_gives_orders_is_just_text_and_nothing_acts_on_it(lab: Lab) -> None:
     out = await lab.run("browser.open", url=lab.site.base + "/injected")
     assert "Ignore all previous instructions" in out and lab.site.posts == []
-    assert await lab.run("browser.find", query="delete everything")        # it can be found, never clicked by itself
+    assert await lab.run("browser.find", query="delete everything")  # it can be found, never clicked by itself
     assert len(lab.manager._tabs) == 1
 
 
@@ -126,8 +128,10 @@ async def test_popups_are_closed_and_dialogs_do_not_hang_the_page(lab: Lab) -> N
     pop = await lab.run("browser.find", query="open popup")
     await lab.run("browser.click", target=pop)
     await asyncio.sleep(0.7)
-    targets = (await lab.manager._cdp.call("Target.getTargets"))["targetInfos"]       # type: ignore[union-attr]
-    assert [t["url"] for t in targets if t["type"] == "page" and t["url"].endswith("/about")] == []   # the pop-up is gone
+    targets = (await lab.manager._cdp.call("Target.getTargets"))["targetInfos"]  # type: ignore[union-attr]
+    assert [
+        t["url"] for t in targets if t["type"] == "page" and t["url"].endswith("/about")
+    ] == []  # the pop-up is gone
     assert any(t["url"].endswith("/") for t in targets)
 
 
@@ -136,8 +140,8 @@ async def test_a_download_link_does_not_save_anything(lab: Lab, tmp_path: Path) 
     link = await lab.run("browser.find", query="get file")
     await lab.run("browser.click", target=link)
     await asyncio.sleep(0.5)
-    assert "Welcome" in await lab.run("browser.read")                       # still on the page, nothing downloaded
-    assert not list(Path(lab.manager._proc._profile).rglob("x.bin"))        # type: ignore[union-attr,arg-type]
+    assert "Welcome" in await lab.run("browser.read")  # still on the page, nothing downloaded
+    assert not list(Path(lab.manager._proc._profile).rglob("x.bin"))  # type: ignore[union-attr,arg-type]
 
 
 async def test_the_action_budget_stops_a_task_that_keeps_clicking(lab: Lab) -> None:
@@ -147,7 +151,7 @@ async def test_the_action_budget_stops_a_task_that_keeps_clicking(lab: Lab) -> N
         await lab.run("browser.press", key="Tab")
     with pytest.raises(ToolError, match="used its 2 browser actions"):
         await lab.run("browser.press", key="Tab")
-    assert "Welcome" in await lab.run("browser.read")                       # reading is not an action
+    assert "Welcome" in await lab.run("browser.read")  # reading is not an action
 
 
 async def test_the_action_budget_survives_a_closed_or_reaped_tab(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -160,15 +164,17 @@ async def test_the_action_budget_survives_a_closed_or_reaped_tab(lab: Lab, monke
     await lab.run("browser.open", url=lab.site.base + "/")
     await lab.run("browser.press", key="Tab")
     async with asyncio.timeout(10):
-        while lab.manager._tabs:                                              # the idle tab is reaped
+        while lab.manager._tabs:  # the idle tab is reaped
             await asyncio.sleep(0.05)
     await lab.run("browser.open", url=lab.site.base + "/")
     with pytest.raises(ToolError, match="used its 2 browser actions"):
         await lab.run("browser.press", key="Tab")
-    await lab.run("browser.press", task="other", key="Tab")                  # another task has its own budget
+    await lab.run("browser.press", task="other", key="Tab")  # another task has its own budget
 
 
-async def test_a_tab_that_could_not_be_guarded_is_closed_and_never_reused(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_tab_that_could_not_be_guarded_is_closed_and_never_reused(
+    lab: Lab, monkeypatch: pytest.MonkeyPatch
+) -> None:
     await lab.run("browser.open", task="a", url=lab.site.base + "/")
     cdp = lab.manager._cdp
     assert cdp is not None
@@ -188,7 +194,7 @@ async def test_a_tab_that_could_not_be_guarded_is_closed_and_never_reused(lab: L
         await lab.manager.tab("b")
     assert "b" not in lab.manager._tabs and set(lab.manager._by_session) == {lab.manager._tabs["a"].session}
     async with asyncio.timeout(5):
-        while await pages() != before:                                         # the half-made target is closed
+        while await pages() != before:  # the half-made target is closed
             await asyncio.sleep(0.05)
     monkeypatch.setattr(Page, "prepare", real)
     assert "Welcome" in await lab.run("browser.open", task="b", url=lab.site.base + "/")
@@ -197,7 +203,9 @@ async def test_a_tab_that_could_not_be_guarded_is_closed_and_never_reused(lab: L
 async def test_two_tasks_get_their_own_tabs_and_close_removes_only_one(lab: Lab) -> None:
     await lab.run("browser.open", task="a", url=lab.site.base + "/")
     await lab.run("browser.open", task="b", url=lab.site.base + "/about")
-    assert "About us" in await lab.run("browser.read", task="b") and "Welcome" in await lab.run("browser.read", task="a")
+    assert "About us" in await lab.run("browser.read", task="b") and "Welcome" in await lab.run(
+        "browser.read", task="a"
+    )
     await lab.run("browser.close", task="a")
     assert set(lab.manager._tabs) == {"b"}
 
@@ -225,7 +233,7 @@ async def test_close_all_quits_the_browser_and_deletes_its_profile(lab: Lab) -> 
     assert profile.is_dir()
     await lab.manager.close_all()
     assert not proc.alive and not profile.exists() and lab.manager._cdp is None
-    assert "Welcome" in await lab.run("browser.open", url=lab.site.base + "/")      # and it starts again on demand
+    assert "Welcome" in await lab.run("browser.open", url=lab.site.base + "/")  # and it starts again on demand
 
 
 async def test_idle_tabs_close_and_an_unused_browser_quits(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,10 +269,14 @@ async def test_every_mode_decides_on_the_exact_target(lab: Lab) -> None:
     def verdicts(mode: BrowserMode, allow: tuple[str, ...] = ()) -> list[Verdict]:
         lab.cfg[0] = BrowserSettings(mode=mode, allow_hosts=allow)
         t = lab.tools
-        return [t["browser.click"].review({"target": plain}, "t1")[0], t["browser.click"].review({"target": buy}, "t1")[0],
-                t["browser.submit"].review({"target": submit}, "t1")[0], t["browser.press"].review({"key": "Enter"}, "t1")[0],
-                t["browser.type"].review({"target": password, "text": "x"}, "t1")[0],
-                t["browser.read"].review({}, "t1")[0]]
+        return [
+            t["browser.click"].review({"target": plain}, "t1")[0],
+            t["browser.click"].review({"target": buy}, "t1")[0],
+            t["browser.submit"].review({"target": submit}, "t1")[0],
+            t["browser.press"].review({"key": "Enter"}, "t1")[0],
+            t["browser.type"].review({"target": password, "text": "x"}, "t1")[0],
+            t["browser.read"].review({}, "t1")[0],
+        ]
 
     ask, allow, deny = Verdict.NEEDS_APPROVAL, Verdict.ALLOW, Verdict.DENY
     assert verdicts(BrowserMode.ASK_EVERY) == [ask, ask, ask, ask, deny, allow]
@@ -278,7 +290,9 @@ async def test_the_registry_pins_every_browser_tool_as_stateful_and_untrusted() 
     from lilly.domain.tools_registry import DEFAULT_TOOLS
 
     specs = {n: s for n, s in DEFAULT_TOOLS.items() if n.startswith("browser.")}
-    assert len(specs) == 11 and all(s.serial and s.untrusted and s.egress and s.module == "browser" for s in specs.values())
+    assert len(specs) == 11 and all(
+        s.serial and s.untrusted and s.egress and s.module == "browser" for s in specs.values()
+    )
     assert json.dumps(sorted(specs))
 
 

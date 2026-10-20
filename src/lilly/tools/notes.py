@@ -1,5 +1,6 @@
 """notes.search and notes.read: the user's own notes. notes.write: an agent's proposal for a note, saved only
 after the owner has approved the exact text."""
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,7 @@ from lilly.store.spaces import MAX_TITLE, create_page, get_page_any, list_spaces
 from lilly.tools.base import Tool, str_arg
 
 MAX_NOTE_CHARS = 30_000
-MAX_WRITE_CHARS = 8_000      # what an agent may write in one go: short enough for the approval card to show all of it
+MAX_WRITE_CHARS = 8_000  # what an agent may write in one go: short enough for the approval card to show all of it
 
 
 class NotesSearchTool(Tool):
@@ -30,8 +31,16 @@ class NotesSearchTool(Tool):
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
         pages = search_pages(self._db.reader, str_arg(args, "query", max_len=300), limit=8)
         spaces = {s.id: s.name for s in list_spaces(self._db.reader)}
-        hits = [{"id": p.id, "title": p.title, "space": spaces.get(p.space_id, ""), "space_id": p.space_id,
-                 "snippet": html_to_text(p.content)[:200]} for p in pages]
+        hits = [
+            {
+                "id": p.id,
+                "title": p.title,
+                "space": spaces.get(p.space_id, ""),
+                "space_id": p.space_id,
+                "snippet": html_to_text(p.content)[:200],
+            }
+            for p in pages
+        ]
         return ToolResult(json.dumps(hits, indent=1), Label.PERSONAL if hits else Label.PUBLIC, False)
 
 
@@ -52,6 +61,7 @@ class NotesReadTool(Tool):
 @dataclass(frozen=True, slots=True)
 class _Write:
     """What a notes.write call asks for, checked. `page_id` is set when it edits a note."""
+
     content: str
     title: str | None
     space: str | None
@@ -103,7 +113,9 @@ class NotesWriteTool(Tool):
     def review(self, args: Mapping[str, object], task_id: str) -> tuple[Verdict, str]:
         try:
             _parse(args)
-        except ValidationFailed as exc:   # refused before anyone is asked, so nobody approves something that cannot happen
+        except (
+            ValidationFailed
+        ) as exc:  # refused before anyone is asked, so nobody approves something that cannot happen
             return Verdict.DENY, str(exc)
         return Verdict.ALLOW, "ok"
 
@@ -119,7 +131,9 @@ class NotesWriteTool(Tool):
                 page = get_page_any(con, req.page_id)
                 if page is None:
                     raise NotFound(req.page_id)
-                row = update_page(con, page.space_id, page.id, req.base_revision, now, title=req.title, content=req.content)
+                row = update_page(
+                    con, page.space_id, page.id, req.base_revision, now, title=req.title, content=req.content
+                )
             return row.id, row.revision
 
         try:
@@ -127,6 +141,7 @@ class NotesWriteTool(Tool):
         except NotFound:
             raise ToolError("no note with that id") from None
         except ConflictError:
-            raise ToolError("that note changed since you read it: read it again with notes.read, "
-                            "then write using its new revision") from None
+            raise ToolError(
+                "that note changed since you read it: read it again with notes.read, then write using its new revision"
+            ) from None
         return ToolResult(f"Saved note {page_id} (revision {revision}).", Label.PUBLIC, False)

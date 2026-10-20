@@ -1,4 +1,5 @@
 """MCP client for stdio servers: a small JSON-RPC subset over asyncio, with no third-party dependency."""
+
 from __future__ import annotations
 
 from lilly.tools.mcp.adapter import McpTool

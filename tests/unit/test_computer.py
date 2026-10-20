@@ -1,4 +1,5 @@
 """Computer control: guard rails in the tools, and the policy rule that makes every use ask."""
+
 from __future__ import annotations
 
 import os
@@ -51,7 +52,9 @@ def test_commands_remain_confirmed_but_visible_navigation_follows_approval_mode(
 
 def test_auto_allows_visible_computer_interaction_without_a_prompt() -> None:
     call = tool_call("computer.click", DEFAULT_TOOLS["computer.click"], {})
-    assert decide(call, TaskCtx(mode=Mode.ASK, approval_mode=ApprovalMode.AUTO), PathScope(["/tmp"]))[0] is Verdict.ALLOW
+    assert (
+        decide(call, TaskCtx(mode=Mode.ASK, approval_mode=ApprovalMode.AUTO), PathScope(["/tmp"]))[0] is Verdict.ALLOW
+    )
 
 
 def test_a_locked_agent_cannot_run_commands_that_read_private_data() -> None:
@@ -59,7 +62,9 @@ def test_a_locked_agent_cannot_run_commands_that_read_private_data() -> None:
     assert decide(call, TaskCtx(mode=Mode.LOCKED), PathScope(["/tmp"]))[0] is Verdict.DENY
 
 
-@pytest.mark.parametrize("url", ["file:///etc/passwd", "javascript:alert(1)", "ftp://x.test/", "ms-msdt:/id", "http:///x"])
+@pytest.mark.parametrize(
+    "url", ["file:///etc/passwd", "javascript:alert(1)", "ftp://x.test/", "ms-msdt:/id", "http:///x"]
+)
 async def test_only_web_links_are_opened(url: str, launched: list[list[str]]) -> None:
     with pytest.raises(ValidationFailed):
         await OpenUrlTool().run({"url": url}, CTX)
@@ -78,11 +83,16 @@ async def test_application_names_are_validated(name: str, launched: list[list[st
     assert launched == []
 
 
-async def test_notifications_pass_text_as_arguments_not_code(launched: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_notifications_pass_text_as_arguments_not_code(
+    launched: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(computer.shutil, "which", lambda n: f"/usr/bin/{n}")
     await NotifyTool().run({"title": 'x" & do shell script "rm -rf ~', "message": "hi"}, CTX)
     argv = launched[0]
-    assert argv[-2:] == ["hi", 'x" & do shell script "rm -rf ~'] or argv[-2:] == ['x" & do shell script "rm -rf ~', "hi"]
+    assert argv[-2:] == ["hi", 'x" & do shell script "rm -rf ~'] or argv[-2:] == [
+        'x" & do shell script "rm -rf ~',
+        "hi",
+    ]
     assert all("do shell script" not in a for a in argv if a.startswith("-e") or a in argv[1:-2])
 
 
@@ -114,10 +124,21 @@ async def test_commands_cannot_start_outside_the_shared_folders(tool: RunCommand
         await tool.run({"command": "ls", "cwd": str(tmp_path)}, CTX)
 
 
-@pytest.mark.parametrize("command", [
-    "sudo ls", "/usr/bin/sudo ls", "su root", "shutdown -h now", "rm -rf /", "rm -rf ~", "mkfs.ext4 /dev/sda",
-    "dd if=/dev/zero of=/dev/sda", "bash -c 'sudo ls'", "diskutil eraseDisk x",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sudo ls",
+        "/usr/bin/sudo ls",
+        "su root",
+        "shutdown -h now",
+        "rm -rf /",
+        "rm -rf ~",
+        "mkfs.ext4 /dev/sda",
+        "dd if=/dev/zero of=/dev/sda",
+        "bash -c 'sudo ls'",
+        "diskutil eraseDisk x",
+    ],
+)
 async def test_dangerous_programs_are_refused(command: str, tool: RunCommandTool) -> None:
     with pytest.raises(ToolError):
         await tool.run({"command": command}, CTX)
@@ -134,11 +155,13 @@ async def test_the_environment_is_scrubbed(tool: RunCommandTool, monkeypatch: py
     assert "super-secret" not in result.output
 
 
-async def test_long_output_is_cut_and_timeouts_kill_the_whole_group(tool: RunCommandTool, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_long_output_is_cut_and_timeouts_kill_the_whole_group(
+    tool: RunCommandTool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     big = await tool.run({"command": f"{sys.executable} -c \"print('x' * 200000)\""}, CTX)
     assert "[output cut at 64 KB]" in big.output and len(big.output) < 70_000
     short = ToolContext("t", "s1", 6.0, lambda: False)  # leaves 1 second
-    slow = await tool.run({"command": f"{sys.executable} -c \"import time; time.sleep(30)\""}, short)
+    slow = await tool.run({"command": f'{sys.executable} -c "import time; time.sleep(30)"'}, short)
     assert "timed out" in slow.output
 
 
@@ -168,3 +191,68 @@ async def test_stop_process_checks_identity_and_ends_only_what_was_named() -> No
 async def test_stop_process_refuses_system_and_own_processes(pid: int) -> None:
     with pytest.raises(ToolError):
         await StopProcessTool().run({"pid": pid, "name": "x"}, CTX)
+
+
+@pytest.mark.asyncio
+async def test_computer_tools_execution(tmp_path: Path) -> None:
+    from lilly.tools.computer import (
+        ComputerClickTool,
+        ComputerDragTool,
+        ComputerMoveTool,
+        ComputerObserveTool,
+        ComputerPressTool,
+        ComputerScrollTool,
+        ComputerTypeTool,
+    )
+    from lilly.tools.computer_runtime import A11yElement, ComputerRuntime
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.elements = [
+                A11yElement("button", "Submit", x=10, y=20, width=50, height=30),
+                A11yElement("button", "Target", x=100, y=200, width=50, height=30),
+            ]
+
+        async def observe(self, screenshot_path: Path | None):
+            return "App", "Win", self.elements
+
+        async def click(self, x: int, y: int) -> None:
+            pass
+
+        async def type_text(self, text: str) -> None:
+            pass
+
+        async def press(self, key: str) -> None:
+            pass
+
+        async def move(self, x: int, y: int) -> None:
+            pass
+
+        async def scroll(self, amount: int) -> None:
+            pass
+
+        async def drag(self, sx: int, sy: int, ex: int, ey: int) -> None:
+            pass
+
+    runtime = ComputerRuntime(tmp_path, backend=FakeBackend())
+
+    obs_res = await ComputerObserveTool(runtime).run({}, CTX)
+    assert "frame_id" in obs_res.output
+
+    click_res = await ComputerClickTool(runtime).run({"target": "Submit"}, CTX)
+    assert "frame_id" in click_res.output
+
+    type_res = await ComputerTypeTool(runtime).run({"text": "Hello world"}, CTX)
+    assert "frame_id" in type_res.output
+
+    press_res = await ComputerPressTool(runtime).run({"key": "Return"}, CTX)
+    assert "frame_id" in press_res.output
+
+    move_res = await ComputerMoveTool(runtime).run({"target": "Submit"}, CTX)
+    assert "frame_id" in move_res.output
+
+    scroll_res = await ComputerScrollTool(runtime).run({"amount": 2}, CTX)
+    assert "frame_id" in scroll_res.output
+
+    drag_res = await ComputerDragTool(runtime).run({"start": "Submit", "end": "Target"}, CTX)
+    assert "frame_id" in drag_res.output

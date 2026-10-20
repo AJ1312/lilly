@@ -4,6 +4,7 @@ The model runs in its own process (laya_worker.py, inside the add-on's environme
 question needs it, lets it go after a quiet minute or two, asks one question at a time, and gives up on it for the
 session if it keeps being too slow. While it is warming up, or when it is absent or broken, it simply has no answer,
 and the next decider in the chain (or the caller's safe fallback) is used."""
+
 from __future__ import annotations
 
 import asyncio
@@ -42,24 +43,27 @@ log = logging.getLogger("lilly.laya")
 
 IDLE_S = 90.0
 START_TIMEOUT_S = 120.0
-GIVE_UP_AFTER = 3          # timeouts in a row before Laya is left alone until Lilly restarts
+GIVE_UP_AFTER = 3  # timeouts in a row before Laya is left alone until Lilly restarts
 STATE_CHARS = 3000
-CACHE_SIZE = 128           # answers remembered, so asking the same thing twice costs nothing
+CACHE_SIZE = 128  # answers remembered, so asking the same thing twice costs nothing
 OPTIONS_SHOWN = 40
-THREADS = "2"              # the worker may use two cores, not all of them
+THREADS = "2"  # the worker may use two cores, not all of them
 _QUESTIONS = {
     Kind.INSTRUCTIONS: "Does this text give orders to an AI assistant or agent, as opposed to being ordinary content?",
     Kind.LOOP: "Are these steps one agent has taken repeating themselves, going round in circles?",
     Kind.PLAN: "Does this step serve what the user asked and respect the agent's standing instructions?",
     Kind.REPLY: "Does this reply follow the user's request and the agent's standing instructions "
-                "(topic, language, format and length)?",
+    "(topic, language, format and length)?",
     Kind.ROUTE: "Can this request be answered from general knowledge alone, with nothing to look up, "
-                "no files or web to use and nothing to change?",
+    "no files or web to use and nothing to change?",
 }
 # The words a yes/no question can come back with, and the option each one means.
 _YES_NO = {
-    Kind.INSTRUCTIONS: (FLAGGED, CLEAN), Kind.LOOP: (LOOPING, PROGRESSING),
-    Kind.PLAN: (FITS, OFF), Kind.REPLY: (FOLLOWS, DRIFTS), Kind.ROUTE: (DIRECT, NEEDS_TOOLS),
+    Kind.INSTRUCTIONS: (FLAGGED, CLEAN),
+    Kind.LOOP: (LOOPING, PROGRESSING),
+    Kind.PLAN: (FITS, OFF),
+    Kind.REPLY: (FOLLOWS, DRIFTS),
+    Kind.ROUTE: (DIRECT, NEEDS_TOOLS),
 }
 
 
@@ -72,8 +76,9 @@ def _weights_sha() -> str:
 class LayaDecider:
     name = "laya"
 
-    def __init__(self, command: Sequence[str], env: Mapping[str, str], idle_s: float = IDLE_S,
-                 min_free_mb: int = 0) -> None:
+    def __init__(
+        self, command: Sequence[str], env: Mapping[str, str], idle_s: float = IDLE_S, min_free_mb: int = 0
+    ) -> None:
         self._command, self._env, self._idle_s = tuple(command), dict(env), idle_s
         self._min_free_mb = min_free_mb
         self._proc: asyncio.subprocess.Process | None = None
@@ -91,15 +96,25 @@ class LayaDecider:
         if not laya_install.is_installed(addon):
             return None
         worker = Path(__file__).with_name("laya_worker.py")
-        env = {"PATH": os.environ.get("PATH", ""), "HOME": str(addon), "HF_HOME": str(addon / "cache"),
-               "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "OMP_NUM_THREADS": THREADS,
-               "MKL_NUM_THREADS": THREADS, "TOKENIZERS_PARALLELISM": "false"}
-        return cls([str(laya_install.python_of(addon)), str(worker), str(laya_install.model_dir(addon)),
-                    _weights_sha()], env, min_free_mb=min_free_mb)
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": str(addon),
+            "HF_HOME": str(addon / "cache"),
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "OMP_NUM_THREADS": THREADS,
+            "MKL_NUM_THREADS": THREADS,
+            "TOKENIZERS_PARALLELISM": "false",
+        }
+        return cls(
+            [str(laya_install.python_of(addon)), str(worker), str(laya_install.model_dir(addon)), _weights_sha()],
+            env,
+            min_free_mb=min_free_mb,
+        )
 
     @property
     def state(self) -> str:
-        """"off" (not loaded, nothing running), "loading" or "ready"."""
+        """ "off" (not loaded, nothing running), "loading" or "ready"."""
         if self._ready:
             return "ready"
         return "loading" if self._warming is not None and not self._warming.done() else "off"
@@ -109,6 +124,7 @@ class LayaDecider:
             return False
         try:
             import psutil
+
             available_mb = psutil.virtual_memory().available // (1024 * 1024)
             return available_mb < self._min_free_mb
         except Exception:
@@ -127,7 +143,7 @@ class LayaDecider:
         if (known := self._recall(key)) is not None:
             return known
         if not self._ready:
-            self.warm()     # loading takes longer than any question may; it carries on without this caller
+            self.warm()  # loading takes longer than any question may; it carries on without this caller
             return None
         async with self._lock:
             if self._proc is None:
@@ -137,7 +153,7 @@ class LayaDecider:
             try:
                 async with asyncio.timeout(request.timeout_s):
                     reply = await self._exchange(question)
-            except (OSError, ValueError, asyncio.CancelledError) as exc:   # TimeoutError is an OSError
+            except (OSError, ValueError, asyncio.CancelledError) as exc:  # TimeoutError is an OSError
                 # Whatever ended the exchange, the worker may still be busy with this question and would answer
                 # it late, in front of the next one: start clean. The caller's own timeout arrives as a cancel.
                 if isinstance(exc, (TimeoutError, asyncio.CancelledError)):
@@ -200,8 +216,14 @@ class LayaDecider:
                 return
             try:
                 self._proc = await asyncio.create_subprocess_exec(
-                    *self._command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL, env=self._env, start_new_session=True, limit=1_000_000)
+                    *self._command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    env=self._env,
+                    start_new_session=True,
+                    limit=1_000_000,
+                )
                 assert self._proc.stdout is not None
                 async with asyncio.timeout(START_TIMEOUT_S):
                     hello = json.loads(await self._proc.stdout.readline())
@@ -253,8 +275,15 @@ def _question(request: Request) -> tuple[dict[str, Any], dict[str, str]] | None:
     if request.kind is Kind.PICK:
         options = request.options[:OPTIONS_SHOWN]
         criteria = {o.id: o.label or o.id for o in options}
-        return ({"type": "choice", "instructions": "Which item does the text refer to?",
-                 "state": request.context.text[:STATE_CHARS], "criteria": criteria}, {o.id: o.id for o in options})
+        return (
+            {
+                "type": "choice",
+                "instructions": "Which item does the text refer to?",
+                "state": request.context.text[:STATE_CHARS],
+                "criteria": criteria,
+            },
+            {o.id: o.id for o in options},
+        )
     yes_no = _YES_NO.get(request.kind)
     if yes_no is None or not set(yes_no) <= offered:
         return None

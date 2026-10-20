@@ -1,4 +1,5 @@
 """Plain keyword scoring (BM25) of a few short texts against a query: no model, no libraries, deterministic."""
+
 from __future__ import annotations
 
 import math
@@ -9,21 +10,26 @@ from dataclasses import dataclass
 
 _WORD = re.compile(r"[a-z0-9]+")
 # Words that say nothing about which tool or item is meant.
-_FILLER = frozenset("a an and any are as at be by can do for from how i in is it its me my of on or please that the "
-                    "this to use want what when with you your".split())
+_FILLER = frozenset(
+    "a an and any are as at be by can do for from how i in is it its me my of on or please that the "
+    "this to use want what when with you your".split()
+)
 K1, B = 1.5, 0.75
 
 
 def words(text: str) -> list[str]:
     """Lower-case words with a crude plural stripped, so "files" finds "file". Names like fs.read split in two."""
-    return [w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
-            for w in _WORD.findall(text.lower()) if w not in _FILLER]
+    return [
+        w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+        for w in _WORD.findall(text.lower())
+        if w not in _FILLER
+    ]
 
 
 @dataclass(frozen=True, slots=True)
 class Scored:
-    scores: Mapping[str, float]    # BM25 score per text id; 0.0 when no query word appears
-    coverage: float                # share of the query's words that appear in at least one text
+    scores: Mapping[str, float]  # BM25 score per text id; 0.0 when no query word appears
+    coverage: float  # share of the query's words that appear in at least one text
 
 
 def score(query: str, texts: Mapping[str, str]) -> Scored:

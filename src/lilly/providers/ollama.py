@@ -1,4 +1,5 @@
 """Adapter for an Ollama server on this computer (or your private network), and a check that explains problems."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,8 +36,9 @@ def _format_ollama_tool(t: ToolSchema) -> dict[str, Any]:
         _OLLAMA_TOOL_CACHE[key] = cached
     return cached
 
+
 DEFAULT_URL = "http://127.0.0.1:11434"
-MIN_DEADLINE_S = 120.0        # the first call loads the model into memory, which can take a while
+MIN_DEADLINE_S = 120.0  # the first call loads the model into memory, which can take a while
 DEFAULT_KEEP_ALIVE_S = 300
 MAX_MODELS_LISTED = 200
 PROBE_TIMEOUT_S = 5.0
@@ -58,8 +60,14 @@ class OllamaProvider(Provider):
 
     name = "ollama"
 
-    def __init__(self, client: httpx.AsyncClient, model_id: str, base_url: str | None = None,
-                 gate: LocalGate | None = None, keep_alive_s: Callable[[], int] = lambda: DEFAULT_KEEP_ALIVE_S) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        model_id: str,
+        base_url: str | None = None,
+        gate: LocalGate | None = None,
+        keep_alive_s: Callable[[], int] = lambda: DEFAULT_KEEP_ALIVE_S,
+    ) -> None:
         self._client, self._model_id = client, model_id
         self._base_url = (base_url or DEFAULT_URL).rstrip("/")
         self._gate, self._keep_alive_s = gate or LocalGate(), keep_alive_s
@@ -87,7 +95,7 @@ class OllamaProvider(Provider):
             "model": self._model_id,
             "messages": formatted_messages,
             "stream": True,
-            "keep_alive": f"{self._keep_alive_s()}s",      # how long the model stays in memory after this answer
+            "keep_alive": f"{self._keep_alive_s()}s",  # how long the model stays in memory after this answer
             "options": {"temperature": req.temperature, "num_predict": req.max_tokens},
         }
         if req.json_mode:
@@ -100,7 +108,7 @@ class OllamaProvider(Provider):
                 async with self._gate.use(self._client, self._base_url, self._model_id):
                     return await self._stream(body, req.on_text)
         except (TimeoutError, httpx.HTTPError) as exc:
-            raise ProviderError(retryable=True) from exc   # not running, stalled, or too slow: try later
+            raise ProviderError(retryable=True) from exc  # not running, stalled, or too slow: try later
 
     @staticmethod
     def _take(
@@ -130,9 +138,10 @@ class OllamaProvider(Provider):
         raw_tool_calls: list[dict[str, Any]] = []
         total = 0
         last: dict[str, Any] = {}
-        async with self._client.stream("POST", f"{self._base_url}/api/chat", json=body,
-                                       headers={"Content-Type": "application/json"}) as resp:
-            if resp.status_code == 404:            # the model is not installed: fixable, so not a long cool-down
+        async with self._client.stream(
+            "POST", f"{self._base_url}/api/chat", json=body, headers={"Content-Type": "application/json"}
+        ) as resp:
+            if resp.status_code == 404:  # the model is not installed: fixable, so not a long cool-down
                 raise ProviderError(retryable=True, status=404)
             if resp.status_code != 200:
                 err_body = await resp.aread()
@@ -141,7 +150,7 @@ class OllamaProvider(Provider):
             async for data in resp.aiter_bytes():
                 total += len(data)
                 if total > MAX_RESPONSE_BYTES:
-                    raise ProviderError(retryable=False)     # counted as bytes arrive, newline or not
+                    raise ProviderError(retryable=False)  # counted as bytes arrive, newline or not
                 buffer += data
                 *lines, buffer = buffer.split(b"\n")
                 for line in lines:
@@ -154,7 +163,7 @@ class OllamaProvider(Provider):
             if not last and buffer.strip():
                 last = self._take(buffer, parts, raw_tool_calls, on_text) or {}
         if not last:
-            raise ProviderError(retryable=True)    # the connection ended before the answer was complete
+            raise ProviderError(retryable=True)  # the connection ended before the answer was complete
 
         parsed_tool_calls: list[ModelToolCall] = []
         for tc in raw_tool_calls:
@@ -180,13 +189,15 @@ class OllamaProvider(Provider):
             else:
                 args_dict = {}
                 raw_str = "{}"
-            parsed_tool_calls.append(ModelToolCall(
-                id=f"call_{uuid.uuid4().hex[:8]}",
-                name=fn_name,
-                arguments=args_dict,
-                raw=raw_str,
-                error=err_msg,
-            ))
+            parsed_tool_calls.append(
+                ModelToolCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=fn_name,
+                    arguments=args_dict,
+                    raw=raw_str,
+                    error=err_msg,
+                )
+            )
 
         try:
             cached_tokens = int(last.get("prompt_eval_count", 0)) if last.get("prompt_eval_duration") == 0 else 0
@@ -207,8 +218,8 @@ class OllamaStatus:
     reachable: bool
     version: str | None
     models: tuple[str, ...]
-    model_ready: bool | None      # None when no model was asked about
-    message: str                  # what is wrong and what to do about it, or that all is well
+    model_ready: bool | None  # None when no model was asked about
+    message: str  # what is wrong and what to do about it, or that all is well
 
 
 def _has_model(installed: tuple[str, ...], wanted: str) -> bool:
@@ -224,22 +235,53 @@ async def probe(client: httpx.AsyncClient, base_url: str | None = None, model_id
             version = await get_json(client, f"{url}/api/version")
             tags = await get_json(client, f"{url}/api/tags")
     except (TimeoutError, httpx.TimeoutException):
-        return OllamaStatus(False, None, (), None, f"Ollama at {url} did not answer within {PROBE_TIMEOUT_S:.0f} seconds. "
-                                                   "Check that it is running and not busy loading a model.")
+        return OllamaStatus(
+            False,
+            None,
+            (),
+            None,
+            f"Ollama at {url} did not answer within {PROBE_TIMEOUT_S:.0f} seconds. "
+            "Check that it is running and not busy loading a model.",
+        )
     except httpx.ConnectError:
-        return OllamaStatus(False, None, (), None, f"Lilly could not reach Ollama at {url}. Start it: open the Ollama "
-                                                   "app, or run 'ollama serve' in a terminal.")
+        return OllamaStatus(
+            False,
+            None,
+            (),
+            None,
+            f"Lilly could not reach Ollama at {url}. Start it: open the Ollama "
+            "app, or run 'ollama serve' in a terminal.",
+        )
     except (httpx.HTTPError, ProviderError, ValueError):
-        return OllamaStatus(False, None, (), None, f"Something answered at {url}, but it does not look like Ollama. "
-                                                   "Check the address in Settings.")
+        return OllamaStatus(
+            False,
+            None,
+            (),
+            None,
+            f"Something answered at {url}, but it does not look like Ollama. Check the address in Settings.",
+        )
     raw_models = tags.get("models")
-    names = tuple(sorted({str(m["name"]) for m in raw_models if isinstance(m, dict) and isinstance(m.get("name"), str)}
-                         )[:MAX_MODELS_LISTED]) if isinstance(raw_models, list) else ()
+    names = (
+        tuple(
+            sorted({str(m["name"]) for m in raw_models if isinstance(m, dict) and isinstance(m.get("name"), str)})[
+                :MAX_MODELS_LISTED
+            ]
+        )
+        if isinstance(raw_models, list)
+        else ()
+    )
     found = str(version.get("version", "")) or None
     if model_id is None:
-        return OllamaStatus(True, found, names, None, f"Ollama{' ' + found if found else ''} is running with {len(names)} model(s).")
+        return OllamaStatus(
+            True, found, names, None, f"Ollama{' ' + found if found else ''} is running with {len(names)} model(s)."
+        )
     ready = _has_model(names, model_id)
     if ready:
         return OllamaStatus(True, found, names, True, f"Ollama is running and {model_id} is installed.")
-    return OllamaStatus(True, found, names, False, f"Ollama is running, but {model_id} is not installed. "
-                                                   f"Install it with: ollama pull {model_id}")
+    return OllamaStatus(
+        True,
+        found,
+        names,
+        False,
+        f"Ollama is running, but {model_id} is not installed. Install it with: ollama pull {model_id}",
+    )

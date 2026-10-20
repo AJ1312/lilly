@@ -3,6 +3,7 @@
 Everything here is plain data and pure functions. The process handling lives in `lilly.tools.mcp`.
 A server is untrusted code and its answers are untrusted text; nothing in this module grants it more.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -21,23 +22,23 @@ ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 SECRETISH_ENV = re.compile(r"(^|_)(API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)(_|$)", re.IGNORECASE)
 
 # Hard limits. A server that goes past one is treated as misbehaving: the call fails, nothing is trusted further.
-MAX_MESSAGE_BYTES = 1_000_000        # one JSON-RPC line, in either direction
+MAX_MESSAGE_BYTES = 1_000_000  # one JSON-RPC line, in either direction
 MAX_TOOLS_PER_SERVER = 64
-MAX_TOOL_PAGES = 8                   # tools/list pagination
-MAX_DESCRIPTION_CHARS = 1_000        # per tool description shown to the planner
-MAX_SCHEMA_BYTES = 8_000             # per tool input schema
-MAX_OUTPUT_CHARS = 100_000           # per tool result handed to the engine
+MAX_TOOL_PAGES = 8  # tools/list pagination
+MAX_DESCRIPTION_CHARS = 1_000  # per tool description shown to the planner
+MAX_SCHEMA_BYTES = 8_000  # per tool input schema
+MAX_OUTPUT_CHARS = 100_000  # per tool result handed to the engine
 MAX_ARGS = 32
 MAX_ENV = 32
 CALL_TIMEOUT_S = 60.0
 START_TIMEOUT_S = 20.0
-IDLE_STOP_S = 600.0                  # default: stop a server that has not been used for ten minutes
-MAX_RESTARTS = 3                     # automatic restarts of one server before it is marked failed
+IDLE_STOP_S = 600.0  # default: stop a server that has not been used for ten minutes
+MAX_RESTARTS = 3  # automatic restarts of one server before it is marked failed
 
 # The only variables a server inherits from Lilly's own environment. Everything else, keys included, is withheld.
 INHERITED_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "USER", "SYSTEMROOT", "TEMP", "TMP")
 
-PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")   # newest first; the server picks one we know
+PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")  # newest first; the server picks one we know
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,12 +46,12 @@ class McpServerConfig:
     """How to start one server. Values are checked by `validate_server`; a config is never run unchecked."""
 
     name: str
-    command: str                                  # a program, found on PATH or given as an absolute path
+    command: str  # a program, found on PATH or given as an absolute path
     args: tuple[str, ...] = ()
-    env: Mapping[str, str] = field(default_factory=dict)          # extra, non-secret variables
-    secret_env: Mapping[str, str] = field(default_factory=dict)   # variable name -> key-store reference
+    env: Mapping[str, str] = field(default_factory=dict)  # extra, non-secret variables
+    secret_env: Mapping[str, str] = field(default_factory=dict)  # variable name -> key-store reference
     enabled: bool = True
-    data_label: Label = Label.PERSONAL            # how sensitive this server's answers are treated
+    data_label: Label = Label.PERSONAL  # how sensitive this server's answers are treated
     idle_stop_s: float = IDLE_STOP_S
 
 
@@ -71,8 +72,8 @@ class McpApproval:
     the owner reviews the change. A tool absent from `risks` is not exposed."""
 
     server: str
-    tools: tuple[McpToolInfo, ...]            # the list the owner reviewed (names, descriptions, schemas)
-    risks: Mapping[str, Risk]                 # the risk level the owner chose for each approved tool
+    tools: tuple[McpToolInfo, ...]  # the list the owner reviewed (names, descriptions, schemas)
+    risks: Mapping[str, Risk]  # the risk level the owner chose for each approved tool
 
     @property
     def fingerprint(self) -> str:
@@ -94,7 +95,9 @@ def validate_server(cfg: McpServerConfig) -> McpServerConfig:
             raise ValidationFailed(f"{key!r} is not a valid environment variable name")
     for key in cfg.env:
         if SECRETISH_ENV.search(key):
-            raise ValidationFailed(f"{key} looks like a secret; add it under secret variables so it is kept in your keychain")
+            raise ValidationFailed(
+                f"{key} looks like a secret; add it under secret variables so it is kept in your keychain"
+            )
     if set(cfg.env) & set(cfg.secret_env):
         raise ValidationFailed("a variable cannot be both plain and secret")
     if any("\x00" in v for v in cfg.env.values()):
@@ -124,8 +127,11 @@ def clean_tool(raw: object) -> McpToolInfo | None:
 
 def fingerprint(tools: Sequence[McpToolInfo]) -> str:
     """A stable hash of everything the planner would be shown about a server's tools."""
-    body = json.dumps([[t.name, t.description, t.input_schema] for t in sorted(tools, key=lambda t: t.name)],
-                      sort_keys=True, separators=(",", ":"))
+    body = json.dumps(
+        [[t.name, t.description, t.input_schema] for t in sorted(tools, key=lambda t: t.name)],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(body.encode()).hexdigest()
 
 

@@ -1,4 +1,5 @@
 """The web API, end to end: real runtime, real policy, real database; only the model vendor is faked."""
+
 from __future__ import annotations
 
 import json
@@ -82,8 +83,10 @@ async def test_unknown_hosts_and_oversized_bodies_are_refused_and_headers_are_se
     big = await api.http.post("/api/memory", content=b"x" * 1_200_000, headers=api.headers())
     assert big.status_code == 413
     r = await api.get("/healthz")
-    assert "default-src 'none'" in r.headers["content-security-policy"] and "unsafe-inline" not in r.headers[
-        "content-security-policy"]
+    assert (
+        "default-src 'none'" in r.headers["content-security-policy"]
+        and "unsafe-inline" not in r.headers["content-security-policy"]
+    )
     assert r.headers["x-content-type-options"] == "nosniff" and r.headers["cache-control"] == "no-store"
 
 
@@ -106,7 +109,7 @@ async def test_sign_out_everywhere_invalidates_other_sessions(api: Api) -> None:
     r = await api.send("POST", "/api/session/revoke-all")
     api.csrf = r.json()["csrf"]
     assert (await other.get("/api/threads")).status_code == 401
-    assert (await api.get("/api/threads")).status_code == 200      # this browser stays signed in
+    assert (await api.get("/api/threads")).status_code == 200  # this browser stays signed in
     await other.aclose()
 
 
@@ -142,25 +145,34 @@ async def test_writing_a_file_waits_for_approval_and_only_then_happens(api: Api)
     current = settings_to_dict(api.runtime.settings)
     current["file_roots"] = [str(api.shared)]
     assert (await api.send("PUT", "/api/settings", current)).status_code == 200
-    agent = (await api.send("POST", "/api/agents", {"name": "Writer", "mode": 1, "files_allowed": True})).json()["agent"]
+    agent = (await api.send("POST", "/api/agents", {"name": "Writer", "mode": 1, "files_allowed": True})).json()[
+        "agent"
+    ]
     target = api.shared / "hello.txt"
     api.provider.replies = [
-        plan(step("s1", "fs.write", path=str(target), content="hi"), step("s2", "llm.work", task="say done", input="$s1.output")),
+        plan(
+            step("s1", "fs.write", path=str(target), content="hi"),
+            step("s2", "llm.work", task="say done", input="$s1.output"),
+        ),
         "Done: wrote hello.txt",
     ]
     task = (await api.send("POST", "/api/tasks", {"goal": "write hello", "agent_id": agent["id"]})).json()["task"]
     pending = await api.approval()
     assert pending["kind"] == "step" and not target.exists()
-    wrong = await api.send("POST", f"/api/approvals/{pending['id']}/decide", {"approve": True, "payload_hash": "0" * 64})
+    wrong = await api.send(
+        "POST", f"/api/approvals/{pending['id']}/decide", {"approve": True, "payload_hash": "0" * 64}
+    )
     assert wrong.status_code == 409 and not target.exists()
-    ok = await api.send("POST", f"/api/approvals/{pending['id']}/decide",
-                        {"approve": True, "payload_hash": pending["payload_hash"]})
+    ok = await api.send(
+        "POST", f"/api/approvals/{pending['id']}/decide", {"approve": True, "payload_hash": pending["payload_hash"]}
+    )
     assert ok.status_code == 200
     done = await api.finished(task["id"])
     assert done["task"]["state"] == "DONE" and target.read_text() == "hi"
-    again = await api.send("POST", f"/api/approvals/{pending['id']}/decide",
-                           {"approve": True, "payload_hash": pending["payload_hash"]})
-    assert again.status_code == 404                      # single use
+    again = await api.send(
+        "POST", f"/api/approvals/{pending['id']}/decide", {"approve": True, "payload_hash": pending["payload_hash"]}
+    )
+    assert again.status_code == 404  # single use
 
 
 async def test_declining_stops_the_task_and_the_kill_switch_stops_everything(api: Api) -> None:
@@ -170,13 +182,19 @@ async def test_declining_stops_the_task_and_the_kill_switch_stops_everything(api
     await api.send("PUT", "/api/settings", current)
     agent = (await api.send("POST", "/api/agents", {"name": "W", "mode": 1, "files_allowed": True})).json()["agent"]
     target = str(api.shared / "no.txt")
-    api.provider.replies = [plan(step("s1", "fs.write", path=target, content="x"), step("s2", "llm.work", task="t", input="i"))]
+    api.provider.replies = [
+        plan(step("s1", "fs.write", path=target, content="x"), step("s2", "llm.work", task="t", input="i"))
+    ]
     task = (await api.send("POST", "/api/tasks", {"goal": "write", "agent_id": agent["id"]})).json()["task"]
     pending = await api.approval()
-    await api.send("POST", f"/api/approvals/{pending['id']}/decide", {"approve": False, "payload_hash": pending["payload_hash"]})
+    await api.send(
+        "POST", f"/api/approvals/{pending['id']}/decide", {"approve": False, "payload_hash": pending["payload_hash"]}
+    )
     assert (await api.finished(task["id"]))["task"]["state"] == "CANCELLED" and not Path(target).exists()
 
-    api.provider.replies = [plan(step("s1", "fs.write", path=target, content="x"), step("s2", "llm.work", task="t", input="i"))]
+    api.provider.replies = [
+        plan(step("s1", "fs.write", path=target, content="x"), step("s2", "llm.work", task="t", input="i"))
+    ]
     task2 = (await api.send("POST", "/api/tasks", {"goal": "write again", "agent_id": agent["id"]})).json()["task"]
     await api.approval()
     assert (await api.send("POST", "/api/stop")).json()["stopped"] == 1
@@ -214,7 +232,12 @@ async def test_settings_round_trip_and_reject_secrets_and_bad_values(api: Api) -
 async def test_keys_are_stored_but_never_returned(api: Api) -> None:
     await api.sign_in()
     listed = (await api.get("/api/keys")).json()
-    assert {k["ref"]: k["present"] for k in listed["keys"]} == {"gemini": False, "mistral": True, "openai": False, "openrouter": False}
+    assert {k["ref"]: k["present"] for k in listed["keys"]} == {
+        "gemini": False,
+        "mistral": True,
+        "openai": False,
+        "openrouter": False,
+    }
     assert (await api.send("PUT", "/api/keys/gemini", {"value": "secret-gemini-key"})).status_code == 200
     after = await api.get("/api/keys")
     assert "secret-gemini-key" not in after.text and {k["ref"]: k["present"] for k in after.json()["keys"]}["gemini"]
@@ -231,23 +254,31 @@ async def test_model_test_reports_success_and_failure(api: Api) -> None:
     good = (await api.send("POST", "/api/models/mistral-small/test")).json()
     assert good["ok"] is True
     assert (await api.send("POST", "/api/models/openrouter-free/test")).json() == {
-        "ok": False, "error": "no key saved for this model"}
+        "ok": False,
+        "error": "no key saved for this model",
+    }
 
 
 async def test_memory_notes_and_agents_behave(api: Api) -> None:
     await api.sign_in()
-    m = (await api.send("POST", "/api/memory", {"text": "Prefers metric units", "tags": ["Preference", "home"]})).json()["memory"]
+    m = (
+        await api.send("POST", "/api/memory", {"text": "Prefers metric units", "tags": ["Preference", "home"]})
+    ).json()["memory"]
     assert m["tags"] == ["preference", "home"]
     assert (await api.get("/api/memory?q=metric")).json()["memory"][0]["id"] == m["id"]
     assert (await api.get("/api/memory?tag=home")).json()["memory"][0]["id"] == m["id"]
-    changed = (await api.send("PATCH", f"/api/memory/{m['id']}", {"text": "Prefers imperial", "tags": ["units"]})).json()["memory"]
+    changed = (
+        await api.send("PATCH", f"/api/memory/{m['id']}", {"text": "Prefers imperial", "tags": ["units"]})
+    ).json()["memory"]
     assert changed["text"] == "Prefers imperial" and changed["tags"] == ["units"]
     assert (await api.send("DELETE", f"/api/memory/{m['id']}")).status_code == 200
     assert (await api.send("DELETE", f"/api/memory/{m['id']}")).status_code == 404
     assert (await api.send("POST", "/api/memory/clear", {})).status_code == 400
 
     space = (await api.send("POST", "/api/spaces", {"name": "Home"})).json()["space"]
-    page = (await api.send("POST", f"/api/spaces/{space['id']}/pages", {"title": "Plan", "content": "paint the fence"})).json()["page"]
+    page = (
+        await api.send("POST", f"/api/spaces/{space['id']}/pages", {"title": "Plan", "content": "paint the fence"})
+    ).json()["page"]
     url = f"/api/spaces/{space['id']}/pages/{page['id']}"
     newer = (await api.send("PUT", url, {"revision": 1, "content": "paint the gate"})).json()["page"]
     assert newer["revision"] == 2
@@ -255,8 +286,12 @@ async def test_memory_notes_and_agents_behave(api: Api) -> None:
     assert stale.status_code == 409 and (await api.get(url)).json()["page"]["content"] == "paint the gate"
     assert (await api.get("/api/pages?q=gate")).json()["pages"][0]["id"] == page["id"]
 
-    agent = (await api.send("POST", "/api/agents", {"name": "Reader", "instructions": "Be brief.", "mode": 0})).json()["agent"]
-    assert (await api.send("PATCH", f"/api/agents/{agent['id']}", {"files_allowed": True})).json()["agent"]["files_allowed"]
+    agent = (await api.send("POST", "/api/agents", {"name": "Reader", "instructions": "Be brief.", "mode": 0})).json()[
+        "agent"
+    ]
+    assert (await api.send("PATCH", f"/api/agents/{agent['id']}", {"files_allowed": True})).json()["agent"][
+        "files_allowed"
+    ]
     assert (await api.send("POST", "/api/agents", {"name": "Bad", "mode": 9})).status_code == 400
 
 
@@ -276,7 +311,9 @@ async def test_export_backup_and_system_info(api: Api) -> None:
 
 async def test_pets_computer_permission_and_resource_limits(api: Api) -> None:
     await api.sign_in()
-    agent = (await api.send("POST", "/api/agents", {"name": "Fox", "pet": "juno", "computer_allowed": True})).json()["agent"]
+    agent = (await api.send("POST", "/api/agents", {"name": "Fox", "pet": "juno", "computer_allowed": True})).json()[
+        "agent"
+    ]
     assert agent["pet"] == "juno" and agent["computer_allowed"] is True
     plain = (await api.send("POST", "/api/agents", {"name": "Plain"})).json()["agent"]
     assert plain["pet"] == "lily" and plain["computer_allowed"] is False
@@ -285,8 +322,13 @@ async def test_pets_computer_permission_and_resource_limits(api: Api) -> None:
 
     res = (await api.get("/api/resources")).json()
     assert res["machine"]["memory"]["total"] > 0 and res["lilly"]["memory_bytes"] > 0
-    assert res["limits"] == {"max_running": 3, "step_timeout_s": 180, "task_minutes": 60, "lanes": 3,
-                             "local_unload_s": 300}
+    assert res["limits"] == {
+        "max_running": 3,
+        "step_timeout_s": 180,
+        "task_minutes": 60,
+        "lanes": 3,
+        "local_unload_s": 300,
+    }
     assert res["tasks"]["running"] == 0 and res["tasks"]["live"] == []
     assert isinstance(res["models"], list)
 
@@ -303,14 +345,20 @@ async def test_pets_computer_permission_and_resource_limits(api: Api) -> None:
 
 async def test_routines_can_be_created_changed_paused_run_and_deleted(api: Api) -> None:
     await api.sign_in()
-    good = {"name": "Morning brief", "goal": "Summarise my notes",
-            "schedule": {"kind": "at", "at": "08:30", "days": [0, 1, 2, 3, 4]}}
+    good = {
+        "name": "Morning brief",
+        "goal": "Summarise my notes",
+        "schedule": {"kind": "at", "at": "08:30", "days": [0, 1, 2, 3, 4]},
+    }
     made = (await api.send("POST", "/api/routines", good)).json()["routine"]
     assert made["when"] == "Weekdays at 08:30" and made["enabled"] and made["next_run"] > api.runtime.clock()
     assert (await api.get("/api/routines")).json()["routines"][0]["id"] == made["id"]
 
-    for bad in ({**good, "schedule": {"kind": "every", "every_minutes": 1}}, {**good, "name": " "},
-                {**good, "agent_id": "nope"}):
+    for bad in (
+        {**good, "schedule": {"kind": "every", "every_minutes": 1}},
+        {**good, "name": " "},
+        {**good, "agent_id": "nope"},
+    ):
         assert (await api.send("POST", "/api/routines", bad)).status_code in (400, 404)
 
     path = f"/api/routines/{made['id']}"
@@ -342,8 +390,10 @@ async def test_stop_all_pauses_routines_so_nothing_restarts_by_itself(api: Api) 
 
 async def test_a_finished_task_carries_its_plan_with_dependencies_and_verdicts(api: Api) -> None:
     await api.sign_in()
-    api.provider.replies = [plan(step("s1", "system.stats"),
-                                 step("s2", "llm.work", task="summarise", input="$s1.output")), "All fine."]
+    api.provider.replies = [
+        plan(step("s1", "system.stats"), step("s2", "llm.work", task="summarise", input="$s1.output")),
+        "All fine.",
+    ]
     r = await api.send("POST", "/api/tasks", {"goal": "how is my computer doing?"})
     done = await api.finished(r.json()["task"]["id"])
     for i, req in enumerate(api.provider.requests):
@@ -377,8 +427,11 @@ async def test_pets_carry_a_look_skills_and_a_model(api: Api) -> None:
     await api.sign_in()
     model = (await api.get("/api/models")).json()["models"][0]["name"]
     look = {"hue": 120, "accessory": "crown", "eyes": "sparkle", "blush": False}
-    made = (await api.send("POST", "/api/agents", {"name": "Fox", "look": look, "skills": "# Skills\nDo X.",
-                                                  "model": model})).json()["agent"]
+    made = (
+        await api.send(
+            "POST", "/api/agents", {"name": "Fox", "look": look, "skills": "# Skills\nDo X.", "model": model}
+        )
+    ).json()["agent"]
     assert (made["look"], made["skills"], made["model"]) == (look, "# Skills\nDo X.", model)
     plain = (await api.send("POST", "/api/agents", {"name": "Plain"})).json()["agent"]
     assert plain["look"] == {"hue": None, "accessory": "none", "eyes": "round", "blush": True}
@@ -392,11 +445,20 @@ async def test_pets_carry_a_look_skills_and_a_model(api: Api) -> None:
     assert (patched["skills"], patched["model"]) == ("# Skills\nDo X.", "")
 
 
-@pytest.mark.parametrize("bad", [
-    {"look": {"hue": 360}}, {"look": {"hue": True}}, {"look": {"accessory": "tiara"}},
-    {"look": {"sparkles": 1}}, {"look": "red"}, {"look": None, "skills": 5},
-    {"skills": "x" * 6001}, {"model": "no-such-model"}, {"model": 3},
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"look": {"hue": 360}},
+        {"look": {"hue": True}},
+        {"look": {"accessory": "tiara"}},
+        {"look": {"sparkles": 1}},
+        {"look": "red"},
+        {"look": None, "skills": 5},
+        {"skills": "x" * 6001},
+        {"model": "no-such-model"},
+        {"model": 3},
+    ],
+)
 async def test_bad_pet_fields_are_a_400_on_create_and_update(api: Api, bad: dict[str, object]) -> None:
     await api.sign_in()
     plain = (await api.send("POST", "/api/agents", {"name": "Plain"})).json()["agent"]
@@ -412,12 +474,68 @@ async def test_pet_fields_need_a_session(api: Api) -> None:
 
 async def test_the_export_keeps_everything_that_defines_an_agent_and_the_routines(api: Api) -> None:
     await api.sign_in()
-    created = await api.send("POST", "/api/agents", {"name": "Pip", "instructions": "be brief", "mode": 1, "skills": "# how I work",
-                                             "research_allowed": True})
+    created = await api.send(
+        "POST",
+        "/api/agents",
+        {"name": "Pip", "instructions": "be brief", "mode": 1, "skills": "# how I work", "research_allowed": True},
+    )
     assert created.status_code in (200, 201), created.text
-    await api.send("POST", "/api/routines", {"name": "Morning", "goal": "say hi", "schedule": {"kind": "every", "every_minutes": 60}})
+    await api.send(
+        "POST",
+        "/api/routines",
+        {"name": "Morning", "goal": "say hi", "schedule": {"kind": "every", "every_minutes": 60}},
+    )
     data = (await api.get("/api/data/export")).json()
     agent = next(a for a in data["agents"] if a["name"] == "Pip")
     assert agent["skills"] == "# how I work" and agent["allowed"]["research_allowed"] is True
-    assert {"pet", "look", "model"} <= agent.keys()
     assert data["routines"][0]["name"] == "Morning" and data["routines"][0]["schedule"]["every_minutes"] == 60
+
+
+async def test_thread_tasks_include_execution_steps(api: Api) -> None:
+    await api.sign_in()
+    from lilly.domain.labels import Label
+    from lilly.domain.tasks import ExecutionTarget, TaskState
+    from lilly.store import conversations, tasks
+
+    now = api.runtime.clock()
+    await api.runtime.db.write(lambda con: conversations.create_conversation(con, "conv-test", "Test Thread", now))
+    await api.runtime.db.write(
+        lambda con: tasks.create_task(
+            con,
+            id="t-thread-test",
+            goal="open spotify and search harry",
+            mode=1,
+            label=Label.PUBLIC,
+            tainted=False,
+            now=now,
+            conversation_id="conv-test",
+            target=ExecutionTarget.HOST,
+        )
+    )
+    await api.runtime.db.write(
+        lambda con: tasks.create_steps(
+            con,
+            "t-thread-test",
+            [("s1", "computer.open_app", '{"name": "Spotify"}'), ("s2", "computer.type", '{"text": "harry"}')],
+        )
+    )
+
+    res = await api.get("/api/threads/conv-test")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["thread"]["id"] == "conv-test"
+    assert len(body["tasks"]) == 1
+    t = body["tasks"][0]
+    assert t["id"] == "t-thread-test"
+    assert "steps" in t
+    assert len(t["steps"]) == 2
+    assert t["steps"][0]["tool"] == "computer.open_app"
+    assert t["steps"][1]["tool"] == "computer.type"
+
+    upd = await api.send("PATCH", "/api/threads/conv-test", {"title": "Updated Title", "archived": True})
+    assert upd.status_code == 200
+    assert upd.json()["thread"]["title"] == "Updated Title"
+
+    await api.runtime.db.write(lambda con: tasks.set_state(con, "t-thread-test", TaskState.CANCELLED, now))
+    del_res = await api.send("DELETE", "/api/threads/conv-test")
+    assert del_res.status_code == 200

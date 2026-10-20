@@ -1,5 +1,6 @@
 """Laya assist, the vocabulary: the two extra questions, their bounded state text, and the settings that switch
 them on. Both start off and, when switched on, start as watch-only."""
+
 from __future__ import annotations
 
 import json
@@ -45,15 +46,18 @@ def test_the_two_questions_are_yes_no_questions_with_their_own_option_ids() -> N
 
 # ---- state text ---------------------------------------------------------------------------------------
 def test_a_plan_state_names_the_request_the_instructions_and_the_step() -> None:
-    state = plan_state(Brief("tidy my downloads", "Never touch the Taxes folder."), "fs.apply_moves",
-                       {"root": "/home/a/Downloads", "moves": [{"from": "a", "to": "b"}]})
+    state = plan_state(
+        Brief("tidy my downloads", "Never touch the Taxes folder."),
+        "fs.apply_moves",
+        {"root": "/home/a/Downloads", "moves": [{"from": "a", "to": "b"}]},
+    )
     assert "tidy my downloads" in state and "Never touch the Taxes folder." in state
     assert "fs.apply_moves" in state and "/home/a/Downloads" in state
 
 
 def test_a_plan_state_is_bounded_whatever_the_inputs_and_keeps_the_tool_name() -> None:
     state = plan_state(Brief(LONG, LONG), "fs.write", {"path": "/a", "content": LONG})
-    assert len(state) <= 600 + 600 + 1200 + 80       # the three parts plus their labels
+    assert len(state) <= 600 + 600 + 1200 + 80  # the three parts plus their labels
     assert "fs.write" in state
     assert state.count("x") <= 600 + 600 + 1200
 
@@ -126,7 +130,9 @@ def test_the_new_questions_are_saved_and_come_back_unchanged() -> None:
     assert sent["reply"]["chain"] == ["laya"] and sent["reply"]["shadow"] is True
     parsed, errs = parse_decisions(json.loads(json.dumps(sent)))
     assert errs == [] and parsed == d
-    settings, problems = parse_settings(json.loads(json.dumps(settings_to_dict(replace(default_settings(), decisions=d)))))
+    settings, problems = parse_settings(
+        json.loads(json.dumps(settings_to_dict(replace(default_settings(), decisions=d))))
+    )
     assert problems == [] and settings.decisions == d
 
 
@@ -137,7 +143,7 @@ def test_switching_a_question_on_is_watch_only_unless_asked_to_act() -> None:
     acting = with_assist(watch, Kind.PLAN, True, act=True)
     assert acting.for_kind(Kind.PLAN).shadow is False and len(acting.for_kind(Kind.PLAN).chain) == 1
     assert with_assist(acting, Kind.PLAN, True, act=False).for_kind(Kind.PLAN).shadow is True
-    assert watch.for_kind(Kind.REPLY) == DecisionSettings().for_kind(Kind.REPLY)      # the other one is untouched
+    assert watch.for_kind(Kind.REPLY) == DecisionSettings().for_kind(Kind.REPLY)  # the other one is untouched
 
 
 def test_switching_a_question_off_empties_its_chain_and_leaves_everything_else() -> None:
@@ -155,8 +161,9 @@ def test_only_the_two_assist_questions_can_be_switched_this_way(kind: Kind) -> N
 
 def test_turning_laya_on_does_not_turn_assist_on_but_turning_it_off_turns_assist_off() -> None:
     assert with_laya(DecisionSettings(), True).for_kind(Kind.PLAN).chain == ()
-    assisted = with_assist(with_assist(with_laya(DecisionSettings(), True), Kind.PLAN, True, act=True),
-                           Kind.REPLY, True, act=False)
+    assisted = with_assist(
+        with_assist(with_laya(DecisionSettings(), True), Kind.PLAN, True, act=True), Kind.REPLY, True, act=False
+    )
     gone = with_laya(assisted, False)
     assert all(gone.for_kind(k).chain == () for k in ASSIST_KINDS)
     assert laya_kinds(gone) == ()

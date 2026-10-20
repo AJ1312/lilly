@@ -8,6 +8,7 @@ Measures and benchmarks:
 5. Read cache & call deduplication: eliminated redundant calls & latency
 6. Overall token and cost reduction per successful task
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,7 +41,11 @@ async def benchmark_smart_routing() -> dict[str, Any]:
         ("Hi there, how are you?", TaskClass.CONVERSATION, ModelTier.QUICK),
         ("What is 42 * 7?", TaskClass.SIMPLE_QUERY, ModelTier.QUICK),
         ("Read file src/main.py and check imports", TaskClass.SYSTEM_OPERATION, ModelTier.QUICK),
-        ("Refactor the authentication architecture across all microservices and benchmark it", TaskClass.CODING, ModelTier.STRONG),
+        (
+            "Refactor the authentication architecture across all microservices and benchmark it",
+            TaskClass.CODING,
+            ModelTier.STRONG,
+        ),
         ("Search the web for the latest Python 3.13 release notes", TaskClass.RESEARCH, ModelTier.QUICK),
     ]
 
@@ -83,18 +88,12 @@ def benchmark_lazy_tool_loading() -> dict[str, Any]:
         ToolSchema(name=name, description=spec.doc, parameters=dict(spec.schema))
         for name, spec in sorted(DEFAULT_TOOLS.items())
     ]
-    full_tokens = sum(
-        len(json.dumps(dict(s.parameters))) // 4 + len(s.description) // 4 + 15
-        for s in full_schemas
-    )
+    full_tokens = sum(len(json.dumps(dict(s.parameters))) // 4 + len(s.description) // 4 + 15 for s in full_schemas)
 
     # Lazy loaded catalog: core tools + discovery tool + 2 task-specific tools
     core_names = set(CONTROL_TOOLS) | {"agent.ask", "agent.final", "fs.read", "fs.list"}
     lazy_schemas = [s for s in full_schemas if s.name in core_names]
-    lazy_tokens = sum(
-        len(json.dumps(dict(s.parameters))) // 4 + len(s.description) // 4 + 15
-        for s in lazy_schemas
-    )
+    lazy_tokens = sum(len(json.dumps(dict(s.parameters))) // 4 + len(s.description) // 4 + 15 for s in lazy_schemas)
 
     return {
         "full_catalog_tool_count": len(full_schemas),
@@ -146,17 +145,24 @@ async def benchmark_context_compaction() -> dict[str, Any]:
 
     for turn in range(1, 8):
         step_id = f"t{turn}c1"
-        messages.append(Message(
-            role="assistant",
-            content=f"Analyzing step {turn}",
-            tool_calls=(ModelToolCall(step_id, "fs.read", {"path": f"/var/log/server_{turn}.log"}, "{}"),),
-        ))
+        messages.append(
+            Message(
+                role="assistant",
+                content=f"Analyzing step {turn}",
+                tool_calls=(ModelToolCall(step_id, "fs.read", {"path": f"/var/log/server_{turn}.log"}, "{}"),),
+            )
+        )
         # 1,500 character observation
-        body = f"RESULT {step_id} fs.read ok (1500 characters)\n" + f"[Line {turn}] Error stack trace with database timeout at connection pool\n" * 20
+        body = (
+            f"RESULT {step_id} fs.read ok (1500 characters)\n"
+            + f"[Line {turn}] Error stack trace with database timeout at connection pool\n" * 20
+        )
         messages.append(Message(role="tool", content=body, tool_call_id=step_id))
 
     # Add essential finding and latest turn
-    messages.append(Message(role="assistant", content="Finding: Database pool exhaustion caused cascading 500 timeouts."))
+    messages.append(
+        Message(role="assistant", content="Finding: Database pool exhaustion caused cascading 500 timeouts.")
+    )
     messages.append(Message(role="assistant", content="Final recommendation ready", tool_calls=()))
 
     uncompacted_tokens = total_tokens(messages)
@@ -209,19 +215,26 @@ async def run_all_benchmarks() -> None:
 
     # 1. Smart Routing
     b1 = await benchmark_smart_routing()
+    avg_query_ms = b1["latency_ms"] / max(1, b1["queries_tested"])
     print("\n1. SMART ROUTING BENCHMARK:")
     print(f"  - Queries Tested: {b1['queries_tested']}")
-    print(f"  - Deterministic Tokens Used: {b1['deterministic_tokens_used']} (100% token savings)")
-    print(f"  - Baseline LLM Classifier Tokens: {b1['baseline_llm_tokens_used']}")
-    print(f"  - Routing Latency: {b1['latency_ms']:.3f} ms (sub-millisecond rule evaluation)")
+    print(f"  - Deterministic Tokens Used: {b1['deterministic_tokens_used']} (rule evaluation)")
+    print(f"  - Estimated LLM Classifier Tokens: {b1['baseline_llm_tokens_used']}")
+    print(f"  - Routing Latency: {b1['latency_ms']:.3f} ms total ({avg_query_ms:.3f} ms/query)")
     print(f"  - Decision Accuracy: {b1['accuracy_pct']:.1f}%")
 
     # 2. Lazy Tool Loading
     b2 = benchmark_lazy_tool_loading()
     print("\n2. LAZY TOOL LOADING BENCHMARK:")
-    print(f"  - Full Catalog: {b2['full_catalog_tool_count']} tools (~{b2['full_catalog_tokens_per_turn']:,} tokens/turn)")
-    print(f"  - Lazy Active Set: {b2['lazy_catalog_tool_count']} tools (~{b2['lazy_catalog_tokens_per_turn']:,} tokens/turn)")
-    print(f"  - Prompt Tokens Saved Per Turn: {b2['tokens_saved_per_turn']:,} tokens ({b2['token_reduction_pct']:.1f}% reduction)")
+    print(
+        f"  - Full Catalog: {b2['full_catalog_tool_count']} tools (~{b2['full_catalog_tokens_per_turn']:,} tokens/turn)"
+    )
+    print(
+        f"  - Lazy Active Set: {b2['lazy_catalog_tool_count']} tools (~{b2['lazy_catalog_tokens_per_turn']:,} tokens/turn)"
+    )
+    print(
+        f"  - Prompt Tokens Saved Per Turn: {b2['tokens_saved_per_turn']:,} tokens ({b2['token_reduction_pct']:.1f}% reduction)"
+    )
 
     # 3. Schema Caching
     b3 = benchmark_schema_caching()
@@ -247,18 +260,20 @@ async def run_all_benchmarks() -> None:
     print(f"  - Redundant Tool Invocations Eliminated: {b5['redundant_calls_eliminated']}")
 
     # 6. Cumulative Cost Modeling (per 1,000 tasks, avg 5 turns/task)
-    # Baseline: 5 turns * 3,800 prompt tokens + 250 routing tokens = 19,250 prompt tokens/task
-    # Optimized: 0 routing tokens + 5 turns * (1,100 tool tokens + 400 avg compacted context) = 7,500 prompt tokens/task
     baseline_tokens_per_task = 19_250
     optimized_tokens_per_task = 7_500
     token_savings_pct = ((baseline_tokens_per_task - optimized_tokens_per_task) / baseline_tokens_per_task) * 100.0
 
     print("\n" + "=" * 70)
-    print("CUMULATIVE MEASURED SAVINGS (5-Turn Average Task):")
-    print(f"  - Baseline Input Tokens / Task:   {baseline_tokens_per_task:,}")
-    print(f"  - Optimized Input Tokens / Task:  {optimized_tokens_per_task:,}")
-    print(f"  - Net Token Reduction:            {baseline_tokens_per_task - optimized_tokens_per_task:,} tokens/task ({token_savings_pct:.1f}% savings)")
-    print(f"  - Cost Reduction per 1,000 Tasks:  ~${(baseline_tokens_per_task - optimized_tokens_per_task) * 1000 / 1_000_000 * 2.50:.2f} (at $2.50/M input tokens)")
+    print("PROJECTED MODEL SAVINGS (5-Turn Average Task Model):")
+    print(f"  - Estimated Baseline Input Tokens / Task:  {baseline_tokens_per_task:,}")
+    print(f"  - Optimized Input Tokens / Task:           {optimized_tokens_per_task:,}")
+    print(
+        f"  - Net Token Reduction:                     {baseline_tokens_per_task - optimized_tokens_per_task:,} tokens/task ({token_savings_pct:.1f}% savings)"
+    )
+    print(
+        f"  - Projected Cost Reduction per 1,000 Tasks: ~${(baseline_tokens_per_task - optimized_tokens_per_task) * 1000 / 1_000_000 * 2.50:.2f} (at $2.50/M input tokens)"
+    )
     print("=" * 70)
 
 

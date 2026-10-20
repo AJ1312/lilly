@@ -1,4 +1,5 @@
 """Tests for ContextManager, truncation, compaction, summarization, and prefix stability (CTX-01..10)."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -110,9 +111,13 @@ async def test_ctx_03_compaction_keeps_request_and_owner_instructions() -> None:
         Message(role="system", content=sys_content),
         Message(role="user", content=user_req),
         Message(role="assistant", content="call", tool_calls=(ModelToolCall("c1", "web.search", {}, "{}"),)),
-        Message(role="tool", content="RESULT c1 web.search ok (1000 characters)\n" + "long result " * 80, tool_call_id="c1"),
+        Message(
+            role="tool", content="RESULT c1 web.search ok (1000 characters)\n" + "long result " * 80, tool_call_id="c1"
+        ),
         Message(role="assistant", content="next call", tool_calls=(ModelToolCall("c2", "web.fetch", {}, "{}"),)),
-        Message(role="tool", content="RESULT c2 web.fetch ok (1000 characters)\n" + "page text " * 80, tool_call_id="c2"),
+        Message(
+            role="tool", content="RESULT c2 web.fetch ok (1000 characters)\n" + "page text " * 80, tool_call_id="c2"
+        ),
         Message(role="assistant", content="Final answer turn"),
     ]
 
@@ -192,8 +197,7 @@ async def test_ctx_06_compaction_keeps_latest_turn_and_last_error() -> None:
 def test_ctx_07_digest_format() -> None:
     # 1. Trusted tool result
     raw_trusted = (
-        "RESULT t3c1 web.fetch ok (18204 characters)\n"
-        "Here is the start of the fetched web page about python typing..."
+        "RESULT t3c1 web.fetch ok (18204 characters)\nHere is the start of the fetched web page about python typing..."
     )
     msg_trusted = Message("tool", raw_trusted, tool_call_id="t3c1")
     digest_trusted = make_digest(msg_trusted)
@@ -211,7 +215,7 @@ def test_ctx_07_digest_format() -> None:
     digest_untrusted = make_digest(msg_untrusted)
     assert digest_untrusted.startswith("<untrusted_data>\n")
     assert digest_untrusted.endswith("\n</untrusted_data>")
-    assert 't3c1 web.fetch ok, 18,204 chars' in digest_untrusted
+    assert "t3c1 web.fetch ok, 18,204 chars" in digest_untrusted
     assert "prompt injection" not in digest_untrusted
 
 
@@ -263,8 +267,12 @@ def test_ctx_09_prefix_byte_stable_and_tool_list_sorted(tmp_path: Any) -> None:
     assert sorted_names == ["agent.plan", "devbox.run", "fs.read", "result.read", "web.search"]
 
     # Verify AGENT_SYSTEM prompt prefix formatting is deterministic
-    p1 = AGENT_SYSTEM.format(agent_name="Mochi", max_steps=10, max_calls=12, date="2026-10-05", folders_or_none="/tmp/test")
-    p2 = AGENT_SYSTEM.format(agent_name="Mochi", max_steps=10, max_calls=12, date="2026-10-05", folders_or_none="/tmp/test")
+    p1 = AGENT_SYSTEM.format(
+        agent_name="Mochi", max_steps=10, max_calls=12, date="2026-10-05", folders_or_none="/tmp/test"
+    )
+    p2 = AGENT_SYSTEM.format(
+        agent_name="Mochi", max_steps=10, max_calls=12, date="2026-10-05", folders_or_none="/tmp/test"
+    )
     assert p1 == p2
 
 

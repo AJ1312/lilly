@@ -1,4 +1,5 @@
 """The step executor on its own, against a real database: every way a single step can end."""
+
 from __future__ import annotations
 
 import asyncio
@@ -68,14 +69,17 @@ class Rig:
 async def rig(tmp_path: Path) -> AsyncIterator[Rig]:
     db, bus, clock = Database(tmp_path / "lilly.db"), EventBus(), Clock()
     approvals = ApprovalService(db, bus, clock, ttl_s=0.1)
-    await db.write(lambda con: tasks.create_task(con, id="t1", goal="g", mode=1, label=Label.PUBLIC, tainted=False,
-                                                 now=clock()))
+    await db.write(
+        lambda con: tasks.create_task(con, id="t1", goal="g", mode=1, label=Label.PUBLIC, tainted=False, now=clock())
+    )
     await db.write(lambda con: tasks.create_steps(con, "t1", [("s1", "probe.tool", "{}")]))
     rec = TaskRecord(db, bus, clock, "t1", TaskCtx(Label.PUBLIC, False, Mode.ASK), TaskState.PENDING)
     await rec.state(TaskState.PLANNING)
     await rec.state(TaskState.RUNNING)
     limits = LimitSettings(step_timeout_s=1)
-    yield Rig(db, approvals, rec, StepExecutor(rec, approvals, GrantStore(), lambda: PathScope([]), lambda: limits, None))
+    yield Rig(
+        db, approvals, rec, StepExecutor(rec, approvals, GrantStore(), lambda: PathScope([]), lambda: limits, None)
+    )
     db.close()
 
 
@@ -143,15 +147,18 @@ async def test_a_tool_is_told_to_stop_when_its_step_times_out_and_when_it_ends(r
     with pytest.raises(StepFailed, match="timed out"):
         await rig.exe.run({"id": "s1", "tool": "probe.tool", "args": {}}, "s1", {}, {"probe.tool": slow})
     assert slow.ctx is not None and slow.ctx.cancelled()
-    assert not rig.rec.cancelled                         # the other steps of the task are not told to stop
+    assert not rig.rec.cancelled  # the other steps of the task are not told to stop
     quick = Spy(lambda: returns("fine"))
     await rig.exe.run({"id": "s1", "tool": "probe.tool", "args": {}}, "s1", {}, {"probe.tool": quick})
     assert quick.ctx is not None and quick.ctx.cancelled()
 
 
-@pytest.mark.parametrize("raised, words", [(ProviderError(False, status=401), "API key"),
-                                           (NoModelAvailable("all busy"), "all busy")])
-async def test_a_model_problem_inside_a_tool_is_explained_in_plain_words(rig: Rig, raised: Exception, words: str) -> None:
+@pytest.mark.parametrize(
+    "raised, words", [(ProviderError(False, status=401), "API key"), (NoModelAvailable("all busy"), "all busy")]
+)
+async def test_a_model_problem_inside_a_tool_is_explained_in_plain_words(
+    rig: Rig, raised: Exception, words: str
+) -> None:
     async def broken() -> str:
         raise raised
 
@@ -234,7 +241,7 @@ class Writer(Tool):
 async def test_text_written_during_a_step_is_published_for_the_live_view_but_not_stored(rig: Rig) -> None:
     feed = rig.rec.bus.subscribe()
     pending = asyncio.ensure_future(anext(feed))
-    await asyncio.sleep(0)                      # let the subscription register
+    await asyncio.sleep(0)  # let the subscription register
     out = await rig.exe.run({"id": "s1", "tool": "probe.tool", "args": {}}, "s1", {}, {"probe.tool": Writer()})
     assert out == "Hello"
     async with asyncio.timeout(2):

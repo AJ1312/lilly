@@ -1,4 +1,5 @@
 """data.profile, notes.search/read and memory.search/write: scope, limits, labels and hostile inputs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -84,15 +85,17 @@ def test_profile_rows_empty_and_header_only() -> None:
 
 
 def test_profile_rows_types_blanks_duplicates_and_odd_values() -> None:
-    rows = iter([
-        ["id", "", "score"],
-        ["1", "x", "1.5"],
-        ["2", "y", ""],
-        ["3", "z", "oops"],
-        ["3", "z", "oops"],       # exact duplicate row
-        ["4"],                    # short row: the missing cells count as blank
-        ["5", "w", "2.5", "ignored extra cell"],
-    ])
+    rows = iter(
+        [
+            ["id", "", "score"],
+            ["1", "x", "1.5"],
+            ["2", "y", ""],
+            ["3", "z", "oops"],
+            ["3", "z", "oops"],  # exact duplicate row
+            ["4"],  # short row: the missing cells count as blank
+            ["5", "w", "2.5", "ignored extra cell"],
+        ]
+    )
     rep = profile_rows(rows, 100)
     assert rep["rows"] == 6 and rep["duplicate_rows"] == 1 and rep["row_limit"] == 100
     c = cols(rep)
@@ -158,7 +161,7 @@ async def test_profile_detects_other_delimiters(tool: DataProfileTool, shared: P
 
 async def test_profile_handles_bom_quotes_unicode_and_embedded_newlines(tool: DataProfileTool, shared: Path) -> None:
     f = shared / "u.csv"
-    f.write_bytes("﻿nom,note\n\"Zoë\",\"line1\nline2, with comma\"\n\"日本\",\"🎵\"\n".encode())
+    f.write_bytes('﻿nom,note\n"Zoë","line1\nline2, with comma"\n"日本","🎵"\n'.encode())
     rep = await profile(tool, f)
     assert rep["rows"] == 2
     assert [c["name"] for c in rep["columns"]] == ["nom", "note"]  # the BOM is not part of the first header
@@ -215,18 +218,27 @@ async def test_profile_requires_a_text_path(tool: DataProfileTool, args: dict[st
         await tool.run(args, CTX)
 
 
-async def test_profile_refuses_paths_outside_the_shared_folder(tool: DataProfileTool, shared: Path,
-                                                               tmp_path: Path) -> None:
+async def test_profile_refuses_paths_outside_the_shared_folder(
+    tool: DataProfileTool, shared: Path, tmp_path: Path
+) -> None:
     outside = tmp_path / "private.csv"
     outside.write_text("secret\n1\n")
-    for raw in (str(outside), str(shared / ".." / "private.csv"), "/etc/passwd", "/etc/passwd.csv", "~/x.csv",
-                "relative.csv", "bad\x00.csv"):
+    for raw in (
+        str(outside),
+        str(shared / ".." / "private.csv"),
+        "/etc/passwd",
+        "/etc/passwd.csv",
+        "~/x.csv",
+        "relative.csv",
+        "bad\x00.csv",
+    ):
         with pytest.raises(PolicyDenied):
             await tool.run({"path": raw}, CTX)
 
 
-async def test_profile_refuses_symlinks_that_escape_the_shared_folder(tool: DataProfileTool, shared: Path,
-                                                                      tmp_path: Path) -> None:
+async def test_profile_refuses_symlinks_that_escape_the_shared_folder(
+    tool: DataProfileTool, shared: Path, tmp_path: Path
+) -> None:
     outside = tmp_path / "private.csv"
     outside.write_text("secret\n1\n")
     (shared / "link.csv").symlink_to(outside)
@@ -269,8 +281,9 @@ async def test_profile_reports_only_the_file_name_not_the_directory(tool: DataPr
     assert str(shared) not in res.output
 
 
-async def test_a_single_cell_over_the_csv_field_limit_is_a_clean_tool_error(tool: DataProfileTool,
-                                                                            shared: Path) -> None:
+async def test_a_single_cell_over_the_csv_field_limit_is_a_clean_tool_error(
+    tool: DataProfileTool, shared: Path
+) -> None:
     f = shared / "huge.csv"
     f.write_text("a,b\n1," + "x" * 300_000 + "\n")
     with pytest.raises(ToolError, match="could not read"):
@@ -308,10 +321,9 @@ async def test_profile_an_xlsx_file(tool: DataProfileTool, shared: Path) -> None
     assert c["qty"]["blank"] == 1 and c["qty"]["odd_values"] == ["n/a"]
 
 
-async def test_xlsx_formulas_are_reported_as_cached_values_never_evaluated(tool: DataProfileTool,
-                                                                          shared: Path) -> None:
+async def test_xlsx_formulas_are_reported_as_cached_values_never_evaluated(tool: DataProfileTool, shared: Path) -> None:
     f = shared / "formulas.xlsx"
-    _xlsx(f, [["a", "b"], [1, "=1+1"], [2, "=HYPERLINK(\"http://evil.example\",\"x\")"], [3, "=cmd|' /C calc'!A0"]])
+    _xlsx(f, [["a", "b"], [1, "=1+1"], [2, '=HYPERLINK("http://evil.example","x")'], [3, "=cmd|' /C calc'!A0"]])
     rep = await profile(tool, f)
     # openpyxl writes no cached value, so a formula cell has no value to profile: it counts as blank
     assert cols(rep)["b"]["blank"] == 3

@@ -1,4 +1,5 @@
 """The devbox settings screen: what is ready, downloading the image, and resetting the box."""
+
 from __future__ import annotations
 
 from starlette.requests import Request

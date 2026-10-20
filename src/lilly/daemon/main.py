@@ -1,4 +1,5 @@
 """Run Lilly: build the runtime, serve the UI on this computer only, and shut down cleanly."""
+
 from __future__ import annotations
 
 import asyncio
@@ -49,9 +50,19 @@ async def serve(paths: LillyPaths, port: int = DEFAULT_PORT) -> None:
     runtime = await Runtime.create(paths)
     bridge = BridgeService(runtime)
     await bridge.start()
-    server = uvicorn.Server(uvicorn.Config(
-        create_app(runtime, auth, bridges=bridge), host=HOST, port=port, log_level="warning", access_log=False,
-        server_header=False, date_header=False, timeout_graceful_shutdown=3, lifespan="off"))
+    server = uvicorn.Server(
+        uvicorn.Config(
+            create_app(runtime, auth, bridges=bridge),
+            host=HOST,
+            port=port,
+            log_level="warning",
+            access_log=False,
+            server_header=False,
+            date_header=False,
+            timeout_graceful_shutdown=3,
+            lifespan="off",
+        )
+    )
 
     async def release_streams() -> None:
         # Live-event connections never end by themselves; close them as soon as shutdown begins.

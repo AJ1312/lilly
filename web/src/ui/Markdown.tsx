@@ -53,6 +53,8 @@ const CodeBlock: React.FC<{ code: string; lang: string }> = ({ code, lang }) => 
         border: '1px solid var(--border)',
         overflow: 'hidden',
         backgroundColor: 'var(--bg-input)',
+        maxWidth: '100%',
+        minWidth: 0,
       }}
     >
       <div
@@ -84,6 +86,9 @@ const CodeBlock: React.FC<{ code: string; lang: string }> = ({ code, lang }) => 
         style={{
           padding: '12px',
           overflowX: 'auto',
+          maxWidth: '100%',
+          minWidth: 0,
+          boxSizing: 'border-box',
           fontSize: '12px',
           lineHeight: 1.45,
           margin: 0,
@@ -211,6 +216,9 @@ const InlineText: React.FC<{ text: string }> = ({ text }) => {
                 borderRadius: 'var(--radius-xs)',
                 fontSize: '12px',
                 color: 'var(--primary)',
+                wordBreak: 'break-all',
+                overflowWrap: 'anywhere',
+                maxWidth: '100%',
               }}
             >
               {tok.slice(1, -1)}

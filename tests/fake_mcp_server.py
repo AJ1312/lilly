@@ -6,6 +6,7 @@ and list_changed is sent), server_requests (sends sampling/roots/ping/elicitatio
 $FAKE_MCP_LOG), long_line, bad_json=N, paginate, endless_pages, many_tools, bad_tools, bad_version, stray (answers with unknown ids).
 Everything after `--` is ignored (it lets tests pass literal arguments).
 """
+
 from __future__ import annotations
 
 import json
@@ -72,9 +73,13 @@ def tool_list() -> list[Any]:
     if "many_tools" in FLAGS:
         tools += [{"name": f"t{i}", "description": "", "inputSchema": schema()} for i in range(80)]
     if "bad_tools" in FLAGS:
-        tools += ["not a dict", {"description": "no name"}, {"name": "bad name!", "description": "x", "inputSchema": {}},
-                  {"name": "weird", "description": "schema is a list", "inputSchema": []},
-                  {"name": "echo", "description": "DUPLICATE of echo", "inputSchema": schema("text")}]
+        tools += [
+            "not a dict",
+            {"description": "no name"},
+            {"name": "bad name!", "description": "x", "inputSchema": {}},
+            {"name": "weird", "description": "schema is a list", "inputSchema": []},
+            {"name": "echo", "description": "DUPLICATE of echo", "inputSchema": schema("text")},
+        ]
     return tools
 
 
@@ -100,7 +105,7 @@ def handle_list(rid: Any, params: dict[str, Any]) -> None:
         send({"jsonrpc": "2.0", "id": rid, "result": {"tools": tools[:1], "nextCursor": "again"}})
     elif "paginate" in FLAGS:
         start = int(params.get("cursor") or 0)
-        page = {"tools": tools[start:start + 3]}
+        page = {"tools": tools[start : start + 3]}
         if start + 3 < len(tools):
             page["nextCursor"] = str(start + 3)  # type: ignore[assignment]
         send({"jsonrpc": "2.0", "id": rid, "result": page})
@@ -148,10 +153,21 @@ def run_tool(rid: Any, name: str, args: dict[str, Any]) -> None:
             fh.write(str(child.pid))
         text(rid, str(child.pid))
     elif name == "media":
-        send({"jsonrpc": "2.0", "id": rid, "result": {"content": [
-            {"type": "text", "text": "caption"}, {"type": "image", "mimeType": "image/png", "data": "QUJD" * 100},
-            {"type": "resource", "resource": {"uri": "file:///x", "blob": "QUJD"}},
-            {"type": "weird", "x": 1}], "isError": False}})
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "result": {
+                    "content": [
+                        {"type": "text", "text": "caption"},
+                        {"type": "image", "mimeType": "image/png", "data": "QUJD" * 100},
+                        {"type": "resource", "resource": {"uri": "file:///x", "blob": "QUJD"}},
+                        {"type": "weird", "x": 1},
+                    ],
+                    "isError": False,
+                },
+            }
+        )
     elif name == "fail":
         text(rid, "it broke: bad input", error=True)
     elif name == "overlong":
@@ -169,11 +185,13 @@ def main() -> None:
         sys.stderr.write("fatal: cannot start\n")
         sys.exit(1)
     if "noisy" in FLAGS:
+
         def spam() -> None:
             while True:
                 sys.stderr.write("noise " * 2000 + "\n")
                 sys.stderr.flush()
                 time.sleep(0.01)
+
         threading.Thread(target=spam, daemon=True).start()
     for line in sys.stdin:
         try:
@@ -185,14 +203,24 @@ def main() -> None:
             log(msg)  # an answer to one of our requests
         elif method == "initialize":
             version = "1999-01-01" if "bad_version" in FLAGS else msg["params"]["protocolVersion"]
-            send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": version, "capabilities": {"tools": {}},
-                                                           "serverInfo": {"name": "fake", "version": "1"}}})
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "result": {
+                        "protocolVersion": version,
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "fake", "version": "1"},
+                    },
+                }
+            )
         elif method == "tools/list":
             handle_list(rid, msg.get("params") or {})
         elif method == "tools/call":
             params = msg["params"]
-            threading.Thread(target=run_tool, args=(rid, params["name"], params.get("arguments") or {}),
-                             daemon=True).start()
+            threading.Thread(
+                target=run_tool, args=(rid, params["name"], params.get("arguments") or {}), daemon=True
+            ).start()
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no"}})
 

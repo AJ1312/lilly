@@ -1,4 +1,5 @@
 """The Tool base class and helpers for reading arguments safely."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

@@ -3,6 +3,7 @@
 The normal AgentLoop exposes the complete policy-filtered catalog. This module is
 not an authority for production visibility and cannot remove capabilities.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -38,18 +39,36 @@ def shortlist(specs: Mapping[str, ToolSpec], ranking: Sequence[str] = (), k: int
     return chosen + always
 
 
-def discover(specs: Mapping[str, ToolSpec], query: str, *, namespace: str | None = None,
-             limit: int = 12) -> list[str]:
+_TOOL_ALIASES: dict[str, str] = {
+    "computer.open_app": "application app launch start open spotify textedit finder music slack chrome safari discord program",
+    "computer.run": "terminal command shell bash zsh script run execute osascript applescript open",
+    "computer.observe": "screenshot screen desktop window see look inspect accessibility elements visual",
+    "computer.type": "keyboard type write input text search enter query",
+    "computer.click": "mouse click pointer tap focus button select item",
+    "computer.press": "key press return enter hotkey keyboard shortcut",
+    "computer.open_url": "browser open url link website web page",
+    "fs.search": "find file document search filename locate",
+    "fs.read": "open read view inspect text content lines file document",
+    "fs.list": "folder directory entries files contents ls dir",
+}
+
+
+def discover(specs: Mapping[str, ToolSpec], query: str, *, namespace: str | None = None, limit: int = 12) -> list[str]:
     """Find capabilities in the already policy-filtered catalog."""
     terms = {part for part in query.lower().replace(".", " ").split() if part}
     prefix = namespace.strip().lower() if namespace else ""
+    # If the query specifically mentions desktop/apps or commands, do not lock to non-computer namespace
+    if prefix and prefix != "computer" and any(t in query.lower() for t in ("app", "spotify", "music", "textedit", "desktop", "laptop", "lap", "open")):
+        prefix = ""
     scored: list[tuple[int, str]] = []
     for name, spec in specs.items():
         if name in CONTROL_TOOLS or (prefix and not name.lower().startswith(prefix + ".")):
             continue
-        haystack = " ".join((name, spec.doc, spec.module or "")).lower()
-        score = sum(3 if term in name.lower() else 1 for term in terms if term in haystack)
+        aliases = _TOOL_ALIASES.get(name, "")
+        haystack = " ".join((name, spec.doc, spec.module or "", aliases)).lower()
+        score = sum(3 if term in name.lower() else (2 if term in aliases else 1) for term in terms if term in haystack)
         if score:
             scored.append((score, name))
     scored.sort(key=lambda item: (-item[0], item[1]))
-    return [name for _, name in scored[:max(1, min(limit, 32))]]
+    return [name for _, name in scored[: max(1, min(limit, 32))]]
+

@@ -1,4 +1,5 @@
 """Context management: observation truncation, deterministic compaction, summarization, and prefix stability."""
+
 from __future__ import annotations
 
 import hashlib
@@ -49,7 +50,7 @@ def truncate_observation(content: str, max_chars: int) -> str:
         is_untrusted = False
         if body.startswith(UNTRUSTED_OPEN) and body.endswith(UNTRUSTED_CLOSE):
             is_untrusted = True
-            body = body[len(UNTRUSTED_OPEN):-len(UNTRUSTED_CLOSE)].strip("\r\n")
+            body = body[len(UNTRUSTED_OPEN) : -len(UNTRUSTED_CLOSE)].strip("\r\n")
 
         if len(body) > max_chars:
             trimmed = body[:max_chars]
@@ -86,7 +87,10 @@ def make_digest(msg: Message) -> str:
     body = body.strip()
 
     # Pattern: RESULT <step_id> <tool> <ok|error|blocked|declined> ...
-    m = re.match(r"^RESULT\s+(\S+)\s+(\S+)\s+(ok|error|blocked|declined)(?::|\s+\((\d+)\s+chars|\s+\((\d+)\s+characters)?", first_line)
+    m = re.match(
+        r"^RESULT\s+(\S+)\s+(\S+)\s+(ok|error|blocked|declined)(?::|\s+\((\d+)\s+chars|\s+\((\d+)\s+characters)?",
+        first_line,
+    )
     if m:
         step_id, tool, status = m.group(1), m.group(2), m.group(3)
         chars_str = m.group(4) or m.group(5)
@@ -133,21 +137,29 @@ class ContextManager:
         for m in messages:
             if m.role == "tool":
                 truncated = truncate_observation(m.content, obs_chars)
-                result.append(Message(
-                    role=m.role,
-                    content=truncated,
-                    tool_calls=m.tool_calls,
-                    tool_call_id=m.tool_call_id,
-                    provider_state=m.provider_state,
-                ))
+                result.append(
+                    Message(
+                        role=m.role,
+                        content=truncated,
+                        tool_calls=m.tool_calls,
+                        tool_call_id=m.tool_call_id,
+                        provider_state=m.provider_state,
+                    )
+                )
             else:
                 result.append(m)
         return result
 
-    async def prepare(self, messages: list[Message], budget: int | None = None,
-                      *, label: Label = Label.PUBLIC, mode: Mode = Mode.ASK,
-                      task_id: str | None = None,
-                      actual_tokens: int | None = None) -> list[Message]:
+    async def prepare(
+        self,
+        messages: list[Message],
+        budget: int | None = None,
+        *,
+        label: Label = Label.PUBLIC,
+        mode: Mode = Mode.ASK,
+        task_id: str | None = None,
+        actual_tokens: int | None = None,
+    ) -> list[Message]:
         """Prepare messages before a model call: truncate observations and compact if over budget."""
         if not messages:
             return []
@@ -158,7 +170,11 @@ class ContextManager:
         # 2. Check token budget (incorporating actual reported tokens where available)
         soft_limit = budget if budget is not None else self._engine_settings().soft_context_tokens
         estimated_tokens = total_tokens(msgs)
-        current_tokens = max(actual_tokens, estimated_tokens) if actual_tokens is not None and actual_tokens > 0 else estimated_tokens
+        current_tokens = (
+            max(actual_tokens, estimated_tokens)
+            if actual_tokens is not None and actual_tokens > 0
+            else estimated_tokens
+        )
         if current_tokens <= soft_limit:
             return msgs
 
@@ -224,7 +240,13 @@ class ContextManager:
                 protected_indices.add(i)
                 continue
             # errors (preserve all error messages from earlier turns)
-            if "error:" in c or "blocked by policy" in c or "declined by the user" in c or "failed:" in c or "failed" in c:
+            if (
+                "error:" in c
+                or "blocked by policy" in c
+                or "declined by the user" in c
+                or "failed:" in c
+                or "failed" in c
+            ):
                 protected_indices.add(i)
                 continue
             # pending approval
@@ -239,20 +261,24 @@ class ContextManager:
                 compacted.append(m)
             elif m.role == "tool":
                 digest = make_digest(m)
-                compacted.append(Message(
-                    role="tool",
-                    content=digest,
-                    tool_calls=m.tool_calls,
-                    tool_call_id=m.tool_call_id,
-                    provider_state=m.provider_state,
-                ))
+                compacted.append(
+                    Message(
+                        role="tool",
+                        content=digest,
+                        tool_calls=m.tool_calls,
+                        tool_call_id=m.tool_call_id,
+                        provider_state=m.provider_state,
+                    )
+                )
             elif m.role == "assistant":
                 if m.tool_calls:
-                    compacted.append(Message(
-                        role="assistant",
-                        content=m.content[:200] if m.content else "",
-                        tool_calls=m.tool_calls,
-                    ))
+                    compacted.append(
+                        Message(
+                            role="assistant",
+                            content=m.content[:200] if m.content else "",
+                            tool_calls=m.tool_calls,
+                        )
+                    )
                 else:
                     compacted.append(m)
             else:
@@ -260,8 +286,9 @@ class ContextManager:
 
         # Pass 2: If still over soft limit -> produce "Working notes" (max 400 tokens)
         if total_tokens(compacted) > soft_limit:
-            compacted = await self._summarize_notes(compacted, protected_indices,
-                                                    label=label, mode=mode, task_id=task_id)
+            compacted = await self._summarize_notes(
+                compacted, protected_indices, label=label, mode=mode, task_id=task_id
+            )
 
         return compacted
 
@@ -276,8 +303,7 @@ class ContextManager:
     ) -> list[Message]:
         """Produce cached Working notes (<= 400 tokens), avoiding extra LLM calls unless worthwhile."""
         unprotected_middle = [
-            (i, m) for i, m in enumerate(messages)
-            if i not in protected_indices and m.role in ("tool", "assistant")
+            (i, m) for i, m in enumerate(messages) if i not in protected_indices and m.role in ("tool", "assistant")
         ]
         if not unprotected_middle:
             return messages
@@ -287,8 +313,7 @@ class ContextManager:
         worthwhile = len(unprotected_middle) >= 2 or middle_tokens >= 200
 
         corpus = "\n".join(
-            f"{m.role}: {make_digest(m) if UNTRUSTED_OPEN in m.content else m.content}"
-            for _, m in unprotected_middle
+            f"{m.role}: {make_digest(m) if UNTRUSTED_OPEN in m.content else m.content}" for _, m in unprotected_middle
         )
         content_hash = hashlib.sha256(corpus.encode()).hexdigest()
 

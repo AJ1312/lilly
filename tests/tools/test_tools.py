@@ -16,6 +16,7 @@ Covers:
 - TOOL-13: agent.ask answer returned
 - TOOL-14: skill.load and undo hash check rejection/restore
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -131,17 +132,29 @@ async def test_tool_06_fs_edit_approval_diff(engine: Engine) -> None:
 
     # Agent in ASK mode requesting fs.edit
     agent_id = await engine.agent(Mode.ASK, files_allowed=True)
-    row = await engine.db.write(lambda con: tasks.create_task(
-        con, id="task-edit-diff", goal="fix hello", mode=int(Mode.ASK), label=Label.PUBLIC,
-        tainted=False, now=engine.clock(), agent_id=agent_id
-    ))
+    row = await engine.db.write(
+        lambda con: tasks.create_task(
+            con,
+            id="task-edit-diff",
+            goal="fix hello",
+            mode=int(Mode.ASK),
+            label=Label.PUBLIC,
+            tainted=False,
+            now=engine.clock(),
+            agent_id=agent_id,
+        )
+    )
     await engine.db.write(lambda con: tasks.set_state(con, row.id, TaskState.PLANNING, engine.clock()))
     await engine.db.write(lambda con: tasks.set_state(con, row.id, TaskState.RUNNING, engine.clock()))
 
     # Trigger fs.edit step
-    await engine.db.write(lambda con: tasks.create_steps(
-        con, row.id, [("step-edit-1", "fs.edit", json.dumps({"path": str(p), "old": "return False", "new": "return True"}))]
-    ))
+    await engine.db.write(
+        lambda con: tasks.create_steps(
+            con,
+            row.id,
+            [("step-edit-1", "fs.edit", json.dumps({"path": str(p), "old": "return False", "new": "return True"}))],
+        )
+    )
     await engine.db.write(lambda con: tasks.update_step(con, row.id, "step-edit-1", "running", engine.clock()))
 
     # Verify that StepExecutor formats the approval display diff
@@ -150,9 +163,19 @@ async def test_tool_06_fs_edit_approval_diff(engine: Engine) -> None:
     from lilly.engine.record import TaskRecord
     from lilly.engine.steps import StepExecutor
 
-    rec = TaskRecord(engine.db, engine.bus, engine.clock, row.id, TaskCtx(Label.PUBLIC, False, Mode.ASK), TaskState.RUNNING)
-    steps_exec = StepExecutor(rec, engine.approvals, engine.grants, lambda: PathScope((str(engine.root),)),
-                              lambda: engine.orchestrator._d.limits(), None, None, Brief("fix hello", ""))
+    rec = TaskRecord(
+        engine.db, engine.bus, engine.clock, row.id, TaskCtx(Label.PUBLIC, False, Mode.ASK), TaskState.RUNNING
+    )
+    steps_exec = StepExecutor(
+        rec,
+        engine.approvals,
+        engine.grants,
+        lambda: PathScope((str(engine.root),)),
+        lambda: engine.orchestrator._d.limits(),
+        None,
+        None,
+        Brief("fix hello", ""),
+    )
 
     payload = {"tool": "fs.edit", "args": {"path": str(p), "old": "return False", "new": "return True"}}
     approve_fut = asyncio.create_task(
@@ -196,12 +219,12 @@ async def test_tool_07_fs_read_ranges_and_numbered(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_tool_08_web_research_sources_and_zero_model_calls() -> None:
     search_html = (
-        '<html><body>'
+        "<html><body>"
         '<a class="result__a" href="https://example.com/one">One Title</a>'
         '<div class="result__snippet">Snippet for page one</div>'
         '<a class="result__a" href="https://example.com/two">Two Title</a>'
         '<div class="result__snippet">Snippet for page two</div>'
-        '</body></html>'
+        "</body></html>"
     )
 
     def resolver_mock(host: str, port: int) -> list[str]:
@@ -213,9 +236,17 @@ async def test_tool_08_web_research_sources_and_zero_model_calls() -> None:
         if "duckduckgo.com" in url_str or "duckduckgo.com" in host_hdr:
             return httpx.Response(200, text=search_html)
         if "/one" in url_str:
-            return httpx.Response(200, text="<html><body><p>Detailed article on topic one.</p></body></html>", headers={"content-type": "text/html"})
+            return httpx.Response(
+                200,
+                text="<html><body><p>Detailed article on topic one.</p></body></html>",
+                headers={"content-type": "text/html"},
+            )
         if "/two" in url_str:
-            return httpx.Response(200, text="<html><body><p>Detailed article on topic two.</p></body></html>", headers={"content-type": "text/html"})
+            return httpx.Response(
+                200,
+                text="<html><body><p>Detailed article on topic two.</p></body></html>",
+                headers={"content-type": "text/html"},
+            )
         return httpx.Response(404)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -237,10 +268,10 @@ async def test_tool_08_web_research_sources_and_zero_model_calls() -> None:
 @pytest.mark.asyncio
 async def test_tool_09_web_research_ssrf_protections() -> None:
     search_html = (
-        '<html><body>'
+        "<html><body>"
         '<a class="result__a" href="http://127.0.0.1:8000/internal">Internal Secret</a>'
         '<div class="result__snippet">Internal secret snippet</div>'
-        '</body></html>'
+        "</body></html>"
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -263,9 +294,7 @@ async def test_tool_09_web_research_ssrf_protections() -> None:
 async def test_tool_10_web_research_records_seen_urls() -> None:
     gv = GroundingVerifier(enabled=True)
     sample_output = (
-        "### Python 3.13 Released\n"
-        "URL: https://python.org/news/313\n"
-        "Excerpt:\nPython 3.13 includes free-threaded mode."
+        "### Python 3.13 Released\nURL: https://python.org/news/313\nExcerpt:\nPython 3.13 includes free-threaded mode."
     )
     gv.record_step("web.research", {"query": "python 3.13"}, sample_output)
     assert "https://python.org/news/313" in gv.seen_urls
@@ -275,14 +304,18 @@ async def test_tool_10_web_research_records_seen_urls() -> None:
 @pytest.mark.asyncio
 async def test_tool_11_result_read_slices_and_keeps_metadata(engine: Engine) -> None:
     now = engine.clock()
-    task = await engine.db.write(lambda con: tasks.create_task(
-        con, id="task-res", goal="read long", mode=int(Mode.OPEN), label=Label.PERSONAL, tainted=True, now=now
-    ))
+    task = await engine.db.write(
+        lambda con: tasks.create_task(
+            con, id="task-res", goal="read long", mode=int(Mode.OPEN), label=Label.PERSONAL, tainted=True, now=now
+        )
+    )
     long_output = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     await engine.db.write(lambda con: tasks.create_steps(con, task.id, [("step-prev", "tool.long", "{}")]))
-    await engine.db.write(lambda con: tasks.update_step(
-        con, task.id, "step-prev", "done", now, output=long_output, label=Label.PERSONAL, untrusted=True
-    ))
+    await engine.db.write(
+        lambda con: tasks.update_step(
+            con, task.id, "step-prev", "done", now, output=long_output, label=Label.PERSONAL, untrusted=True
+        )
+    )
 
     tool = ResultReadTool(engine.db)
     ctx = ToolContext(task.id, "step-curr", 60.0, lambda: False, Label.PERSONAL, True, Mode.OPEN)
@@ -297,10 +330,11 @@ async def test_tool_11_result_read_slices_and_keeps_metadata(engine: Engine) -> 
 @pytest.mark.asyncio
 async def test_tool_12_agent_plan_limits_and_statuses(engine: Engine) -> None:
     now = engine.clock()
-    await engine.db.write(lambda con: tasks.create_task(
-        con, id="task-plan", goal="test planning", mode=int(Mode.OPEN), label=Label.PUBLIC,
-        tainted=False, now=now
-    ))
+    await engine.db.write(
+        lambda con: tasks.create_task(
+            con, id="task-plan", goal="test planning", mode=int(Mode.OPEN), label=Label.PUBLIC, tainted=False, now=now
+        )
+    )
     tool = AgentPlanTool(engine.db, engine.clock)
     ctx = ToolContext("task-plan", "step-p1", 60.0, lambda: False, Label.PUBLIC, False, Mode.OPEN)
 
@@ -347,13 +381,23 @@ async def test_tool_14_skill_load_and_undo_hash_check(engine: Engine) -> None:
         "One atomic commit per phase.\n"
     )
     now = engine.clock()
-    agent = await engine.db.write(lambda con: agent_store.create_agent(
-        con, "agent-coder", "Coder", "", int(Mode.OPEN), now, pet="otto", sheet=sheet
-    ))
-    task = await engine.db.write(lambda con: tasks.create_task(
-        con, id="task-undo-14", goal="code work", mode=int(Mode.OPEN), label=Label.PUBLIC,
-        tainted=False, now=now, agent_id=agent.id
-    ))
+    agent = await engine.db.write(
+        lambda con: agent_store.create_agent(
+            con, "agent-coder", "Coder", "", int(Mode.OPEN), now, pet="otto", sheet=sheet
+        )
+    )
+    task = await engine.db.write(
+        lambda con: tasks.create_task(
+            con,
+            id="task-undo-14",
+            goal="code work",
+            mode=int(Mode.OPEN),
+            label=Label.PUBLIC,
+            tainted=False,
+            now=now,
+            agent_id=agent.id,
+        )
+    )
 
     # 1. skill.load
     skill_tool = SkillLoadTool(engine.db)
@@ -376,14 +420,16 @@ async def test_tool_14_skill_load_and_undo_hash_check(engine: Engine) -> None:
     # Undo endpoint call when file has NOT changed
     app = Starlette()
     app.state.runtime = engine
-    req = Request({
-        "type": "http",
-        "method": "POST",
-        "path": f"/api/tasks/{task.id}/undo/step-edit-undo",
-        "headers": [],
-        "path_params": {"task_id": task.id, "step_id": "step-edit-undo"},
-        "app": app,
-    })
+    req = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": f"/api/tasks/{task.id}/undo/step-edit-undo",
+            "headers": [],
+            "path_params": {"task_id": task.id, "step_id": "step-edit-undo"},
+            "app": app,
+        }
+    )
 
     undo_resp = await api_data.undo_step(req)
     assert undo_resp.status_code == 200

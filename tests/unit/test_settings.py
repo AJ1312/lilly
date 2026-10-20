@@ -1,4 +1,5 @@
 """User-edited settings are validated; secrets and unsafe roots are refused."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -35,9 +36,16 @@ def test_whole_disk_home_and_relative_roots_are_rejected(tmp_path: Path) -> None
 
 
 def test_bad_values_are_reported_together() -> None:
-    _, errs = parse_settings({"models": [MODEL, MODEL], "modules": ["files", "voice"], "default_mode": "YOLO",
-                              "retention_days": -1, "network": {"allowed_hosts": ["a/b"]},
-                              "search": {"engine": "searxng"}})
+    _, errs = parse_settings(
+        {
+            "models": [MODEL, MODEL],
+            "modules": ["files", "voice"],
+            "default_mode": "YOLO",
+            "retention_days": -1,
+            "network": {"allowed_hosts": ["a/b"]},
+            "search": {"engine": "searxng"},
+        }
+    )
     assert len(errs) >= 6
 
 
@@ -65,15 +73,17 @@ def test_a_name_with_a_trailing_newline_is_not_a_valid_model_or_host_name() -> N
 
 def test_an_unusable_settings_file_is_kept_beside_the_defaults(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
-    path.write_text('{"models": [{"name": "nas", "provider": "ollama", "model_id": "m", "local": true, '
-                    '"max_label": "PERSONAL", "base_url": "http://nas.example:11434"}]}')
+    path.write_text(
+        '{"models": [{"name": "nas", "provider": "ollama", "model_id": "m", "local": true, '
+        '"max_label": "PERSONAL", "base_url": "http://nas.example:11434"}]}'
+    )
     settings, problems = load_settings(path)
     assert settings == default_settings() and any("private network" in p for p in problems)
     kept = tmp_path / "settings.json.invalid"
     assert "nas.example" in kept.read_text() and (kept.stat().st_mode & 0o777) == 0o600
     path.write_text("not json at all")
     load_settings(path)
-    assert "nas.example" in kept.read_text()          # the first copy is never replaced by a worse one
+    assert "nas.example" in kept.read_text()  # the first copy is never replaced by a worse one
 
 
 def test_a_valid_file_leaves_nothing_behind(tmp_path: Path) -> None:
@@ -84,10 +94,10 @@ def test_a_valid_file_leaves_nothing_behind(tmp_path: Path) -> None:
 
 def test_approval_mode_parses_auto_manual_and_off() -> None:
     from lilly.domain.labels import ApprovalMode
+
     s_auto, errs = parse(approval_mode="AUTO")
     assert not errs and s_auto.approval_mode == ApprovalMode.AUTO
     s_manual, errs = parse(approval_mode="MANUAL")
     assert not errs and s_manual.approval_mode == ApprovalMode.MANUAL
     s_off, errs = parse(approval_mode="OFF")
     assert not errs and s_off.approval_mode == ApprovalMode.OFF
-

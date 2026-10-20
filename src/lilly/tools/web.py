@@ -1,4 +1,5 @@
 """Web tools. web.fetch is SSRF-guarded and DNS-pinned; everything it returns is marked untrusted."""
+
 from __future__ import annotations
 
 import asyncio
@@ -30,8 +31,14 @@ PAGE_CHARS = 12_000
 USER_AGENT = "Mozilla/5.0 (compatible; Lilly; +local)"
 # A bracketed IPv6 host is allowed; a closing bracket anywhere else ends the URL (it is prose or JSON punctuation).
 _URL_RE = re.compile(r"https?://(?:\[[0-9A-Fa-f:.]+\]|[^\s\"'<>\\)\[\]/?#]+)[^\s\"'<>\\)\]]*")
-_TEXT_TYPES = ("text/", "application/json", "application/xml", "application/xhtml+xml", "application/rss+xml",
-               "application/atom+xml")
+_TEXT_TYPES = (
+    "text/",
+    "application/json",
+    "application/xml",
+    "application/xhtml+xml",
+    "application/rss+xml",
+    "application/atom+xml",
+)
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 Resolver = Callable[[str, int], list[str]]
@@ -151,8 +158,9 @@ class WebFetchTool(Tool):
             raise ToolError("the connection failed") from exc
 
     async def _get(self, url: str) -> str:
-        async with httpx.AsyncClient(transport=self._transport, follow_redirects=False, trust_env=False,
-                                     timeout=httpx.Timeout(10.0)) as client:
+        async with httpx.AsyncClient(
+            transport=self._transport, follow_redirects=False, trust_env=False, timeout=httpx.Timeout(10.0)
+        ) as client:
             for _ in range(MAX_REDIRECTS + 1):
                 target, addresses = await guarded_target(url, self._resolver)
                 resp = await self._request_pinned(client, target, addresses)
@@ -184,10 +192,12 @@ class WebFetchTool(Tool):
         for addr in addresses:
             literal = f"[{addr}]" if ":" in addr else addr
             pinned = target.copy_with(host=literal)
-            headers = {"Host": target.netloc.decode(), "User-Agent": USER_AGENT,
-                       "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"}
-            request = client.build_request("GET", pinned, headers=headers,
-                                           extensions={"sni_hostname": target.host})
+            headers = {
+                "Host": target.netloc.decode(),
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1",
+            }
+            request = client.build_request("GET", pinned, headers=headers, extensions={"sni_hostname": target.host})
             try:
                 return await client.send(request, stream=True)
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
@@ -265,13 +275,14 @@ class WebSearchTool(Tool):
         except httpx.HTTPError as exc:
             raise ToolError("could not reach the search engine") from exc
         if not results:
-            raise ToolError("no results (the search engine may be rate limiting; "
-                            "set a different engine in Settings → Privacy & access)")
+            raise ToolError(
+                "no results (the search engine may be rate limiting; "
+                "set a different engine in Settings → Privacy & access)"
+            )
         return ToolResult(json.dumps(results[:limit], indent=1), Label.PUBLIC, True)
 
     async def _get(self, url: str, headers: Mapping[str, str]) -> tuple[int, bytes]:
-        async with self._client.stream("GET", url, headers={"User-Agent": USER_AGENT, **headers},
-                                       timeout=15.0) as resp:
+        async with self._client.stream("GET", url, headers={"User-Agent": USER_AGENT, **headers}, timeout=15.0) as resp:
             return resp.status_code, await read_capped(resp, MAX_PAGE_BYTES)
 
     async def _duckduckgo(self, query: str, limit: int) -> list[dict[str, str]]:
@@ -288,8 +299,11 @@ class WebSearchTool(Tool):
         if status != 200:
             raise ToolError(f"SearXNG answered HTTP {status} (is JSON output enabled on that instance?)")
         rows = _json_object(body, "SearXNG").get("results", [])
-        return [{"title": str(r.get("title", "")), "url": str(r.get("url", "")), "snippet": str(r.get("content", ""))}
-                for r in rows if isinstance(r, dict) and r.get("url")][:limit]
+        return [
+            {"title": str(r.get("title", "")), "url": str(r.get("url", "")), "snippet": str(r.get("content", ""))}
+            for r in rows
+            if isinstance(r, dict) and r.get("url")
+        ][:limit]
 
     async def _brave(self, query: str, limit: int) -> list[dict[str, str]]:
         key = await asyncio.to_thread(self._keys.get, "brave")
@@ -297,13 +311,17 @@ class WebSearchTool(Tool):
             raise ToolError("no Brave Search key saved (Settings → Models & keys)")
         status, body = await self._get(
             f"https://api.search.brave.com/res/v1/web/search?q={quote_plus(query)}&count={limit}",
-            {"X-Subscription-Token": key.reveal(), "Accept": "application/json"})
+            {"X-Subscription-Token": key.reveal(), "Accept": "application/json"},
+        )
         if status != 200:
             raise ToolError(f"Brave Search answered HTTP {status}")
         web = _json_object(body, "Brave Search").get("web", {})
         rows = web.get("results", []) if isinstance(web, dict) else []
-        return [{"title": str(r.get("title", "")), "url": str(r.get("url", "")), "snippet": str(r.get("description", ""))}
-                for r in rows if isinstance(r, dict) and r.get("url")][:limit]
+        return [
+            {"title": str(r.get("title", "")), "url": str(r.get("url", "")), "snippet": str(r.get("description", ""))}
+            for r in rows
+            if isinstance(r, dict) and r.get("url")
+        ][:limit]
 
 
 class WebResearchTool(Tool):
@@ -343,7 +361,7 @@ class WebResearchTool(Tool):
                     fetch_res = await self._fetch.run({"urls": [url]}, ctx)
                     fetched_text = fetch_res.output
                     if fetched_text.startswith(f"## {url}\n"):
-                        fetched_text = fetched_text[len(f"## {url}\n"):].strip()
+                        fetched_text = fetched_text[len(f"## {url}\n") :].strip()
                     if fetched_text and not fetched_text.startswith("[could not fetch"):
                         excerpt = fetched_text[:1200]
                 except (ToolError, httpx.HTTPError, TimeoutError) as exc:

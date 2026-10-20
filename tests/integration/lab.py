@@ -1,4 +1,5 @@
 """A lab for engine tests: real database, runner and approvals, a scripted model, and fake tools that take time."""
+
 from __future__ import annotations
 
 import asyncio
@@ -83,16 +84,19 @@ class Lab:
     trace: Trace
     limits: list[LimitSettings]
     decisions: list[DecisionSettings]
-    deciders: dict[str, Decider]     # extra deciders a test installs, such as a stand-in for Laya
+    deciders: dict[str, Decider]  # extra deciders a test installs, such as a stand-in for Laya
 
     def add(self, name: str, spec: ToolSpec = READ, delay: float = 0.0, fail: str | None = None) -> None:
         self.engine.tools[name] = Probe(name, spec, self.trace, delay, fail)
 
-    async def submit(self, *steps: dict[str, object], mode: Mode = Mode.OPEN, conversation_id: str | None = None,
-                     goal: str = "go"):  # type: ignore[no-untyped-def]
+    async def submit(
+        self, *steps: dict[str, object], mode: Mode = Mode.OPEN, conversation_id: str | None = None, goal: str = "go"
+    ):  # type: ignore[no-untyped-def]
         self.engine.completer.replies = [plan(*steps), *self.engine.completer.replies]
         agent = await self.engine.agent(mode, files_allowed=True)
-        return await self.engine.orchestrator.submit(SubmitRequest(goal, agent_id=agent, conversation_id=conversation_id))
+        return await self.engine.orchestrator.submit(
+            SubmitRequest(goal, agent_id=agent, conversation_id=conversation_id)
+        )
 
 
 @pytest.fixture
@@ -101,26 +105,59 @@ async def lab(tmp_path: Path) -> AsyncIterator[Lab]:
     root, home = tmp_path / "shared", tmp_path / "home"
     root.mkdir()
     home.mkdir()
-    clock, db, bus, grants, completer = Clock(), Database(tmp_path / "lilly.db"), EventBus(), GrantStore(), ScriptedCompleter()
+    clock, db, bus, grants, completer = (
+        Clock(),
+        Database(tmp_path / "lilly.db"),
+        EventBus(),
+        GrantStore(),
+        ScriptedCompleter(),
+    )
     settings = Settings(file_roots=(str(root),), modules=MODULES, engine=EngineSettings(mode="plan"))
     scope = PathScope(settings.file_roots, deny=(str(home),))
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-    tools = build_tools(settings, scope=scope, db=db, router=completer, keys=MemoryKeyStore(), client=client, clock=clock)
+    tools = build_tools(
+        settings, scope=scope, db=db, router=completer, keys=MemoryKeyStore(), client=client, clock=clock
+    )
     approvals = ApprovalService(db, bus, clock, ttl_s=30.0)
     limits = [LimitSettings()]
     lab_settings = [DecisionSettings()]
     extra: dict[str, Decider] = {}
-    pipeline = DecisionPipeline(lambda: lab_settings[0], lambda: {"search": SearchRanker(), "loop": LoopRule(),
-                                                                  "rules": InstructionRules(), "match": MatchRule(),
-                                                                  **extra}, DatabaseSink(db), clock)
-    deps = EngineDeps(db, completer, lambda: tools, lambda: scope, lambda: settings.file_roots, bus, approvals, grants,
-                      clock, lambda: limits[0], pipeline, engine_settings=lambda: settings.engine)
+    pipeline = DecisionPipeline(
+        lambda: lab_settings[0],
+        lambda: {
+            "search": SearchRanker(),
+            "loop": LoopRule(),
+            "rules": InstructionRules(),
+            "match": MatchRule(),
+            **extra,
+        },
+        DatabaseSink(db),
+        clock,
+    )
+    deps = EngineDeps(
+        db,
+        completer,
+        lambda: tools,
+        lambda: scope,
+        lambda: settings.file_roots,
+        bus,
+        approvals,
+        grants,
+        clock,
+        lambda: limits[0],
+        pipeline,
+        engine_settings=lambda: settings.engine,
+    )
     orchestrator = Orchestrator(deps)
     orchestrator.configure(settings)
     await orchestrator.start()
-    yield Lab(Engine(db, bus, approvals, grants, orchestrator, completer, tools, root, clock), Trace(), limits, lab_settings, extra)
+    yield Lab(
+        Engine(db, bus, approvals, grants, orchestrator, completer, tools, root, clock),
+        Trace(),
+        limits,
+        lab_settings,
+        extra,
+    )
     await orchestrator.aclose()
     await client.aclose()
     db.close()
-
-

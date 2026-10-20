@@ -1,4 +1,5 @@
 """MCP servers: add, review what they offer, approve exactly that, and turn them off."""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,7 +25,7 @@ from lilly.store import mcp as store
 from lilly.tools.mcp import ServerStatus
 from lilly.ui.support import flag, json_body, ok, runtime, text
 
-APPROVABLE = {"R0": Risk.R0, "R1": Risk.R1, "R2": Risk.R2}   # R3 (irreversible or outside) is never allowed here
+APPROVABLE = {"R0": Risk.R0, "R1": Risk.R1, "R2": Risk.R2}  # R3 (irreversible or outside) is never allowed here
 LABELS = {"PUBLIC": Label.PUBLIC, "PERSONAL": Label.PERSONAL}
 MAX_ERROR_CHARS = 300
 
@@ -43,8 +44,11 @@ def _strings(data: dict[str, Any], key: str, limit: int) -> list[str]:
 
 def _env(data: dict[str, Any]) -> dict[str, str]:
     raw = data.get("env", {})
-    if not isinstance(raw, dict) or len(raw) > MAX_ENV or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in raw.items()):
+    if (
+        not isinstance(raw, dict)
+        or len(raw) > MAX_ENV
+        or not all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items())
+    ):
         raise ValidationFailed("env must be a short set of text values")
     return dict(raw)
 
@@ -61,10 +65,15 @@ def _config(data: dict[str, Any], name: str) -> McpServerConfig:
         raise ValidationFailed("idle_stop_s must be a number")
     enabled = flag(data, "enabled")
     return McpServerConfig(
-        name=name, command=(text(data, "command", max_len=1000) or "").strip(),
-        args=tuple(_strings(data, "args", MAX_ARGS)), env=_env(data),
-        secret_env={v: secret_ref(name, v) for v in secret_vars}, enabled=True if enabled is None else enabled,
-        data_label=LABELS[label], idle_stop_s=float(idle))
+        name=name,
+        command=(text(data, "command", max_len=1000) or "").strip(),
+        args=tuple(_strings(data, "args", MAX_ARGS)),
+        env=_env(data),
+        secret_env={v: secret_ref(name, v) for v in secret_vars},
+        enabled=True if enabled is None else enabled,
+        data_label=LABELS[label],
+        idle_stop_s=float(idle),
+    )
 
 
 def secret_refs(rt: Runtime) -> set[str]:
@@ -72,17 +81,34 @@ def secret_refs(rt: Runtime) -> set[str]:
     return {ref for c in store.list_servers(rt.db.reader) for ref in c.secret_env.values()}
 
 
-def _server_json(cfg: McpServerConfig, approval: McpApproval | None, status: ServerStatus | None,
-                 present: dict[str, bool], now: float) -> dict[str, Any]:
+def _server_json(
+    cfg: McpServerConfig,
+    approval: McpApproval | None,
+    status: ServerStatus | None,
+    present: dict[str, bool],
+    now: float,
+) -> dict[str, Any]:
     return {
-        "name": cfg.name, "command": cfg.command, "args": list(cfg.args), "env": dict(cfg.env),
+        "name": cfg.name,
+        "command": cfg.command,
+        "args": list(cfg.args),
+        "env": dict(cfg.env),
         "secret_vars": [{"var": v, "ref": r, "present": present.get(r, False)} for v, r in cfg.secret_env.items()],
-        "enabled": cfg.enabled, "data_label": cfg.data_label.name, "idle_stop_s": cfg.idle_stop_s,
-        "approved_tools": [{"name": t.name, "description": t.description, "risk": f"R{int(approval.risks[t.name])}"}
-                           for t in approval.tools if t.name in approval.risks] if approval else [],
+        "enabled": cfg.enabled,
+        "data_label": cfg.data_label.name,
+        "idle_stop_s": cfg.idle_stop_s,
+        "approved_tools": [
+            {"name": t.name, "description": t.description, "risk": f"R{int(approval.risks[t.name])}"}
+            for t in approval.tools
+            if t.name in approval.risks
+        ]
+        if approval
+        else [],
         "approved": approval is not None,
-        "state": status.state if status else "stopped", "error": status.error if status else "",
-        "last_used": now - status.idle_s if status and status.idle_s is not None else None}
+        "state": status.state if status else "stopped",
+        "error": status.error if status else "",
+        "last_used": now - status.idle_s if status and status.idle_s is not None else None,
+    }
 
 
 async def list_servers(request: Request) -> Response:
@@ -91,8 +117,9 @@ async def list_servers(request: Request) -> Response:
     states = {s.name: s for s in rt.mcp.status()}
     refs = [r for c in servers for r in c.secret_env.values()]
     found = await asyncio.to_thread(lambda: {r: rt.keys.get(r) is not None for r in refs})
-    return JSONResponse({"servers": [_server_json(c, approvals.get(c.name), states.get(c.name), found, rt.clock())
-                                     for c in servers]})
+    return JSONResponse(
+        {"servers": [_server_json(c, approvals.get(c.name), states.get(c.name), found, rt.clock()) for c in servers]}
+    )
 
 
 async def put_server(request: Request) -> Response:
@@ -108,7 +135,7 @@ async def put_server(request: Request) -> Response:
         return old - set(cfg.secret_env.values())
 
     dropped = await rt.db.write(save)
-    for ref in dropped:   # a variable that is no longer secret must not leave its value behind
+    for ref in dropped:  # a variable that is no longer secret must not leave its value behind
         await asyncio.to_thread(rt.keys.delete, ref)
     await rt.reload_mcp()
     return ok()
@@ -151,8 +178,15 @@ async def review(request: Request) -> Response:
         found = await rt.mcp.discover(request.path_params["name"])
     except ToolError as exc:
         raise _unavailable(exc) from None
-    return JSONResponse({"fingerprint": found.fingerprint, "tools": [
-        {"name": t.name, "description": t.description, "input_schema": dict(t.input_schema)} for t in found.tools]})
+    return JSONResponse(
+        {
+            "fingerprint": found.fingerprint,
+            "tools": [
+                {"name": t.name, "description": t.description, "input_schema": dict(t.input_schema)}
+                for t in found.tools
+            ],
+        }
+    )
 
 
 async def approve(request: Request) -> Response:

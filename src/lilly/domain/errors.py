@@ -2,6 +2,7 @@
 
 Details (paths, payloads, provider messages) go only to the redacted log, never into `public`.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -40,8 +41,9 @@ class ToolError(LillyError):
 class ProviderError(LillyError):
     public = "The model provider failed"
 
-    def __init__(self, retryable: bool, retry_after: float | None = None, status: int | None = None,
-                 message: str | None = None) -> None:
+    def __init__(
+        self, retryable: bool, retry_after: float | None = None, status: int | None = None, message: str | None = None
+    ) -> None:
         super().__init__(retryable, retry_after, status, message)
         self.retryable, self.retry_after, self.status, self.message = retryable, retry_after, status, message
 
@@ -85,8 +87,6 @@ class ConfigurationError(LillyError):
 
 class ConflictError(LillyError):
     public = "Conflict or stale revision"
-
-
 
 
 class NeedsGrant(LillyError):

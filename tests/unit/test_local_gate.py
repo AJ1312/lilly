@@ -1,4 +1,5 @@
 """Local models are polite: one call at a time, one model in memory, and they leave memory when idle."""
+
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +63,7 @@ async def test_calls_to_one_server_take_turns() -> None:
 async def test_switching_models_unloads_the_old_one_first() -> None:
     server, gate = Server(), LocalGate()
     await provider(server, "small", gate).complete(REQ)
-    await provider(server, "small", gate).complete(REQ)         # same model: nothing to unload
+    await provider(server, "small", gate).complete(REQ)  # same model: nothing to unload
     await provider(server, "big", gate).complete(REQ)
     unloads = [b for path, b in server.requests if path == "/api/generate"]
     assert unloads == [{"model": "small", "keep_alive": 0}]

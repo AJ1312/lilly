@@ -1,4 +1,5 @@
 """Routines: due runs start once, never pile up, and pause when they cannot or should not continue."""
+
 from __future__ import annotations
 
 from datetime import UTC
@@ -19,7 +20,9 @@ EVERY_30 = Schedule("every", every_minutes=30)
 
 async def make(engine: Engine, schedule: Schedule = EVERY_30, agent_id: str | None = None) -> str:
     rid, now = new_id(), engine.clock()
-    await engine.db.write(lambda con: routines.create_routine(con, rid, "Brief", "Say hello", agent_id, schedule, now, UTC))
+    await engine.db.write(
+        lambda con: routines.create_routine(con, rid, "Brief", "Say hello", agent_id, schedule, now, UTC)
+    )
     return rid
 
 
@@ -64,8 +67,9 @@ async def test_a_routine_does_not_start_while_its_last_run_is_still_going(engine
     sched = Scheduler(engine.db, engine.orchestrator, engine.clock, UTC)
     agent = await engine.agent(computer_allowed=True)
     rid = await make(engine, agent_id=agent)
-    engine.completer.replies.append(plan(step("s1", "computer.run", command="ls"),
-                                         step("s2", "llm.work", task="report", input="$s1.output")))
+    engine.completer.replies.append(
+        plan(step("s1", "computer.run", command="ls"), step("s2", "llm.work", task="report", input="$s1.output"))
+    )
     engine.clock.advance(31 * 60)
     await sched.tick()
     await engine.wait_for_approval()  # the run is waiting for the person
@@ -140,4 +144,4 @@ async def test_the_scheduler_can_say_when_the_next_run_is_due(engine: Engine) ->
     due = sched.next_due()
     assert due is not None and due > engine.clock()
     await engine.db.write(lambda con: routines.set_enabled(con, rid, False, engine.clock(), UTC))
-    assert sched.next_due() is None                  # a paused routine never wakes anything
+    assert sched.next_due() is None  # a paused routine never wakes anything

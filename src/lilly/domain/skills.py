@@ -1,4 +1,5 @@
 """Skills are hash-pinned data templates. Includes the built-ins."""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +17,7 @@ from lilly.domain.tools_registry import ToolSpec
 class Skill:
     """A reusable plan template. Skills are data, hash-pinned, and re-checked against the
     tool registry every time; a skill can never raise a step's risk. Running one needs no planning call."""
+
     name: str
     version: int
     summary: str
@@ -29,11 +31,13 @@ _PH = re.compile(r"\{(\w+)\}")
 
 def _subst(v: Any, params: dict[str, str]) -> Any:
     if isinstance(v, str):
+
         def one(m: re.Match[str]) -> str:
             if m.group(1) not in params:
                 raise ValidationFailed(f"unknown placeholder {{{m.group(1)}}}")
             return params[m.group(1)]
-        return _PH.sub(one, v)          # single pass: substituted values are never re-expanded
+
+        return _PH.sub(one, v)  # single pass: substituted values are never re-expanded
     if isinstance(v, list):
         return [_subst(x, params) for x in v]
     if isinstance(v, dict):
@@ -68,61 +72,165 @@ def _llm(sid: str, task: str, src: str, expect: str) -> dict[str, Any]:
     return {"id": sid, "tool": "llm.work", "args": {"task": task, "input": src}, "expect": expect}
 
 
-BUILTIN_SKILLS: dict[str, Skill] = {sk.name: sk for sk in (
-    Skill("research", 1, "Search the web, read the best sources and write a cited summary.", ("topic",), (
-        {"id": "s1", "tool": "web.search", "args": {"query": "{topic}"}, "expect": "a list of result links"},
-        {"id": "s2", "tool": "web.fetch", "args": {"urls": "$s1.output"}, "expect": "page text for the top sources"},
-        _llm("s3", "Write a short summary of {topic}. Cite every claim with its source URL and say what is uncertain.",
-             "$s2.output", "a cited summary"),
-    ), Risk.R0),
-    Skill("summarize-docs", 1, "Read a file and summarise it.", ("path",), (
-        {"id": "s1", "tool": "fs.read", "args": {"path": "{path}"}, "expect": "the file's text"},
-        _llm("s2", "Summarise the key points, decisions and open questions.", "$s1.output", "a summary"),
-    ), Risk.R0),
-    Skill("data-profile", 1, "Profile a CSV or XLSX file: rows, types, blanks, duplicates and odd values.",
-          ("path",), (
-        {"id": "s1", "tool": "data.profile", "args": {"path": "{path}"}, "expect": "column statistics"},
-        _llm("s2", "Explain the data quality problems found and what to check first.", "$s1.output",
-             "a data quality note"),
-    ), Risk.R0),
-    Skill("file-organizer", 1, "Propose a tidy folder structure, then apply the moves only after you approve.",
-          ("folder",), (
-        {"id": "s1", "tool": "fs.list", "args": {"path": "{folder}"}, "expect": "the folder listing"},
-        _llm("s2", "Propose a tidier structure as a JSON list of moves, each {\"from\": name, \"to\": "
-                   "new/relative/path}, using only names from the listing. Never delete anything. Output only the JSON.",
-             "$s1.output", "a JSON list of moves"),
-        {"id": "s3", "tool": "fs.apply_moves", "args": {"root": "{folder}", "moves": "$s2.output"},
-         "expect": "every move applied inside the folder"},
-        _llm("s4", "Tell the user briefly what was moved and how to undo it.", "$s3.output", "a short report"),
-    ), Risk.R1),
-    Skill("resource-hogs", 1, "Find the programs using the most memory and CPU and say which are safe to close.",
-          (), (
-        {"id": "s1", "tool": "computer.processes", "args": {"limit": 15, "sort": "memory"},
-         "expect": "the heaviest programs"},
-        {"id": "s2", "tool": "system.stats", "args": {}, "expect": "disk, memory and CPU"},
-        _llm("s3", "Explain what is using resources, which programs are normally safe to close and which are not. "
-                   "Suggest only; do not act.", "$s1.output $s2.output", "a short report"),
-    ), Risk.R0),
-    Skill("run-and-explain", 1, "Run one command in a shared folder (you approve it first) and explain the result.",
-          ("folder", "command"), (
-        {"id": "s1", "tool": "computer.run", "args": {"command": "{command}", "cwd": "{folder}"},
-         "expect": "the command's output"},
-        _llm("s2", "Explain what the command did, whether it worked, and what to do next.", "$s1.output",
-             "a plain explanation"),
-    ), Risk.R2),
-    Skill("system-health", 1, "Check disk, memory and heavy processes, and suggest cleanups without doing them.",
-          (), (
-        {"id": "s1", "tool": "system.stats", "args": {}, "expect": "disk, memory and top processes"},
-        _llm("s2", "Point out anything unusual and suggest cleanups. Suggest only; do not act.", "$s1.output",
-             "a short report"),
-    ), Risk.R0),
-    Skill("job-search", 1, "Search public career sites and job boards for structured openings, deduplicate and rank them.",
-          ("query",), (
-        {"id": "s1", "tool": "web.search", "args": {"query": "{query} career job listings"}, "expect": "search result links"},
-        {"id": "s2", "tool": "web.fetch", "args": {"urls": "$s1.output"}, "expect": "job listing pages text"},
-        _llm("s3", "Extract structured job listings matching '{query}'. For each listing include: job title, company, "
-                   "location/remote, posted date (or 'not stated'), canonical URL, experience level, published salary "
-                   "(or 'not stated'), and source. Deduplicate by company + title. Output as a clean structured markdown table.",
-             "$s2.output", "a structured job listings table"),
-    ), Risk.R0),
-)}
+BUILTIN_SKILLS: dict[str, Skill] = {
+    sk.name: sk
+    for sk in (
+        Skill(
+            "research",
+            1,
+            "Search the web, read the best sources and write a cited summary.",
+            ("topic",),
+            (
+                {"id": "s1", "tool": "web.search", "args": {"query": "{topic}"}, "expect": "a list of result links"},
+                {
+                    "id": "s2",
+                    "tool": "web.fetch",
+                    "args": {"urls": "$s1.output"},
+                    "expect": "page text for the top sources",
+                },
+                _llm(
+                    "s3",
+                    "Write a short summary of {topic}. Cite every claim with its source URL and say what is uncertain.",
+                    "$s2.output",
+                    "a cited summary",
+                ),
+            ),
+            Risk.R0,
+        ),
+        Skill(
+            "summarize-docs",
+            1,
+            "Read a file and summarise it.",
+            ("path",),
+            (
+                {"id": "s1", "tool": "fs.read", "args": {"path": "{path}"}, "expect": "the file's text"},
+                _llm("s2", "Summarise the key points, decisions and open questions.", "$s1.output", "a summary"),
+            ),
+            Risk.R0,
+        ),
+        Skill(
+            "data-profile",
+            1,
+            "Profile a CSV or XLSX file: rows, types, blanks, duplicates and odd values.",
+            ("path",),
+            (
+                {"id": "s1", "tool": "data.profile", "args": {"path": "{path}"}, "expect": "column statistics"},
+                _llm(
+                    "s2",
+                    "Explain the data quality problems found and what to check first.",
+                    "$s1.output",
+                    "a data quality note",
+                ),
+            ),
+            Risk.R0,
+        ),
+        Skill(
+            "file-organizer",
+            1,
+            "Propose a tidy folder structure, then apply the moves only after you approve.",
+            ("folder",),
+            (
+                {"id": "s1", "tool": "fs.list", "args": {"path": "{folder}"}, "expect": "the folder listing"},
+                _llm(
+                    "s2",
+                    'Propose a tidier structure as a JSON list of moves, each {"from": name, "to": '
+                    "new/relative/path}, using only names from the listing. Never delete anything. Output only the JSON.",
+                    "$s1.output",
+                    "a JSON list of moves",
+                ),
+                {
+                    "id": "s3",
+                    "tool": "fs.apply_moves",
+                    "args": {"root": "{folder}", "moves": "$s2.output"},
+                    "expect": "every move applied inside the folder",
+                },
+                _llm("s4", "Tell the user briefly what was moved and how to undo it.", "$s3.output", "a short report"),
+            ),
+            Risk.R1,
+        ),
+        Skill(
+            "resource-hogs",
+            1,
+            "Find the programs using the most memory and CPU and say which are safe to close.",
+            (),
+            (
+                {
+                    "id": "s1",
+                    "tool": "computer.processes",
+                    "args": {"limit": 15, "sort": "memory"},
+                    "expect": "the heaviest programs",
+                },
+                {"id": "s2", "tool": "system.stats", "args": {}, "expect": "disk, memory and CPU"},
+                _llm(
+                    "s3",
+                    "Explain what is using resources, which programs are normally safe to close and which are not. "
+                    "Suggest only; do not act.",
+                    "$s1.output $s2.output",
+                    "a short report",
+                ),
+            ),
+            Risk.R0,
+        ),
+        Skill(
+            "run-and-explain",
+            1,
+            "Run one command in a shared folder (you approve it first) and explain the result.",
+            ("folder", "command"),
+            (
+                {
+                    "id": "s1",
+                    "tool": "computer.run",
+                    "args": {"command": "{command}", "cwd": "{folder}"},
+                    "expect": "the command's output",
+                },
+                _llm(
+                    "s2",
+                    "Explain what the command did, whether it worked, and what to do next.",
+                    "$s1.output",
+                    "a plain explanation",
+                ),
+            ),
+            Risk.R2,
+        ),
+        Skill(
+            "system-health",
+            1,
+            "Check disk, memory and heavy processes, and suggest cleanups without doing them.",
+            (),
+            (
+                {"id": "s1", "tool": "system.stats", "args": {}, "expect": "disk, memory and top processes"},
+                _llm(
+                    "s2",
+                    "Point out anything unusual and suggest cleanups. Suggest only; do not act.",
+                    "$s1.output",
+                    "a short report",
+                ),
+            ),
+            Risk.R0,
+        ),
+        Skill(
+            "job-search",
+            1,
+            "Search public career sites and job boards for structured openings, deduplicate and rank them.",
+            ("query",),
+            (
+                {
+                    "id": "s1",
+                    "tool": "web.search",
+                    "args": {"query": "{query} career job listings"},
+                    "expect": "search result links",
+                },
+                {"id": "s2", "tool": "web.fetch", "args": {"urls": "$s1.output"}, "expect": "job listing pages text"},
+                _llm(
+                    "s3",
+                    "Extract structured job listings matching '{query}'. For each listing include: job title, company, "
+                    "location/remote, posted date (or 'not stated'), canonical URL, experience level, published salary "
+                    "(or 'not stated'), and source. Deduplicate by company + title. Output as a clean structured markdown table.",
+                    "$s2.output",
+                    "a structured job listings table",
+                ),
+            ),
+            Risk.R0,
+        ),
+    )
+}

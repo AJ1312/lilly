@@ -1,4 +1,5 @@
 """Deeper safety tests for the file tools: containment, no silent overwrite, recoverable deletes, caps, atomicity."""
+
 from __future__ import annotations
 
 import json
@@ -25,8 +26,9 @@ from lilly.tools.fs import (
 
 CTX = ToolContext("t", "s1", 5.0, lambda: False)
 
-needs_symlinks = pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt",
-                                    reason="POSIX symlinks are required to test link handling")
+needs_symlinks = pytest.mark.skipif(
+    not hasattr(os, "symlink") or os.name == "nt", reason="POSIX symlinks are required to test link handling"
+)
 needs_fifo = pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="os.mkfifo is required (POSIX only)")
 
 
@@ -137,7 +139,9 @@ async def test_read_is_labelled_personal(shared: Path, scope: PathScope) -> None
 # ----------------------------------------------------------------- containment (all tools)
 
 
-async def test_sibling_folder_sharing_a_name_prefix_is_not_inside(tmp_path: Path, shared: Path, scope: PathScope) -> None:
+async def test_sibling_folder_sharing_a_name_prefix_is_not_inside(
+    tmp_path: Path, shared: Path, scope: PathScope
+) -> None:
     sibling = tmp_path / "shared2"
     sibling.mkdir()
     (sibling / "x.txt").write_text("secret")
@@ -178,7 +182,9 @@ async def test_a_different_letter_case_is_a_different_folder(tmp_path: Path, sha
 
 
 @needs_symlinks
-async def test_symlinked_folder_out_of_scope_is_denied_everywhere(shared: Path, outside: Path, scope: PathScope) -> None:
+async def test_symlinked_folder_out_of_scope_is_denied_everywhere(
+    shared: Path, outside: Path, scope: PathScope
+) -> None:
     (shared / "door").symlink_to(outside, target_is_directory=True)
     door = str(shared / "door")
     with pytest.raises(PolicyDenied):
@@ -196,7 +202,9 @@ async def test_symlinked_folder_out_of_scope_is_denied_everywhere(shared: Path, 
 
 
 @needs_symlinks
-async def test_read_through_a_dangling_or_outward_file_link_is_denied(shared: Path, outside: Path, scope: PathScope) -> None:
+async def test_read_through_a_dangling_or_outward_file_link_is_denied(
+    shared: Path, outside: Path, scope: PathScope
+) -> None:
     (shared / "peek.txt").symlink_to(outside / "victim.txt")
     with pytest.raises(PolicyDenied):
         await FsReadTool(scope).run({"path": str(shared / "peek.txt")}, CTX)
@@ -342,7 +350,9 @@ async def test_search_stops_at_max_results_and_flags_truncation(shared: Path, sc
     assert len(data["hits"]) == 2 and data["truncated"] is True
 
 
-async def test_search_stops_at_the_file_scan_cap(shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_stops_at_the_file_scan_cap(
+    shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(fs, "MAX_SEARCH_FILES", 3)
     for i in range(6):
         (shared / f"f{i}.txt").write_text("x")
@@ -428,7 +438,9 @@ async def test_write_enforces_the_size_cap_before_touching_disk(shared: Path, sc
     assert list(shared.iterdir()) == []
 
 
-async def test_write_cap_counts_bytes_not_characters(shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_write_cap_counts_bytes_not_characters(
+    shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(fs, "MAX_WRITE_BYTES", 10)
     await FsWriteTool(scope).run({"path": str(shared / "ok.txt"), "content": "x" * 10}, CTX)
     with pytest.raises(ValidationFailed, match="too large"):
@@ -462,7 +474,8 @@ async def test_write_cannot_replace_the_shared_folder_itself(shared: Path, scope
 
 
 async def test_failed_overwrite_leaves_original_intact_and_no_temp_file(
-        shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (shared / "a.txt").write_text("original")
 
     def boom(fd: int) -> None:
@@ -475,7 +488,9 @@ async def test_failed_overwrite_leaves_original_intact_and_no_temp_file(
     assert sorted(p.name for p in shared.iterdir()) == ["a.txt"]
 
 
-async def test_failed_create_leaves_nothing_behind(shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_failed_create_leaves_nothing_behind(
+    shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def boom(fd: int) -> None:
         raise OSError(5, "Input/output error")
 
@@ -486,7 +501,8 @@ async def test_failed_create_leaves_nothing_behind(shared: Path, scope: PathScop
 
 
 async def test_write_refuses_when_a_file_appears_late_without_overwrite(
-        shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The existence check is atomic (hard link), so a file created between tool start and link is never lost."""
     real_link = os.link
 
@@ -508,7 +524,9 @@ async def test_write_through_a_dotdot_that_stays_inside_is_allowed(shared: Path,
 
 
 @needs_symlinks
-async def test_write_does_not_modify_the_target_of_an_inside_link_via_the_tmp_name(shared: Path, scope: PathScope) -> None:
+async def test_write_does_not_modify_the_target_of_an_inside_link_via_the_tmp_name(
+    shared: Path, scope: PathScope
+) -> None:
     (shared / "real.txt").write_text("real")
     (shared / "alias.txt").symlink_to(shared / "real.txt")
     await FsWriteTool(scope).run({"path": str(shared / "alias.txt"), "content": "new", "overwrite": True}, CTX)
@@ -527,7 +545,8 @@ async def test_apply_moves_moves_files_creates_folders_and_returns_undo(shared: 
     (shared / "a.txt").write_text("A")
     (shared / "b.txt").write_text("B")
     result = await FsApplyMovesTool(scope).run(
-        {"root": str(shared), **_moves(("a.txt", "docs/a.txt"), ("b.txt", "docs/2024/b.txt"))}, CTX)
+        {"root": str(shared), **_moves(("a.txt", "docs/a.txt"), ("b.txt", "docs/2024/b.txt"))}, CTX
+    )
     data = _json(result)
     assert data["moved"] == 2
     assert (shared / "docs" / "a.txt").read_text() == "A"
@@ -540,11 +559,13 @@ async def test_apply_moves_moves_files_creates_folders_and_returns_undo(shared: 
 
 
 async def test_apply_moves_accepts_json_text_fenced_json_and_wrapped_object(shared: Path, scope: PathScope) -> None:
-    for n, payload in enumerate((
-        json.dumps([{"from": "a.txt", "to": "x1.txt"}]),
-        'Here you go:\n```json\n{"moves": [{"src": "x1.txt", "dst": "x2.txt"}]}\n```',
-        {"moves": [{"from": "x2.txt", "to": "x3.txt"}]},
-    )):
+    for n, payload in enumerate(
+        (
+            json.dumps([{"from": "a.txt", "to": "x1.txt"}]),
+            'Here you go:\n```json\n{"moves": [{"src": "x1.txt", "dst": "x2.txt"}]}\n```',
+            {"moves": [{"from": "x2.txt", "to": "x3.txt"}]},
+        )
+    ):
         if n == 0:
             (shared / "a.txt").write_text("A")
         await FsApplyMovesTool(scope).run({"root": str(shared), "moves": payload}, CTX)
@@ -572,7 +593,9 @@ async def test_apply_moves_enforces_the_batch_cap(shared: Path, scope: PathScope
     assert (shared / "a.txt").exists() and not (shared / "d").exists()
 
 
-async def test_apply_moves_at_exactly_the_cap_is_accepted(shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_apply_moves_at_exactly_the_cap_is_accepted(
+    shared: Path, scope: PathScope, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(fs, "MAX_MOVES", 3)
     for i in range(3):
         (shared / f"f{i}.txt").write_text(str(i))
@@ -604,8 +627,14 @@ async def test_apply_moves_refuses_absolute_and_malformed_names(shared: Path, ou
     (shared / "a.txt").write_text("A")
     tool = FsApplyMovesTool(scope)
     root = str(shared)
-    for src, dst in [("a.txt", str(outside / "a.txt")), (str(outside / "victim.txt"), "x.txt"),
-                     ("a.txt", ""), ("a.txt", "   "), ("a.txt", "b\x00c"), ("", "b.txt")]:
+    for src, dst in [
+        ("a.txt", str(outside / "a.txt")),
+        (str(outside / "victim.txt"), "x.txt"),
+        ("a.txt", ""),
+        ("a.txt", "   "),
+        ("a.txt", "b\x00c"),
+        ("", "b.txt"),
+    ]:
         with pytest.raises(ValidationFailed):
             await tool.run({"root": root, **_moves((src, dst))}, CTX)
     for dst in ("sub/..", ".."):
@@ -617,7 +646,9 @@ async def test_apply_moves_refuses_absolute_and_malformed_names(shared: Path, ou
 
 
 @needs_symlinks
-async def test_apply_moves_refuses_a_symlinked_folder_pointing_out(shared: Path, outside: Path, scope: PathScope) -> None:
+async def test_apply_moves_refuses_a_symlinked_folder_pointing_out(
+    shared: Path, outside: Path, scope: PathScope
+) -> None:
     (shared / "a.txt").write_text("A")
     (shared / "door").symlink_to(outside, target_is_directory=True)
     tool = FsApplyMovesTool(scope)
@@ -675,7 +706,8 @@ async def test_apply_moves_missing_source_changes_nothing(shared: Path, scope: P
     (shared / "a.txt").write_text("A")
     with pytest.raises(ToolError, match="does not exist"):
         await FsApplyMovesTool(scope).run(
-            {"root": str(shared), **_moves(("a.txt", "x/a.txt"), ("ghost.txt", "x/g.txt"))}, CTX)
+            {"root": str(shared), **_moves(("a.txt", "x/a.txt"), ("ghost.txt", "x/g.txt"))}, CTX
+        )
     assert (shared / "a.txt").read_text() == "A"
     assert not (shared / "x").exists()
 
@@ -695,7 +727,8 @@ async def test_apply_moves_rolls_back_everything_when_a_later_move_fails(shared:
     (shared / "blocker").write_text("I am a file, not a folder")
     with pytest.raises(ToolError, match="put back"):
         await FsApplyMovesTool(scope).run(
-            {"root": str(shared), **_moves(("a.txt", "ok/a.txt"), ("b.txt", "blocker/b.txt"))}, CTX)
+            {"root": str(shared), **_moves(("a.txt", "ok/a.txt"), ("b.txt", "blocker/b.txt"))}, CTX
+        )
     assert (shared / "a.txt").read_text() == "A"
     assert (shared / "b.txt").read_text() == "B"
     assert not (shared / "ok" / "a.txt").exists()
@@ -743,7 +776,8 @@ async def test_apply_moves_cannot_touch_denied_subfolders(shared: Path) -> None:
 
 
 async def test_trash_moves_to_freedesktop_trash_with_restore_info(
-        shared: Path, scope: PathScope, fake_home: Path) -> None:
+    shared: Path, scope: PathScope, fake_home: Path
+) -> None:
     (shared / "my file.txt").write_text("precious")
     result = await FsTrashTool(scope).run({"path": str(shared / "my file.txt")}, CTX)
     assert "my file.txt" in result.output
@@ -758,7 +792,8 @@ async def test_trash_moves_to_freedesktop_trash_with_restore_info(
 
 
 async def test_trash_honours_xdg_data_home(
-        shared: Path, scope: PathScope, fake_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared: Path, scope: PathScope, fake_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     xdg = tmp_path / "xdg"
     monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
     (shared / "a.txt").write_text("A")
@@ -776,7 +811,9 @@ async def test_trash_uses_the_mac_trash_when_present(shared: Path, scope: PathSc
     assert not (fake_home / ".local").exists()
 
 
-async def test_trash_never_overwrites_an_item_already_in_the_trash(shared: Path, scope: PathScope, fake_home: Path) -> None:
+async def test_trash_never_overwrites_an_item_already_in_the_trash(
+    shared: Path, scope: PathScope, fake_home: Path
+) -> None:
     tool = FsTrashTool(scope)
     for content in ("one", "two", "three"):
         (shared / "a.txt").write_text(content)
@@ -807,7 +844,9 @@ async def test_trash_refuses_a_shared_folder_itself(shared: Path, scope: PathSco
     assert not (fake_home / ".local").exists()
 
 
-async def test_trash_missing_path_is_a_tool_error_and_touches_nothing(shared: Path, scope: PathScope, fake_home: Path) -> None:
+async def test_trash_missing_path_is_a_tool_error_and_touches_nothing(
+    shared: Path, scope: PathScope, fake_home: Path
+) -> None:
     with pytest.raises(ToolError, match="does not exist"):
         await FsTrashTool(scope).run({"path": str(shared / "ghost.txt")}, CTX)
     assert not (fake_home / ".local").exists()
@@ -819,7 +858,8 @@ async def test_trash_requires_a_path(scope: PathScope) -> None:
 
 
 async def test_trash_outside_the_shared_folder_is_denied_and_the_file_survives(
-        outside: Path, scope: PathScope, fake_home: Path) -> None:
+    outside: Path, scope: PathScope, fake_home: Path
+) -> None:
     with pytest.raises(PolicyDenied):
         await FsTrashTool(scope).run({"path": str(outside / "victim.txt")}, CTX)
     assert (outside / "victim.txt").read_text() == "keep"
@@ -827,7 +867,8 @@ async def test_trash_outside_the_shared_folder_is_denied_and_the_file_survives(
 
 
 async def test_trash_reports_a_failed_move_as_a_tool_error(
-        shared: Path, scope: PathScope, fake_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared: Path, scope: PathScope, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (shared / "a.txt").write_text("A")
 
     def boom(src: str, dst: str) -> None:

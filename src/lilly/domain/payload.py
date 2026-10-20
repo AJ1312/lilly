@@ -1,4 +1,5 @@
 """Canonical payload hashing. An approval is bound to the hash of exactly what will run."""
+
 from __future__ import annotations
 
 import hashlib

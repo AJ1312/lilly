@@ -1,4 +1,5 @@
 """The devbox settings endpoints: signed-in only, status, background download, reset."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,9 +16,13 @@ pytestmark = pytest.mark.asyncio
 
 def with_engine(api: Api, engine: FakeEngine | None, folder: str) -> None:
     from dataclasses import replace
-    api.runtime.settings = replace(api.runtime.settings, devbox=replace(api.runtime.settings.devbox, shared_folder=folder))
-    api.runtime.devbox = DevboxManager(lambda: api.runtime.settings.devbox, lambda: api.runtime.scope,
-                                       lambda c: engine, api.runtime.clock, ids=(1, 1))
+
+    api.runtime.settings = replace(
+        api.runtime.settings, devbox=replace(api.runtime.settings.devbox, shared_folder=folder)
+    )
+    api.runtime.devbox = DevboxManager(
+        lambda: api.runtime.settings.devbox, lambda: api.runtime.scope, lambda c: engine, api.runtime.clock, ids=(1, 1)
+    )
 
 
 async def test_every_endpoint_needs_a_session(api: Api) -> None:

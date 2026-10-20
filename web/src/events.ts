@@ -107,8 +107,10 @@ class EventBus {
 
   public async refreshCounts() {
     try {
-      const approvals = await api.get<{ approvals: unknown[] }>('/api/approvals')
-      useAppStore.getState().setPendingApprovals(approvals.approvals?.length || 0)
+      const approvals = await api.get<{ approvals: Array<{ status: string }> }>('/api/approvals?status=pending')
+      const pendingCount = (approvals.approvals || []).filter((a) => a.status === 'pending').length
+      useAppStore.getState().setPendingApprovals(pendingCount)
+
 
       const tasks = await api.get<{ tasks: Array<{ state: string }> }>('/api/tasks?limit=50')
       const running = tasks.tasks.filter((t) =>

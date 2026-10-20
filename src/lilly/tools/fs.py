@@ -1,5 +1,6 @@
 """Filesystem tools. Every path is checked against the shared folders, then opened through a
 directory descriptor with O_NOFOLLOW so a symlink swapped in after the check cannot redirect it."""
+
 from __future__ import annotations
 
 import asyncio
@@ -52,8 +53,7 @@ def _out(payload: object, label: Label) -> ToolResult:
 
 
 class _FsTool(Tool):
-    def __init__(self, scope: PathScope,
-                 protected_globs: tuple[str, ...] | Callable[[], tuple[str, ...]] = ()) -> None:
+    def __init__(self, scope: PathScope, protected_globs: tuple[str, ...] | Callable[[], tuple[str, ...]] = ()) -> None:
         self._scope = scope
         self._protected_globs = protected_globs
 
@@ -270,7 +270,11 @@ class FsListTool(_FsTool):
     name = "fs.list"
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        path = self._path(args)
+        raw_path = args.get("path")
+        if not raw_path:
+            path = self._scope.roots[0] if self._scope.roots else Path.home().resolve()
+        else:
+            path = self._path(args)
         limit = int_arg(args, "max_entries", 500, lo=1, hi=5000)
         return await asyncio.to_thread(self._list, path, limit)
 
@@ -289,8 +293,14 @@ class FsListTool(_FsTool):
                     except OSError:
                         continue  # vanished or unreadable: skip it rather than fail the whole listing
                     kind = "link" if entry.is_symlink() else "dir" if entry.is_dir(follow_symlinks=False) else "file"
-                    entries.append({"name": entry.name, "type": kind,
-                                    "size": info.st_size if kind == "file" else None, "modified": _iso(info.st_mtime)})
+                    entries.append(
+                        {
+                            "name": entry.name,
+                            "type": kind,
+                            "size": info.st_size if kind == "file" else None,
+                            "modified": _iso(info.st_mtime),
+                        }
+                    )
         except (NotADirectoryError, FileNotFoundError, PermissionError) as exc:
             raise ToolError(f"cannot list folder: {exc.strerror}") from exc
         return _out({"path": str(path), "entries": entries, "truncated": truncated}, Label.PERSONAL)
@@ -300,7 +310,11 @@ class FsSearchTool(_FsTool):
     name = "fs.search"
 
     async def run(self, args: Mapping[str, object], ctx: ToolContext) -> ToolResult:
-        root = self._path(args)
+        raw_root = args.get("path")
+        if not raw_root:
+            root = self._scope.roots[0] if self._scope.roots else Path.home().resolve()
+        else:
+            root = self._path(args)
         query = str_arg(args, "query", max_len=200).lower()
         limit = int_arg(args, "max_results", 50, lo=1, hi=500)
         return await asyncio.to_thread(self._search, root, query, limit, ctx.cancelled, self._scope.allows)
@@ -342,7 +356,7 @@ class FsSearchTool(_FsTool):
                 idx = text.lower().find(query)
                 if idx >= 0:
                     start = max(0, idx - 60)
-                    hits.append({"path": full, "match": "text", "snippet": " ".join(text[start:idx + 100].split())})
+                    hits.append({"path": full, "match": "text", "snippet": " ".join(text[start : idx + 100].split())})
             if truncated:
                 break
         return _out({"query": query, "hits": hits, "files_scanned": scanned, "truncated": truncated}, Label.PERSONAL)
@@ -526,5 +540,6 @@ class FsTrashTool(_FsTool):
             raise ToolError(f"could not move to the Trash: {exc.strerror}") from exc
         if info is not None:
             (info / f"{target.name}.trashinfo").write_text(
-                f"[Trash Info]\nPath={quote(str(path))}\nDeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n")
+                f"[Trash Info]\nPath={quote(str(path))}\nDeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n"
+            )
         return ToolResult(f"Moved {path.name} to the Trash", Label.PUBLIC, False)

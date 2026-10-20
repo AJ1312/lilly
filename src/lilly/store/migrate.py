@@ -1,4 +1,5 @@
 """Migration runner for SQLite schema."""
+
 from __future__ import annotations
 
 import re
@@ -62,9 +63,7 @@ def migrate(con: sqlite3.Connection, migrations_dir: Path | str | None = None) -
     max_code_version = files[-1][0] if files else 0
     current_version = schema_version(con)
     if current_version > max_code_version:
-        raise ValidationFailed(
-            f"Database version ({current_version}) is newer than code ({max_code_version})"
-        )
+        raise ValidationFailed(f"Database version ({current_version}) is newer than code ({max_code_version})")
     for version, file_path in files:
         if version <= current_version:
             continue

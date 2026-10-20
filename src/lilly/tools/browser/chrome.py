@@ -1,5 +1,6 @@
 """Finding, starting and stopping the browser process. Its profile is a new temporary folder each time, so it holds
 none of your sign-ins, history or extensions, and it is deleted when the browser quits."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,8 +15,15 @@ from pathlib import Path
 from lilly.domain.errors import ToolError
 
 START_TIMEOUT_S = 20.0
-_NAMES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "brave-browser",
-          "chrome")
+_NAMES = (
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+    "microsoft-edge",
+    "brave-browser",
+    "chrome",
+)
 _PLACES = (
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -25,10 +33,20 @@ _PLACES = (
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
 )
-FLAGS = ("--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync",
-         "--disable-background-networking", "--disable-component-update", "--disable-default-apps", "--mute-audio",
-         "--password-store=basic", "--use-mock-keychain", "--disable-features=Translate,MediaRouter",
-         "--remote-allow-origins=http://127.0.0.1")
+FLAGS = (
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-extensions",
+    "--disable-sync",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "--mute-audio",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--disable-features=Translate,MediaRouter",
+    "--remote-allow-origins=http://127.0.0.1",
+)
 
 
 def find_browser(configured: str = "", environ: dict[str, str] | None = None) -> str:
@@ -64,14 +82,35 @@ class BrowserProcess:
         if self._headless:
             args.append("--headless=new")
         if sys.platform != "win32" and os.geteuid() == 0:
-            args.append("--no-sandbox")     # Chrome refuses to run as root otherwise
-        env = {k: v for k in ("PATH", "HOME", "LANG", "DISPLAY", "XAUTHORITY", "TMPDIR", "SYSTEMROOT", "TEMP", "TMP",
-                              "XDG_RUNTIME_DIR") if (v := os.environ.get(k))}
+            args.append("--no-sandbox")  # Chrome refuses to run as root otherwise
+        env = {
+            k: v
+            for k in (
+                "PATH",
+                "HOME",
+                "LANG",
+                "DISPLAY",
+                "XAUTHORITY",
+                "TMPDIR",
+                "SYSTEMROOT",
+                "TEMP",
+                "TMP",
+                "XDG_RUNTIME_DIR",
+            )
+            if (v := os.environ.get(k))
+        }
         kwargs = {"creationflags": 0x200} if sys.platform == "win32" else {"start_new_session": True}
         try:
             self._proc = await asyncio.create_subprocess_exec(
-                self._program, *args, "about:blank", stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL, env=env, **kwargs)
+                self._program,
+                *args,
+                "about:blank",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=env,
+                **kwargs,
+            )
         except OSError as exc:
             await self.stop()
             raise ToolError("could not start the browser") from exc

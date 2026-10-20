@@ -2,6 +2,7 @@
 
 Installing downloads about a gigabyte, so it runs in the background, one at a time, with progress lines the
 interface can show. Asking for the decider never blocks: it is None until an install has finished."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,12 +28,18 @@ Maker = Callable[[Path], LayaDecider | None]
 
 
 class LayaService:
-    def __init__(self, addon: Path, installer: Installer = laya_install.install, *,
-                 checker: Checker = laya_install.preflight, maker: Maker = LayaDecider.from_install) -> None:
+    def __init__(
+        self,
+        addon: Path,
+        installer: Installer = laya_install.install,
+        *,
+        checker: Checker = laya_install.preflight,
+        maker: Maker = LayaDecider.from_install,
+    ) -> None:
         self._addon, self._installer, self._checker, self._maker = addon, installer, checker, maker
         self._testing = False
         self._decider: LayaDecider | None = None
-        self._stamp: int | None = None            # the marker file's modification time when the decider was made
+        self._stamp: int | None = None  # the marker file's modification time when the decider was made
         self._job: asyncio.Task[None] | None = None
         self._lines: deque[str] = deque(maxlen=MAX_LINES)
         self._error: str | None = None
@@ -64,12 +71,19 @@ class LayaService:
         host = laya_install.this_host()
         installing = self._job is not None and not self._job.done()
         decider = self.decider
-        return {"installed": installed, "installing": installing, "progress": list(self._lines),
-                "error": self._error or (None if installed else laya_install.last_failure(self._addon)),
-                "download_mb": DOWNLOAD_BYTES // 10**6,
-                "worker": decider.state if decider is not None else "off",
-                "note": ("Intel Macs need Python 3.12 or older for Laya; Lilly looks for one when installing."
-                         if host.old_torch_only else None)}
+        return {
+            "installed": installed,
+            "installing": installing,
+            "progress": list(self._lines),
+            "error": self._error or (None if installed else laya_install.last_failure(self._addon)),
+            "download_mb": DOWNLOAD_BYTES // 10**6,
+            "worker": decider.state if decider is not None else "off",
+            "note": (
+                "Intel Macs need Python 3.12 or older for Laya; Lilly looks for one when installing."
+                if host.old_torch_only
+                else None
+            ),
+        }
 
     async def check(self) -> list[laya_install.Check]:
         """What this computer can do, found out without downloading anything."""
@@ -97,7 +111,7 @@ class LayaService:
         self._lines.clear()
         self._job = asyncio.create_task(self._run(), name="lilly-laya-install")
 
-    def _say(self, line: str) -> None:        # called from the install thread
+    def _say(self, line: str) -> None:  # called from the install thread
         if self._stop:
             raise laya_install.LayaInstallError("the install was stopped")
         self._lines.append(line)

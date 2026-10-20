@@ -30,7 +30,7 @@ Needs Python 3.12 or newer and an internet connection for the install. Then run 
 
 Turn on **Settings → Privacy & access → Computer control**, then allow it per agent in **Agents** (or enable it directly; computer module is available by default). Lilly uses open-source PyAutoGUI alongside native OS hooks for reliable, cross-platform mouse clicks, pointer movements, typing, key combinations, drags, and scrolling. Grounding uses semantic accessibility/DOM targets first, vision grounders when configured, and flexible coordinate targeting (`@x=..., y=...`, `x=..., y=...`, `100, 200`, `(100, 200)`) as standard.
 
-`MANUAL` asks for approval before interactive actions. `AUTO` and `OFF` work autonomously without prompting for safe, non-denied operations, while strictly preserving isolation barriers and prompt-injection defenses (untrusted web taint at R2+ still prompts). Hard policy denials and shared folder scope boundaries are never bypassed.
+`MANUAL` asks for approval before interactive actions. `AUTO` works autonomously without prompting for safe, non-denied operations (untrusted web taint at R2+ still prompts). `OFF` disables all agentic tools and mutations, restricting Lilly to conversational responses only. Hard policy denials and shared folder scope boundaries are never bypassed.
 
 ## Talking to it from Telegram, running code safely, watching the browser
 

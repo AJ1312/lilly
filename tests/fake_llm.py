@@ -5,6 +5,7 @@ Records every incoming request and answers from a predetermined list of scripted
 Supports text, native tool calls, SSE streaming, 429 rate limits with Retry-After or retryDelay,
 503 errors, malformed responses, and stalls.
 """
+
 from __future__ import annotations
 
 import json
@@ -164,10 +165,12 @@ class FakeLLMServer:
                 if "generateContent" in parsed_path:
                     details = []
                     if reply.retry_delay:
-                        details.append({
-                            "@type": "type.googleapis.com/google.rpc.RetryInfo",
-                            "retryDelay": reply.retry_delay,
-                        })
+                        details.append(
+                            {
+                                "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                                "retryDelay": reply.retry_delay,
+                            }
+                        )
                     resp = {
                         "error": {
                             "code": reply.status_code,
@@ -179,7 +182,9 @@ class FakeLLMServer:
                 else:
                     resp = {
                         "error": {
-                            "message": f"Rate limit reached. Retry in {reply.retry_after} s" if reply.retry_after else "Error",
+                            "message": f"Rate limit reached. Retry in {reply.retry_after} s"
+                            if reply.retry_after
+                            else "Error",
                             "type": "rate_limit_error" if reply.status_code == 429 else "server_error",
                             "code": "rate_limit_exceeded" if reply.status_code == 429 else None,
                         }
@@ -199,35 +204,41 @@ class FakeLLMServer:
                     for i, tc in enumerate(reply.tool_calls):
                         raw_args = tc.get("arguments", {})
                         arg_str = raw_args if isinstance(raw_args, str) else json.dumps(raw_args)
-                        formatted_calls.append({
-                            "id": tc.get("id", f"call_{i}_{int(time.time()*1000)}"),
-                            "type": "function",
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": arg_str,
+                        formatted_calls.append(
+                            {
+                                "id": tc.get("id", f"call_{i}_{int(time.time() * 1000)}"),
+                                "type": "function",
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": arg_str,
+                                },
+                            }
+                        )
+                    choices.append(
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": reply.content or None,
+                                "tool_calls": formatted_calls,
                             },
-                        })
-                    choices.append({
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": reply.content or None,
-                            "tool_calls": formatted_calls,
-                        },
-                        "finish_reason": "tool_calls",
-                    })
+                            "finish_reason": "tool_calls",
+                        }
+                    )
                 else:
-                    choices.append({
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": reply.content,
-                        },
-                        "finish_reason": "stop",
-                    })
+                    choices.append(
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": reply.content,
+                            },
+                            "finish_reason": "stop",
+                        }
+                    )
 
                 resp = {
-                    "id": f"chatcmpl-{int(time.time()*1000)}",
+                    "id": f"chatcmpl-{int(time.time() * 1000)}",
                     "object": "chat.completion",
                     "created": int(time.time()),
                     "model": body.get("model", "fake-model") if body else "fake-model",
@@ -245,13 +256,16 @@ class FakeLLMServer:
                 self.end_headers()
 
                 model = body.get("model", "fake-model") if body else "fake-model"
-                cid = f"chatcmpl-{int(time.time()*1000)}"
+                cid = f"chatcmpl-{int(time.time() * 1000)}"
 
                 if reply.tool_calls:
                     # Role chunk
                     c1 = {
-                        "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
-                        "model": model, "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
                     }
                     self.wfile.write(f"data: {json.dumps(c1)}\n\n".encode("utf-8"))
                     self.wfile.flush()
@@ -259,22 +273,29 @@ class FakeLLMServer:
                     for i, tc in enumerate(reply.tool_calls):
                         raw_args = tc.get("arguments", {})
                         arg_str = raw_args if isinstance(raw_args, str) else json.dumps(raw_args)
-                        call_id = tc.get("id", f"call_{i}_{int(time.time()*1000)}")
+                        call_id = tc.get("id", f"call_{i}_{int(time.time() * 1000)}")
                         # Send name chunk
                         c_name = {
-                            "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
-                            "model": model, "choices": [{
-                                "index": 0,
-                                "delta": {
-                                    "tool_calls": [{
-                                        "index": i,
-                                        "id": call_id,
-                                        "type": "function",
-                                        "function": {"name": tc["name"], "arguments": ""},
-                                    }]
-                                },
-                                "finish_reason": None,
-                            }],
+                            "id": cid,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "tool_calls": [
+                                            {
+                                                "index": i,
+                                                "id": call_id,
+                                                "type": "function",
+                                                "function": {"name": tc["name"], "arguments": ""},
+                                            }
+                                        ]
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
                         }
                         self.wfile.write(f"data: {json.dumps(c_name)}\n\n".encode("utf-8"))
                         self.wfile.flush()
@@ -285,25 +306,35 @@ class FakeLLMServer:
                         for part in (part1, part2):
                             if part:
                                 c_arg = {
-                                    "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
-                                    "model": model, "choices": [{
-                                        "index": 0,
-                                        "delta": {
-                                            "tool_calls": [{
-                                                "index": i,
-                                                "function": {"arguments": part},
-                                            }]
-                                        },
-                                        "finish_reason": None,
-                                    }],
+                                    "id": cid,
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": model,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "tool_calls": [
+                                                    {
+                                                        "index": i,
+                                                        "function": {"arguments": part},
+                                                    }
+                                                ]
+                                            },
+                                            "finish_reason": None,
+                                        }
+                                    ],
                                 }
                                 self.wfile.write(f"data: {json.dumps(c_arg)}\n\n".encode("utf-8"))
                                 self.wfile.flush()
 
                     # Finish chunk
                     c_end = {
-                        "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
-                        "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
                     }
                     self.wfile.write(f"data: {json.dumps(c_end)}\n\n".encode("utf-8"))
                     self.wfile.write(b"data: [DONE]\n\n")
@@ -311,13 +342,25 @@ class FakeLLMServer:
                 else:
                     # Text chunks
                     c1 = {
-                        "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
-                        "model": model, "choices": [{"index": 0, "delta": {"role": "assistant", "content": reply.content}, "finish_reason": None}],
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": reply.content},
+                                "finish_reason": None,
+                            }
+                        ],
                     }
                     self.wfile.write(f"data: {json.dumps(c1)}\n\n".encode("utf-8"))
                     c2 = {
-                        "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
-                        "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                     }
                     self.wfile.write(f"data: {json.dumps(c2)}\n\n".encode("utf-8"))
                     self.wfile.write(b"data: [DONE]\n\n")
@@ -339,12 +382,14 @@ class FakeLLMServer:
                                 args = json.loads(args)
                             except Exception:
                                 pass
-                        parts.append({
-                            "functionCall": {
-                                "name": tc["name"],
-                                "args": args,
+                        parts.append(
+                            {
+                                "functionCall": {
+                                    "name": tc["name"],
+                                    "args": args,
+                                }
                             }
-                        })
+                        )
                 else:
                     parts.append({"text": reply.content})
 
@@ -381,12 +426,14 @@ class FakeLLMServer:
                                 args = json.loads(args)
                             except Exception:
                                 pass
-                        tcs.append({
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": args,
+                        tcs.append(
+                            {
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": args,
+                                }
                             }
-                        })
+                        )
                     msg["tool_calls"] = tcs
 
                 resp = {

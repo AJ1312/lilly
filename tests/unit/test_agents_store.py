@@ -1,4 +1,5 @@
 """Agents keep their pet's look, skills and model, and a damaged look never breaks a listing."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -68,22 +69,55 @@ def test_a_corrupt_stored_look_falls_back_to_the_default(con: sqlite3.Connection
 # ---- which changes take something away -------------------------------------------------------------
 def _agent(**kw: object) -> AgentRow:
     base: dict[str, object] = dict(
-        id="a1", name="Fox", instructions="", mode=1, research_allowed=True, memory_allowed=True, files_allowed=True,
-        space_id=None, created_at=1.0, computer_allowed=True, pet="lily", chat_allowed=True, skills="", model="m",
-        look=Look(None, "none", "round", True))
+        id="a1",
+        name="Fox",
+        instructions="",
+        mode=1,
+        research_allowed=True,
+        memory_allowed=True,
+        files_allowed=True,
+        space_id=None,
+        created_at=1.0,
+        computer_allowed=True,
+        pet="lily",
+        chat_allowed=True,
+        skills="",
+        model="m",
+        look=Look(None, "none", "round", True),
+    )
     return AgentRow(**{**base, **kw})  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("change", [
-    {"research_allowed": False}, {"memory_allowed": False}, {"files_allowed": False}, {"computer_allowed": False},
-    {"chat_allowed": False}, {"mode": 0}, {"mode": 0, "name": "Renamed", "research_allowed": True}])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"research_allowed": False},
+        {"memory_allowed": False},
+        {"files_allowed": False},
+        {"computer_allowed": False},
+        {"chat_allowed": False},
+        {"mode": 0},
+        {"mode": 0, "name": "Renamed", "research_allowed": True},
+    ],
+)
 def test_a_permission_turned_off_or_a_stricter_mode_narrows(change: dict[str, object]) -> None:
     assert narrows(_agent(), _agent(**change))
 
 
-@pytest.mark.parametrize("change", [
-    {}, {"mode": 2}, {"name": "Other"}, {"instructions": "new"}, {"skills": "S"}, {"pet": "otto"}, {"model": "other"},
-    {"model": ""}, {"look": Look(7, "hat", "sleepy", False)}])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {},
+        {"mode": 2},
+        {"name": "Other"},
+        {"instructions": "new"},
+        {"skills": "S"},
+        {"pet": "otto"},
+        {"model": "other"},
+        {"model": ""},
+        {"look": Look(7, "hat", "sleepy", False)},
+    ],
+)
 def test_widening_and_other_edits_do_not_narrow(change: dict[str, object]) -> None:
     assert not narrows(_agent(), _agent(**change))
 

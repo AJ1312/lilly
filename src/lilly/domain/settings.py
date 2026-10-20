@@ -2,6 +2,7 @@
 
 Everything here is validated before it is saved, and a secret can never be stored in it.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -33,8 +34,9 @@ _HOST = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 _SECRET_KEYS = frozenset({"api_key", "apikey", "token", "secret", "password"})
 
 
-_PRIVATE_V4 = tuple(ipaddress.ip_network(n) for n in
-                    ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"))  # last: Tailscale
+_PRIVATE_V4 = tuple(
+    ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10")
+)  # last: Tailscale
 _PRIVATE_V6 = tuple(ipaddress.ip_network(n) for n in ("::1/128", "fc00::/7"))
 
 
@@ -55,9 +57,9 @@ def is_private_url(url: str) -> bool:
         return False
     if isinstance(ip, ipaddress.IPv6Address):
         if ip.ipv4_mapped is not None:
-            ip = ip.ipv4_mapped                    # ::ffff:a.b.c.d is judged as a.b.c.d
+            ip = ip.ipv4_mapped  # ::ffff:a.b.c.d is judged as a.b.c.d
         else:
-            return any(ip in net for net in _PRIVATE_V6)   # 6to4, Teredo and NAT64 embed outside addresses
+            return any(ip in net for net in _PRIVATE_V6)  # 6to4, Teredo and NAT64 embed outside addresses
     nets = _PRIVATE_V4 if isinstance(ip, ipaddress.IPv4Address) else _PRIVATE_V6
     return any(ip in net for net in nets)
 
@@ -69,33 +71,33 @@ ToolCallingSupport = Literal["native", "protocol", "none", "unknown"]
 class ModelSpec:
     """One entry in the user's model list. List order is priority order."""
 
-    name: str                        # the user's label, e.g. "mistral-small"
-    provider: str                    # one of PROVIDERS
-    model_id: str                    # the provider's model id
-    local: bool = False              # runs on this computer and never sends data out
+    name: str  # the user's label, e.g. "mistral-small"
+    provider: str  # one of PROVIDERS
+    model_id: str  # the provider's model id
+    local: bool = False  # runs on this computer and never sends data out
     enabled: bool = True
     caps: Cap = Cap.NONE
     max_label: Label = Label.PUBLIC  # standing ceiling; more needs the user's permission
-    rpm: int | None = None           # requests per minute, from the provider's console
-    rpd: int | None = None           # requests per day
+    rpm: int | None = None  # requests per minute, from the provider's console
+    rpd: int | None = None  # requests per day
     tz: str = "America/Los_Angeles"  # where the daily quota resets
-    key_ref: str | None = None       # key store item name; the key itself is never stored here
-    private_access: str = "ask"      # "ask": may receive private data with permission; "never"
-    trains: bool = True              # assume a remote tier may train on, or show humans, your inputs
-    base_url: str | None = None      # override the provider's default endpoint (Ollama on another port)
-    quick: bool = False              # try this model first for small, simple steps (a cheaper or faster model)
-    lane: int = 1                    # priority tier (1 = first)
-    tags: tuple[str, ...] = ()       # free-text tags, e.g. ("fast", "strong")
-    tpm: int | None = None           # tokens per minute
-    tpd: int | None = None           # tokens per day
+    key_ref: str | None = None  # key store item name; the key itself is never stored here
+    private_access: str = "ask"  # "ask": may receive private data with permission; "never"
+    trains: bool = True  # assume a remote tier may train on, or show humans, your inputs
+    base_url: str | None = None  # override the provider's default endpoint (Ollama on another port)
+    quick: bool = False  # try this model first for small, simple steps (a cheaper or faster model)
+    lane: int = 1  # priority tier (1 = first)
+    tags: tuple[str, ...] = ()  # free-text tags, e.g. ("fast", "strong")
+    tpm: int | None = None  # tokens per minute
+    tpd: int | None = None  # tokens per day
     max_context_tokens: int | None = None
     tools: ToolCallingSupport = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
 class NetworkSettings:
-    allowed_hosts: tuple[str, ...] = ()          # extra Host names the UI answers to, e.g. a Tailscale name
-    local_only: bool = False                     # strictly restrict model inference to local models on this computer
+    allowed_hosts: tuple[str, ...] = ()  # extra Host names the UI answers to, e.g. a Tailscale name
+    local_only: bool = False  # strictly restrict model inference to local models on this computer
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,14 +109,15 @@ class SearchSettings:
 @dataclass(frozen=True, slots=True)
 class LimitSettings:
     """How much Lilly may do at once. All of these can be changed live from the Resources screen."""
-    max_running: int = 3          # tasks running at the same time; more wait in a queue
-    step_timeout_s: int = 180     # one step (a tool call or a model call) is stopped after this long
-    task_minutes: int = 60        # a whole task is stopped after this long
-    lanes: int = 3                # read-only steps of one task that may run side by side
-    local_unload_s: int = 300     # a local model leaves memory after this long unused (0: right after each answer)
-    max_agent_steps: int = 20     # tool turns per task
-    max_model_calls: int = 30     # model calls per task
-    max_task_tokens: int = 150000 # input+output tokens per task
+
+    max_running: int = 3  # tasks running at the same time; more wait in a queue
+    step_timeout_s: int = 180  # one step (a tool call or a model call) is stopped after this long
+    task_minutes: int = 60  # a whole task is stopped after this long
+    lanes: int = 3  # read-only steps of one task that may run side by side
+    local_unload_s: int = 300  # a local model leaves memory after this long unused (0: right after each answer)
+    max_agent_steps: int = 20  # tool turns per task
+    max_model_calls: int = 30  # model calls per task
+    max_task_tokens: int = 150000  # input+output tokens per task
 
 
 LIMIT_BOUNDS = {
@@ -202,16 +205,16 @@ class Settings:
     modules: frozenset[str] = frozenset({"files", "web", "memory", "notes", "skills", "computer"})
     default_mode: Mode = Mode.ASK
     approval_mode: ApprovalMode = ApprovalMode.MANUAL
-    file_roots: tuple[str, ...] = ()             # folders agents may touch; empty means no file access
+    file_roots: tuple[str, ...] = ()  # folders agents may touch; empty means no file access
     retention_days: int = 90
     network: NetworkSettings = NetworkSettings()
     search: SearchSettings = SearchSettings()
-    stay_awake: bool = False                     # keep the computer awake while a task runs
+    stay_awake: bool = False  # keep the computer awake while a task runs
     limits: LimitSettings = LimitSettings()
-    decisions: DecisionSettings = DecisionSettings()   # the cheap deciders that advise before a model is asked
-    browser: BrowserSettings = BrowserSettings()       # the agent's browser (module `browser`, off by default)
-    bridges: BridgeSettings = BridgeSettings()         # chat apps (Telegram): off until paired and switched on
-    devbox: DevboxSettings = DevboxSettings()          # the sealed container (module `devbox`, off by default)
+    decisions: DecisionSettings = DecisionSettings()  # the cheap deciders that advise before a model is asked
+    browser: BrowserSettings = BrowserSettings()  # the agent's browser (module `browser`, off by default)
+    bridges: BridgeSettings = BridgeSettings()  # chat apps (Telegram): off until paired and switched on
+    devbox: DevboxSettings = DevboxSettings()  # the sealed container (module `devbox`, off by default)
     capacity: CapacitySettings = CapacitySettings()
     engine: EngineSettings = EngineSettings()
     grounding: GroundingSettings = GroundingSettings()
@@ -332,15 +335,36 @@ def _spec_from_dict(d: dict[str, Any]) -> tuple[ModelSpec | None, list[str]]:
     elif local is True and d.get("provider") != "ollama":
         errs.append(f"{name}: only an Ollama model can be marked local; this provider receives your data")
     elif local is True and base_url is not None and not is_private_url(base_url):
-        errs.append(f"{name}: a local model must run on this computer or your private network; "
-                    "use localhost or an IP address, or turn off 'local'")
+        errs.append(
+            f"{name}: a local model must run on this computer or your private network; "
+            "use localhost or an IP address, or turn off 'local'"
+        )
     if errs:
         return None, errs
     is_quick = bool(d.get("quick", False)) or ("quick" in tags)
-    return ModelSpec(name, d["provider"], d["model_id"], local, bool(d.get("enabled", True)), caps, label,
-                     d.get("rpm"), d.get("rpd"), tz, d.get("key_ref"), d.get("private_access", "ask"),
-                     bool(d.get("trains", True)), base_url, is_quick, lane, tags,
-                     d.get("tpm"), d.get("tpd"), d.get("max_context_tokens"), tools_val), []
+    return ModelSpec(
+        name,
+        d["provider"],
+        d["model_id"],
+        local,
+        bool(d.get("enabled", True)),
+        caps,
+        label,
+        d.get("rpm"),
+        d.get("rpd"),
+        tz,
+        d.get("key_ref"),
+        d.get("private_access", "ask"),
+        bool(d.get("trains", True)),
+        base_url,
+        is_quick,
+        lane,
+        tags,
+        d.get("tpm"),
+        d.get("tpd"),
+        d.get("max_context_tokens"),
+        tools_val,
+    ), []
 
 
 def _roots(raw: object, errs: list[str]) -> tuple[str, ...]:
@@ -536,10 +560,27 @@ def parse_settings(raw: dict[str, Any]) -> tuple[Settings | None, list[str]]:
     errs += learning_errs
     if errs:
         return None, errs
-    return Settings(tuple(specs), mods, mode, approval_mode, roots, days,
-                    NetworkSettings(hosts, local_only), SearchSettings(engine, url), stay, limits, decisions or DecisionSettings(),
-                    browser or BrowserSettings(), bridges or BridgeSettings(), devbox or DevboxSettings(),
-                    capacity, engine_settings, grounding, crew, learning), []
+    return Settings(
+        tuple(specs),
+        mods,
+        mode,
+        approval_mode,
+        roots,
+        days,
+        NetworkSettings(hosts, local_only),
+        SearchSettings(engine, url),
+        stay,
+        limits,
+        decisions or DecisionSettings(),
+        browser or BrowserSettings(),
+        bridges or BridgeSettings(),
+        devbox or DevboxSettings(),
+        capacity,
+        engine_settings,
+        grounding,
+        crew,
+        learning,
+    ), []
 
 
 def settings_to_dict(s: Settings) -> dict[str, Any]:
@@ -552,12 +593,16 @@ def settings_to_dict(s: Settings) -> dict[str, Any]:
         "network": {"allowed_hosts": list(s.network.allowed_hosts), "local_only": s.network.local_only},
         "search": {"engine": s.search.engine, "searxng_url": s.search.searxng_url},
         "stay_awake": s.stay_awake,
-        "limits": {"max_running": s.limits.max_running, "step_timeout_s": s.limits.step_timeout_s,
-                   "task_minutes": s.limits.task_minutes, "lanes": s.limits.lanes,
-                   "local_unload_s": s.limits.local_unload_s,
-                   "max_agent_steps": s.limits.max_agent_steps,
-                   "max_model_calls": s.limits.max_model_calls,
-                   "max_task_tokens": s.limits.max_task_tokens},
+        "limits": {
+            "max_running": s.limits.max_running,
+            "step_timeout_s": s.limits.step_timeout_s,
+            "task_minutes": s.limits.task_minutes,
+            "lanes": s.limits.lanes,
+            "local_unload_s": s.limits.local_unload_s,
+            "max_agent_steps": s.limits.max_agent_steps,
+            "max_model_calls": s.limits.max_model_calls,
+            "max_task_tokens": s.limits.max_task_tokens,
+        },
         "capacity": {
             "max_wait_interactive_s": s.capacity.max_wait_interactive_s,
             "max_wait_background_s": s.capacity.max_wait_background_s,
@@ -592,13 +637,32 @@ def settings_to_dict(s: Settings) -> dict[str, Any]:
             "mode": s.learning.mode,
             "auto_playbooks": s.learning.auto_playbooks,
         },
-        "models": [{"name": m.name, "provider": m.provider, "model_id": m.model_id, "local": m.local,
-                    "enabled": m.enabled, "caps": [c.name for c in Cap if c and c in m.caps],
-                    "max_label": m.max_label.name, "rpm": m.rpm, "rpd": m.rpd, "tz": m.tz,
-                    "key_ref": m.key_ref, "private_access": m.private_access, "trains": m.trains,
-                    "base_url": m.base_url, "quick": m.quick, "lane": m.lane, "tags": list(m.tags),
-                    "tpm": m.tpm, "tpd": m.tpd, "max_context_tokens": m.max_context_tokens,
-                    "tools": m.tools} for m in s.models],
+        "models": [
+            {
+                "name": m.name,
+                "provider": m.provider,
+                "model_id": m.model_id,
+                "local": m.local,
+                "enabled": m.enabled,
+                "caps": [c.name for c in Cap if c and c in m.caps],
+                "max_label": m.max_label.name,
+                "rpm": m.rpm,
+                "rpd": m.rpd,
+                "tz": m.tz,
+                "key_ref": m.key_ref,
+                "private_access": m.private_access,
+                "trains": m.trains,
+                "base_url": m.base_url,
+                "quick": m.quick,
+                "lane": m.lane,
+                "tags": list(m.tags),
+                "tpm": m.tpm,
+                "tpd": m.tpd,
+                "max_context_tokens": m.max_context_tokens,
+                "tools": m.tools,
+            }
+            for m in s.models
+        ],
     }
 
 

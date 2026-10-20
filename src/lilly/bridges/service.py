@@ -3,6 +3,7 @@
 Everything from a chat is outside text: each task it starts is untrusted from its first step. Only linked accounts
 (by numeric id) are answered, a message is size-capped and rate-limited, and approvals shown here carry the exact
 action. Computer control and anything that is not an ordinary step stay in the app."""
+
 from __future__ import annotations
 
 import asyncio
@@ -31,25 +32,32 @@ PLATFORM = "telegram"
 TOKEN_REF = "telegram-bot"  # nosec B105 - the key-store name of the bot token, not the token
 POLL_S = 25
 BACKOFF_FIRST_S, BACKOFF_MAX_S = 5.0, 120.0
-EXACT_CHARS = 900                # how much of an action's arguments one approval card shows
-MAX_TRACKED = 64                 # tasks started from chat that are still being followed
+EXACT_CHARS = 900  # how much of an action's arguments one approval card shows
+MAX_TRACKED = 64  # tasks started from chat that are still being followed
 TERMINAL = frozenset({"DONE", "FAILED", "CANCELLED", "EXPIRED"})
-HELP = ("Send me a request and Lilly will work on it. /stop cancels what is running from this chat. "
-        "Anything that needs your approval is shown here with exactly what it will do.")
+HELP = (
+    "Send me a request and Lilly will work on it. /stop cancels what is running from this chat. "
+    "Anything that needs your approval is shown here with exactly what it will do."
+)
 
 
 class BridgeService:
-    def __init__(self, rt: Runtime, api_factory: Callable[[Secret], TelegramApi] | None = None,
-                 poll_s: int = POLL_S, backoff_s: float = BACKOFF_FIRST_S) -> None:
+    def __init__(
+        self,
+        rt: Runtime,
+        api_factory: Callable[[Secret], TelegramApi] | None = None,
+        poll_s: int = POLL_S,
+        backoff_s: float = BACKOFF_FIRST_S,
+    ) -> None:
         self._rt, self._poll_s, self._backoff_first = rt, poll_s, backoff_s
         self._make_api = api_factory or (lambda token: TelegramApi(rt.client, token))
         self._pairing = Pairing(rt.clock)
         self._limit = RateLimiter(rt.clock, rt.settings.bridges.per_minute)
-        self._strangers = RateLimiter(rt.clock, 3)        # pairing attempts from accounts that are not linked
+        self._strangers = RateLimiter(rt.clock, 3)  # pairing attempts from accounts that are not linked
         self._poller: asyncio.Task[None] | None = None
         self._watcher: asyncio.Task[None] | None = None
-        self._tracked: OrderedDict[str, int] = OrderedDict()   # task id -> the linked user who asked
-        self._announced: set[str] = set()                      # approvals already shown in chat
+        self._tracked: OrderedDict[str, int] = OrderedDict()  # task id -> the linked user who asked
+        self._announced: set[str] = set()  # approvals already shown in chat
         self._bot: str | None = None
         self._error: str | None = None
         self._api: TelegramApi | None = None
@@ -87,11 +95,19 @@ class BridgeService:
     def status(self) -> dict[str, object]:
         settings = self._rt.settings.bridges
         until = self._pairing.active()
-        return {"platform": PLATFORM, "enabled": settings.enabled, "running": self._poller is not None and not self._poller.done(),
-                "token_set": self._rt.keys.get(TOKEN_REF) is not None, "bot": self._bot, "error": self._error,
-                "pairing_until": until,
-                "identities": [{"user_id": i.user_id, "label": i.label, "paired_at": i.paired_at}
-                               for i in bridges.list_identities(self._rt.db.reader, PLATFORM)]}
+        return {
+            "platform": PLATFORM,
+            "enabled": settings.enabled,
+            "running": self._poller is not None and not self._poller.done(),
+            "token_set": self._rt.keys.get(TOKEN_REF) is not None,
+            "bot": self._bot,
+            "error": self._error,
+            "pairing_until": until,
+            "identities": [
+                {"user_id": i.user_id, "label": i.label, "paired_at": i.paired_at}
+                for i in bridges.list_identities(self._rt.db.reader, PLATFORM)
+            ],
+        }
 
     async def new_pairing(self) -> dict[str, object]:
         if self._bot is None and await asyncio.to_thread(self._rt.keys.get, TOKEN_REF) is None:
@@ -106,11 +122,11 @@ class BridgeService:
             bot = await self._make_api(secret).me()
         except TelegramError as exc:
             raise ConflictError(f"that token did not work: {exc}") from None
-        if bot != self._bot:                             # another bot counts its updates from its own start
+        if bot != self._bot:  # another bot counts its updates from its own start
             await self._rt.db.write(lambda con: bridges.reset_last_update(con, PLATFORM))
         self._bot = bot
         await asyncio.to_thread(self._rt.keys.put, TOKEN_REF, secret)
-        await self._halt()                               # a new token starts clean on the next configure
+        await self._halt()  # a new token starts clean on the next configure
         await self._configure(self._rt.settings)
         return self._bot
 
@@ -124,7 +140,7 @@ class BridgeService:
     async def unpair(self, user_id: int) -> bool:
         removed = await self._rt.db.write(lambda con: bridges.remove_identity(con, PLATFORM, user_id))
         for task_id in [t for t, user in self._tracked.items() if user == user_id]:
-            del self._tracked[task_id]                    # nothing in flight reports to a chat that is no longer linked
+            del self._tracked[task_id]  # nothing in flight reports to a chat that is no longer linked
         return removed
 
     # ---- polling ----------------------------------------------------------------------------------
@@ -134,7 +150,7 @@ class BridgeService:
             try:
                 self._bot = await api.me()
             except TelegramError as exc:
-                if exc.fatal:                                 # a revoked token: nothing will work, say so and stop
+                if exc.fatal:  # a revoked token: nothing will work, say so and stop
                     self._error = str(exc)
                     log.warning("telegram bridge stopped: %s", exc)
                     return
@@ -157,7 +173,7 @@ class BridgeService:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, BACKOFF_MAX_S)
             except Exception:
-                log.exception("telegram polling failed")      # a bug must not end the bridge silently
+                log.exception("telegram polling failed")  # a bug must not end the bridge silently
                 self._error = "the chat bridge hit an unexpected problem; details are in Lilly's log"
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, BACKOFF_MAX_S)
@@ -168,7 +184,7 @@ class BridgeService:
         if not isinstance(update_id, int) or isinstance(update_id, bool) or update_id <= 0:
             return
         if update_id <= bridges.last_update(self._rt.db.reader, PLATFORM):
-            return                                        # a replay of something already handled
+            return  # a replay of something already handled
         # Remembered before it is handled (even when it is something Lilly ignores, so it is not sent again): a
         # crash may drop one message, but can never run one twice.
         await self._rt.db.write(lambda con: bridges.set_last_update(con, PLATFORM, update_id))
@@ -189,20 +205,22 @@ class BridgeService:
     # ---- messages -----------------------------------------------------------------------------------
     async def _on_text(self, api: TelegramApi, msg: Text) -> None:
         if msg.chat_type != "private":
-            return                                        # only direct chats: nobody else in a group can talk to Lilly
+            return  # only direct chats: nobody else in a group can talk to Lilly
         linked = bridges.identity(self._rt.db.reader, PLATFORM, msg.user_id) is not None
         if msg.text.startswith("/pair"):
             await self._pair(api, msg)
             return
         if not linked:
-            return                                        # strangers get no answer at all
+            return  # strangers get no answer at all
         settings = self._rt.settings.bridges
         if msg.text.split()[0] in ("/start", "/help"):
             await api.send(msg.chat_id, HELP)
             return
         if msg.text.strip() == "/stop":
             stopped = await self._stop_user(msg.user_id)
-            await api.send(msg.chat_id, f"Stopped {stopped} task(s)." if stopped else "Nothing is running from this chat.")
+            await api.send(
+                msg.chat_id, f"Stopped {stopped} task(s)." if stopped else "Nothing is running from this chat."
+            )
             return
         if not self._limit.allow(msg.user_id):
             await api.send(msg.chat_id, "That is a lot of messages. Try again in a minute.")
@@ -215,10 +233,14 @@ class BridgeService:
             return
         agent = agents.get_agent(self._rt.db.reader, settings.agent_id) if settings.agent_id else None
         if agent is None or not agent.chat_allowed:
-            await api.send(msg.chat_id, "No agent is set up for chat yet. Choose one in Lilly under Settings → Chat apps.")
+            await api.send(
+                msg.chat_id, "No agent is set up for chat yet. Choose one in Lilly under Settings → Chat apps."
+            )
             return
         try:
-            row = await self._rt.orchestrator.submit(SubmitRequest(goal, agent_id=agent.id, source=PLATFORM, outside=True))
+            row = await self._rt.orchestrator.submit(
+                SubmitRequest(goal, agent_id=agent.id, source=PLATFORM, outside=True)
+            )
         except ConflictError as exc:
             await api.send(msg.chat_id, str(exc))
             return
@@ -230,10 +252,12 @@ class BridgeService:
     async def _pair(self, api: TelegramApi, msg: Text) -> None:
         if not self._strangers.allow(msg.user_id):
             return
-        code = msg.text[len("/pair"):].strip()
+        code = msg.text[len("/pair") :].strip()
         if code and self._pairing.redeem(code, msg.user_id):
             now = self._rt.clock()
-            await self._rt.db.write(lambda con: bridges.add_identity(con, PLATFORM, msg.user_id, msg.chat_id, msg.name, now))
+            await self._rt.db.write(
+                lambda con: bridges.add_identity(con, PLATFORM, msg.user_id, msg.chat_id, msg.name, now)
+            )
             await api.send(msg.chat_id, "Paired. This chat can now talk to Lilly. Send /help to see what it can do.")
         else:
             await api.send(msg.chat_id, "That code did not work. Make a new one in Lilly under Settings → Chat apps.")
@@ -283,9 +307,11 @@ class BridgeService:
             tool = _tool_of(approval.payload_json)
             if approval.kind != "step" or tool.startswith("computer."):
                 await api.send(chat_id, f"{shown}\n\nThis one has to be approved in the Lilly app.")
-            elif not whole:                               # approving would run more than what is shown here
-                await api.send(chat_id, f"{shown}\n\nThis one is too long to show in full, so it has to be approved "
-                                        "in the Lilly app.")
+            elif not whole:  # approving would run more than what is shown here
+                await api.send(
+                    chat_id,
+                    f"{shown}\n\nThis one is too long to show in full, so it has to be approved in the Lilly app.",
+                )
             else:
                 await api.send(chat_id, shown, [("Approve", f"a:{approval.id}:y"), ("Decline", f"a:{approval.id}:n")])
 
@@ -317,8 +343,11 @@ class BridgeService:
             return
         if row.state.value == "DONE" and row.answer:
             private = row.label is not Label.PUBLIC and not self._rt.settings.bridges.private_replies
-            text = ("Done. The answer used private data, so it stays in Lilly. Open the app to read it." if private
-                    else row.answer)
+            text = (
+                "Done. The answer used private data, so it stays in Lilly. Open the app to read it."
+                if private
+                else row.answer
+            )
         else:
             text = f"Lilly stopped: {(row.error or row.state.value.lower())[:300]}"
         await api.send(owner.chat_id, text)

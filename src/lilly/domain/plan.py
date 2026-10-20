@@ -1,4 +1,5 @@
 """Plan validation and the preflight that predicts a verdict for every step before anything runs."""
+
 from __future__ import annotations
 
 import re
@@ -90,8 +91,9 @@ def tool_call(tool: str, spec: ToolSpec, args: dict[str, Any]) -> ToolCall:
     return ToolCall(tool, spec.risk, spec.egress, call_paths(spec, args), spec.reads_label, spec.confirm)
 
 
-def preflight(plan: dict[str, Any], tools: dict[str, ToolSpec], ctx: TaskCtx, scope: PathScope,
-              max_steps: int = MAX_STEPS) -> tuple[list[str], list[StepVerdict]]:
+def preflight(
+    plan: dict[str, Any], tools: dict[str, ToolSpec], ctx: TaskCtx, scope: PathScope, max_steps: int = MAX_STEPS
+) -> tuple[list[str], list[StepVerdict]]:
     """The critique layer. Walk the plan in order, carrying label and taint forward, and predict each
     step's verdict. Arguments that depend on earlier results are only known at run time, so the policy
     is checked again on the real arguments; this is the user's preview, not the enforcement."""

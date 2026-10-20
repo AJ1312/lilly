@@ -7,6 +7,7 @@ For models with tools = "protocol" (or detected at runtime), this adapter:
 4. Handles one repair turn on invalid JSON using ACTION_PROTOCOL_REPAIR.
 5. Remembers runtime detections for the current session only.
 """
+
 from __future__ import annotations
 
 import json
@@ -69,7 +70,7 @@ def _extract_json_object(text: str) -> str | None:
     first_brace = text.find("{")
     last_brace = text.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        candidate = text[first_brace:last_brace + 1].strip()
+        candidate = text[first_brace : last_brace + 1].strip()
         return candidate
 
     return None
@@ -77,7 +78,7 @@ def _extract_json_object(text: str) -> str | None:
 
 def parse_protocol_reply(text: str) -> tuple[str, tuple[ModelToolCall, ...], bool]:
     """Parse an action protocol reply into (thought_or_final_text, tool_calls, is_valid).
-    
+
     Tolerates code fences and leading/trailing text.
     """
     raw_json = _extract_json_object(text)
@@ -118,13 +119,15 @@ def parse_protocol_reply(text: str) -> tuple[str, tuple[ModelToolCall, ...], boo
             else:
                 args_map = {}
                 raw_str = "{}"
-            calls.append(ModelToolCall(
-                id=f"call_{uuid.uuid4().hex[:8]}",
-                name=t_name,
-                arguments=args_map,
-                raw=raw_str,
-                error=err,
-            ))
+            calls.append(
+                ModelToolCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=t_name,
+                    arguments=args_map,
+                    raw=raw_str,
+                    error=err,
+                )
+            )
         thought = str(data.get("thought") or "")
         return thought, tuple(calls), True
 

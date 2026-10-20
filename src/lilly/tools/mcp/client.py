@@ -1,4 +1,5 @@
 """One live connection to one MCP server: handshake, tools/list, tools/call and the server-to-client traffic."""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,16 +25,23 @@ from lilly.tools.mcp import protocol as p
 from lilly.tools.mcp.process import McpProcess
 
 log = logging.getLogger("lilly.mcp")
-REPLY_TIMEOUT_S = 5.0   # a server that will not read our answers is cut off
+REPLY_TIMEOUT_S = 5.0  # a server that will not read our answers is cut off
 
 
 class McpClient:
     """Speaks to one server. A server request is never fulfilled: only `ping` is answered, with an empty result;
     sampling, roots, elicitation and everything else get "method not supported"."""
 
-    def __init__(self, cfg: McpServerConfig, resolve_secret: Callable[[str], str | None], *, cwd: Path | None = None,
-                 call_timeout: float = CALL_TIMEOUT_S, start_timeout: float = START_TIMEOUT_S,
-                 parent_env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        cfg: McpServerConfig,
+        resolve_secret: Callable[[str], str | None],
+        *,
+        cwd: Path | None = None,
+        call_timeout: float = CALL_TIMEOUT_S,
+        start_timeout: float = START_TIMEOUT_S,
+        parent_env: Mapping[str, str] | None = None,
+    ) -> None:
         self._name = cfg.name
         self._proc = McpProcess(cfg, resolve_secret, cwd, parent_env)
         self._call_timeout, self._start_timeout = call_timeout, start_timeout
@@ -69,9 +77,15 @@ class McpClient:
                 self._stdout = self._proc.stdout
                 self._alive = True
                 self._reader = asyncio.create_task(self._read_loop())
-                result = await self._request("initialize", {
-                    "protocolVersion": PROTOCOL_VERSIONS[0], "capabilities": {},
-                    "clientInfo": {"name": "lilly", "version": "1"}}, None)
+                result = await self._request(
+                    "initialize",
+                    {
+                        "protocolVersion": PROTOCOL_VERSIONS[0],
+                        "capabilities": {},
+                        "clientInfo": {"name": "lilly", "version": "1"},
+                    },
+                    None,
+                )
                 if not isinstance(result, dict) or result.get("protocolVersion") not in PROTOCOL_VERSIONS:
                     raise ToolError("the server speaks a protocol version Lilly does not support")
                 await self._send_raw(p.notification("notifications/initialized"))
@@ -209,8 +223,11 @@ class McpClient:
                 if method == "notifications/tools/list_changed":
                     self._stale = True
                 return True  # any other notification, or a request with an unusable id, is ignored
-            reply = p.result_reply(rid, {}) if method == "ping" else p.error_reply(
-                rid, p.METHOD_NOT_FOUND, "method not supported")
+            reply = (
+                p.result_reply(rid, {})
+                if method == "ping"
+                else p.error_reply(rid, p.METHOD_NOT_FOUND, "method not supported")
+            )
             try:
                 async with asyncio.timeout(REPLY_TIMEOUT_S):
                     await self._send_raw(reply)

@@ -1,4 +1,5 @@
 """`lilly stop` waits for the server to exit and never signals a process that is not Lilly."""
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _spawn(name: str) -> subprocess.Popen[bytes]:
     p = subprocess.Popen([sys.executable, "-c", SERVER, name])
-    time.sleep(0.3)         # let it install its handler
+    time.sleep(0.3)  # let it install its handler
     return p
 
 
@@ -36,7 +37,7 @@ def test_stop_returns_only_after_the_process_has_exited(home: Path) -> None:
     reaper = psutil.Process(p.pid)
     try:
         assert cli.cmd_stop(argparse.Namespace()) == 0
-        p.wait(timeout=0)       # already gone: stop waited for it
+        p.wait(timeout=0)  # already gone: stop waited for it
         assert not reaper.is_running() or reaper.status() == psutil.STATUS_ZOMBIE
     finally:
         p.kill()

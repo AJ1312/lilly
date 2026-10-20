@@ -11,6 +11,7 @@ Modes (chosen in Settings, default ask_every):
   allowlist   everything goes ahead on the sites you listed (submits included) and asks anywhere else.
 In every mode: passwords and payment-card fields are never typed by the agent, file uploads and downloads are
 refused, and reading a page is allowed (what it returns is untrusted text)."""
+
 from __future__ import annotations
 
 import re
@@ -28,11 +29,11 @@ class BrowserMode(StrEnum):
 
 
 class Action(StrEnum):
-    READ = "read"          # open, read, find, scroll, back, close
+    READ = "read"  # open, read, find, scroll, back, close
     INTERACT = "interact"  # click, select
-    TYPE = "type"          # typed text
-    PRESS = "press"        # a key (Enter can submit)
-    SUBMIT = "submit"      # a form submit
+    TYPE = "type"  # typed text
+    PRESS = "press"  # a key (Enter can submit)
+    SUBMIT = "submit"  # a form submit
 
 
 HOST = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
@@ -40,10 +41,27 @@ TARGET = re.compile(r'^s(\d{1,6})\.e(\d{1,5}) ([a-z]{1,20}) "([^"\n]{0,80})" @([
 RISKY_NAME = re.compile(
     r"\b(buy|purchase|pay|order|checkout|check out|place|confirm|delete|remove|erase|cancel|unsubscribe|subscribe|"
     r"sign ?in|log ?in|sign ?up|register|send|post|publish|share|transfer|withdraw|donate|accept|agree|approve|"
-    r"authorize|grant|allow|install|download|upload|reset|save|apply|submit|book|reserve)\b", re.IGNORECASE)
-SENSITIVE_ROLES = frozenset({"password", "card"})   # fields the agent never types into
-KEYS = frozenset({"Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "PageDown",
-                      "PageUp", "Home", "End", "Backspace", "Space"})
+    r"authorize|grant|allow|install|download|upload|reset|save|apply|submit|book|reserve)\b",
+    re.IGNORECASE,
+)
+SENSITIVE_ROLES = frozenset({"password", "card"})  # fields the agent never types into
+KEYS = frozenset(
+    {
+        "Enter",
+        "Tab",
+        "Escape",
+        "ArrowDown",
+        "ArrowUp",
+        "ArrowLeft",
+        "ArrowRight",
+        "PageDown",
+        "PageUp",
+        "Home",
+        "End",
+        "Backspace",
+        "Space",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +78,11 @@ class BrowserSettings:
     """Off until the `browser` module is switched on. Defaults ask about everything."""
 
     mode: BrowserMode = BrowserMode.ASK_EVERY
-    allow_hosts: tuple[str, ...] = ()      # sites the agent may act on without asking in allowlist mode
-    max_actions: int = 40                  # clicks, keys and typed texts in one task
-    idle_quit_s: int = 300                 # the browser quits after this long unused
+    allow_hosts: tuple[str, ...] = ()  # sites the agent may act on without asking in allowlist mode
+    max_actions: int = 40  # clicks, keys and typed texts in one task
+    idle_quit_s: int = 300  # the browser quits after this long unused
     headless: bool = True
-    chrome_path: str = ""                  # empty: look for Chrome, Chromium, Edge or Brave
+    chrome_path: str = ""  # empty: look for Chrome, Chromium, Edge or Brave
 
 
 BROWSER_BOUNDS = {"max_actions": (1, 500), "idle_quit_s": (30, 3600)}
@@ -116,8 +134,10 @@ def parse_browser(raw: object) -> tuple[BrowserSettings | None, list[str]]:
     """Validate the `browser` settings. Returns (settings, []) or (None, problems)."""
     if not isinstance(raw, dict):
         return None, ["browser must be an object"]
-    errs = [f"browser: unknown setting {k!r}" for k in sorted(raw.keys() - {
-        "mode", "allow_hosts", "max_actions", "idle_quit_s", "headless", "chrome_path"})]
+    errs = [
+        f"browser: unknown setting {k!r}"
+        for k in sorted(raw.keys() - {"mode", "allow_hosts", "max_actions", "idle_quit_s", "headless", "chrome_path"})
+    ]
     d = BrowserSettings()
     try:
         mode = BrowserMode(raw.get("mode", d.mode.value))
@@ -125,8 +145,11 @@ def parse_browser(raw: object) -> tuple[BrowserSettings | None, list[str]]:
         errs.append("browser.mode must be ask_every, ask_risky or allowlist")
         mode = d.mode
     hosts = raw.get("allow_hosts", [])
-    if not isinstance(hosts, list | tuple) or not all(isinstance(h, str) and HOST.fullmatch(h) for h in hosts) \
-            or len(hosts) > 100:
+    if (
+        not isinstance(hosts, list | tuple)
+        or not all(isinstance(h, str) and HOST.fullmatch(h) for h in hosts)
+        or len(hosts) > 100
+    ):
         errs.append("browser.allow_hosts must be a list of up to 100 lower-case site names without ports or paths")
         hosts = []
     numbers = {}
@@ -147,5 +170,11 @@ def parse_browser(raw: object) -> tuple[BrowserSettings | None, list[str]]:
 
 
 def browser_to_dict(b: BrowserSettings) -> dict[str, object]:
-    return {"mode": b.mode.value, "allow_hosts": list(b.allow_hosts), "max_actions": b.max_actions,
-            "idle_quit_s": b.idle_quit_s, "headless": b.headless, "chrome_path": b.chrome_path}
+    return {
+        "mode": b.mode.value,
+        "allow_hosts": list(b.allow_hosts),
+        "max_actions": b.max_actions,
+        "idle_quit_s": b.idle_quit_s,
+        "headless": b.headless,
+        "chrome_path": b.chrome_path,
+    }

@@ -1,4 +1,5 @@
 """A pet's look is validated at the edge and its skills reach the planner in one fixed shape."""
+
 from __future__ import annotations
 
 import pytest
@@ -19,8 +20,12 @@ def test_a_full_look_round_trips() -> None:
 
 
 def test_the_default_look_serialises_a_null_hue() -> None:
-    assert look_to_dict(Look(None, "none", "round", True)) == {"hue": None, "accessory": "none", "eyes": "round",
-                                                              "blush": True}
+    assert look_to_dict(Look(None, "none", "round", True)) == {
+        "hue": None,
+        "accessory": "none",
+        "eyes": "round",
+        "blush": True,
+    }
 
 
 @pytest.mark.parametrize("hue", [0, 359])
@@ -28,13 +33,29 @@ def test_hue_bounds_are_inclusive(hue: int) -> None:
     assert parse_look({"hue": hue}).hue == hue
 
 
-@pytest.mark.parametrize("raw", [
-    {"hue": -1}, {"hue": 360}, {"hue": True}, {"hue": 1.5}, {"hue": "10"},
-    {"accessory": "tiara"}, {"accessory": 3}, {"eyes": "laser"}, {"eyes": None},
-    {"blush": 1}, {"blush": "yes"}, {"blush": None},
-    {"sparkles": True}, {"hue": 5, "extra": 1},
-    None, [], "x", 3,
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"hue": -1},
+        {"hue": 360},
+        {"hue": True},
+        {"hue": 1.5},
+        {"hue": "10"},
+        {"accessory": "tiara"},
+        {"accessory": 3},
+        {"eyes": "laser"},
+        {"eyes": None},
+        {"blush": 1},
+        {"blush": "yes"},
+        {"blush": None},
+        {"sparkles": True},
+        {"hue": 5, "extra": 1},
+        None,
+        [],
+        "x",
+        3,
+    ],
+)
 def test_a_bad_look_is_rejected(raw: object) -> None:
     with pytest.raises(ValidationFailed):
         parse_look(raw)

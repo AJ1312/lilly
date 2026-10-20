@@ -3,6 +3,7 @@
 The browser starts with a throwaway profile, is told to refuse downloads and to close any pop-up window, and every
 request any page makes is checked by the NetworkGuard first. Tabs close after two quiet minutes and the browser quits
 after the idle time in Settings. `close_all` is what Stop all and shutdown call."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,15 +36,19 @@ class _Tab:
 
 
 class BrowserManager:
-    def __init__(self, settings: Callable[[], BrowserSettings], guard: NetworkGuard | None = None,
-                 start: Callable[[BrowserSettings], BrowserProcess] | None = None) -> None:
+    def __init__(
+        self,
+        settings: Callable[[], BrowserSettings],
+        guard: NetworkGuard | None = None,
+        start: Callable[[BrowserSettings], BrowserProcess] | None = None,
+    ) -> None:
         self._settings, self._guard = settings, guard or NetworkGuard()
         self._start = start or (lambda cfg: BrowserProcess(find_browser(cfg.chrome_path), cfg.headless))
         self._proc: BrowserProcess | None = None
         self._cdp: Cdp | None = None
         self._tabs: dict[str, _Tab] = {}
         self._by_session: dict[str, _Tab] = {}
-        self._spent: OrderedDict[str, int] = OrderedDict()      # task id -> acting steps used, oldest task dropped first
+        self._spent: OrderedDict[str, int] = OrderedDict()  # task id -> acting steps used, oldest task dropped first
         self._lock = asyncio.Lock()
         self._reaper: asyncio.Task[None] | None = None
         self._last_use = time.monotonic()
@@ -62,7 +67,7 @@ class BrowserManager:
             session = str(attached["sessionId"])
             page = Page(self._cdp, session, target_id, self._guard, lambda: None)
             try:
-                await page.prepare()                    # until the tab is guarded it must not be reachable
+                await page.prepare()  # until the tab is guarded it must not be reachable
             except BaseException:
                 await page.close()
                 raise
@@ -82,7 +87,7 @@ class BrowserManager:
         tab = self._tabs.get(task_id)
         if tab is None or not self._alive():
             return None
-        try:        # reading a picture does not disturb an action in progress, so it does not wait for the tab's lock
+        try:  # reading a picture does not disturb an action in progress, so it does not wait for the tab's lock
             async with asyncio.timeout(SHOT_TIMEOUT_S):
                 return await tab.page.screenshot()
         except ToolError:
@@ -107,7 +112,9 @@ class BrowserManager:
         a browser restart, does not give a task a fresh budget. Only Stop all and shutdown do."""
         used = self._spent.get(task_id, 0)
         if used >= self._settings().max_actions:
-            raise ToolError(f"this task used its {self._settings().max_actions} browser actions; ask for more in Settings")
+            raise ToolError(
+                f"this task used its {self._settings().max_actions} browser actions; ask for more in Settings"
+            )
         self._spent[task_id] = used + 1
         self._spent.move_to_end(task_id)
         while len(self._spent) > MAX_COUNTED_TASKS:
@@ -130,11 +137,15 @@ class BrowserManager:
             await proc.stop()
             raise
         self._proc, self._cdp = proc, cdp
-        for method, handler in (("Fetch.requestPaused", self._on_request), ("Page.frameNavigated", self._on_navigated),
-                                ("Page.frameStartedLoading", self._on_loading), ("Page.loadEventFired", self._on_loaded),
-                                ("Page.frameStoppedLoading", self._on_loaded),
-                                ("Page.javascriptDialogOpening", self._on_dialog),
-                                ("Target.targetCreated", self._on_target)):
+        for method, handler in (
+            ("Fetch.requestPaused", self._on_request),
+            ("Page.frameNavigated", self._on_navigated),
+            ("Page.frameStartedLoading", self._on_loading),
+            ("Page.loadEventFired", self._on_loaded),
+            ("Page.frameStoppedLoading", self._on_loaded),
+            ("Page.javascriptDialogOpening", self._on_dialog),
+            ("Target.targetCreated", self._on_target),
+        ):
             cdp.on(method, handler)
         await cdp.call("Target.setDiscoverTargets", {"discover": True})
         await cdp.call("Browser.setDownloadBehavior", {"behavior": "deny"})
@@ -216,6 +227,6 @@ class BrowserManager:
 
     async def _on_target(self, params: dict[str, Any], session: str | None) -> None:
         info = params.get("targetInfo", {})
-        if info.get("type") == "page" and info.get("openerId") and self._cdp is not None:   # a pop-up
+        if info.get("type") == "page" and info.get("openerId") and self._cdp is not None:  # a pop-up
             with contextlib.suppress(ToolError):
                 await self._cdp.call("Target.closeTarget", {"targetId": info["targetId"]})
